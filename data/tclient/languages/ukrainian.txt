@@ -1,0 +1,2532 @@
+##### authors #####
+
+# noxygalaxy
+
+##### /authors #####
+
+##### translated strings #####
+
+Clan
+== Клан
+
+Custom colors
+== Власні кольори
+
+Delete
+== Видалити
+
+Name
+== Ім'я
+
+No
+== Ні
+
+Yes
+== Так
+
+Save
+== Зберегти
+
+HUD
+== HUD
+
+Website
+== Сайт
+
+Settings
+== Налаштування
+
+Dummy
+== Манекен
+
+Discord
+== Дискорд
+
+Profiles
+== Профілі
+
+Visual
+== Вигляд
+
+Custom Font: 
+==     Шрифт: 
+
+Hide nameplates in spec
+== Приховувати імена в режимі спостерігача
+
+Show skin names in nameplate
+== Показувати назву скіну біля імені
+
+Freeze stars
+== Зірки при заморозці
+
+Color frozen tee skins
+== Кольорові заморожені скіни
+
+Render all custom colored feet as white feet skin
+== Усі ноги в білі ноги вибраного скіну
+
+Show position and angle (mini debug)
+== Показувати позицію та кут прицілу гравця (міні налагодження)
+
+Show your cursor when in free spectate
+== Показувати курсор у режимі спостерігача
+
+Spectate cursor alpha
+== Прозор. курсору
+
+Show when you are the last alive
+== Показувати коли залишився останній вцілілий
+
+Frozen Tee Display
+== Дисплей заморожених тії
+
+Show frozen tee display
+== Показувати дисплей заморожених тії
+
+Use skins instead of ninja tees
+== Використовувати скіни гравців замість скіну ніндзя
+
+Only show after joining a team
+== Показувати тільки в команді
+
+Max Rows
+== Макс. к-сть рядків
+
+Tee Size
+== Розмір тії
+
+Tees left alive text
+== Текст залишених тії
+
+Count frozen tees
+== Рахувати заморожених тії
+
+Input
+== Ввід
+
+Fast Inputs (-20ms visual delay)
+== Швидкий ввід (-20ms візуальної затримки)
+
+Anti Latency Tools
+== Інструменти для усунення затримок
+
+Remove prediction & antiping in freeze
+== Прибрати передбачення & антипінг у заморозці
+
+Amount
+== К-сть
+
+Delay
+== Затрим.
+
+Dont predict other players if you are frozen
+== Не передбачати інших гравців, якщо ви заморожені
+
+Adjust your prediction margin while frozen
+== Відрегулювати передбачення поки ви заморожені
+
+Frozen Margin
+== Межа у заморозці
+
+Tile Outlines
+== Обведення тайлів
+
+Show any enabled outlines
+== Показувати всі включені обведення
+
+Only show outlines in entities
+== Показувати обведення тільки в сутностях
+
+Outline freeze & deep
+== Обведення заморозки і глибокого морозу
+
+Outline walls
+== Обведення стін
+
+Outline teleporter
+== Обведення телепортів
+
+Outline unfreeze & undeep
+== Обведення розморозки і розморозки глибокого морозу
+
+Outline width
+== Товщина обведення
+
+Outline alpha
+== Прозорість обведення
+
+Outline Alpha (walls)
+== Прозорість обведення (для стін)
+
+Freeze outline color
+== Колір обведення заморозки
+
+Walls outline color
+== Колір обведення стін
+
+Teleporter outline color
+== Колір обведення телепортів
+
+Unfreeze outline color
+== Колір обведення розморозки
+
+Optimistic prediction along stable direction
+== Оптимальне передбачення по стабільному напрямку
+
+Negative stability buffer (for Gores)
+== Від'ємний буфер стабільності (для Gores)
+
+Uncertainty duration
+== Тривал. невизнач.
+
+Other
+== Інше
+
+Ghost Tools
+== Інструменти привидів
+
+Show unpredicted ghosts for other players
+== Показувати непередбачуваних привидів для інших гравців
+
+Swap ghosts and normal players
+== Поміняти місцями привидів і гравців
+
+Predicted alpha
+== Прозор. передбач.
+
+Unpredicted alpha
+== Прозор. непередбач.
+
+Hide ghosts of frozen players
+== Прибрати привидів заморожених гравців
+
+Render ghosts as circles
+== Показувати привидів як кола
+
+Player Indicator
+== Індикатор гравців
+
+Show any enabled Indicators
+== Показувати індикатори
+
+Hide indicator for tees on your screen
+== Прибрати індикатор якщо гравець на екрані
+
+Show only freeze Players
+== Показувати тільки гравців у заморозці
+
+Render tiny tees instead of circles
+== Показувати маленьких тії замість кіл
+
+Use warlist groups for indicator
+== Використовувати групи зі Списку воїнів для індикатора
+
+Indicator size
+== Розмір індикатора
+
+Indicator opacity
+== Прозор. індикатора
+
+Change indicator offset based on distance to other tees
+== Змін. зміщ. індикатора залежно від відст. до інших тії
+
+Indicator min offset
+== Мін. зміщ. індикатора
+
+Indicator max offset
+== Макс. зміщ. індикатора
+
+Indicator max distance
+== Макс. дист. індикатора
+
+Indicator offset
+== Зміщення індикатора
+
+Indicator alive color
+== Колір гравця не в заморозці
+
+Indicator in freeze color
+== Колір гравця у заморозці
+
+Indicator safe color
+== Колір гравця в безпеці
+
+Rainbow
+== Веселка
+
+Rainbow Tees
+== Веселкові тії
+
+Rainbow weapons
+== Веселкова зброя
+
+Rainbow hook
+== Веселковий гак
+
+Rainbow others
+== Веселкові інші тії
+
+Rainbow speed
+== Швидкість веселки
+
+Pulse
+== Пульс
+
+Black
+== Чорний
+
+Random
+== Випадковий
+
+Tee Trails
+== Трейл тії
+
+Enable tee trails
+== Увімкнути трейли
+
+Fade trail alpha
+== Затухання трейла
+
+Taper trail width
+== Звужена ширина трейла
+
+Trail width
+== Ширина трейла
+
+Trail length
+== Довжина трейла
+
+Trail alpha
+== Прозорість трейла
+
+Tee trail color
+== Колір трейла
+
+Name:
+== Назва:
+
+Command:
+== Команда:
+
+Override Selected
+== Змінити виділений
+
+Remove Bind
+== Видалити
+
+Add Bind
+== Додати
+
+Use left mouse to select
+== Щоб вибрати використай ЛКМ
+
+Use right mouse to swap with selected
+== Використай ПКМ щоб замінити виділений
+
+Use middle mouse select without copy
+== Використай коліщатко миші щоб вибрати без копіювання
+
+Reset position of mouse when opening bindwheel
+== Скидати позицію миші при відкритті
+
+Warlist
+== Список воєн
+
+Name
+== Гравець
+
+Clan
+== Клан
+
+War Entries
+== Гравці & Клани
+
+Edit Entry
+== Редагування
+
+Override Entry
+== Змінити гравця
+
+Add Entry
+== Додати гравця
+
+Allow Duplicate Entries
+== Дозволити копії
+
+Enable warlist
+== Увімкнути
+
+Colors in chat
+== Кольори в чаті
+
+Colors in scoreboard
+== Кольори в табі
+
+War Groups
+== Групи
+
+Override Group
+== Змінити групу
+
+Add Group
+== Додати групу
+
+Online Players
+== Гравці на сервері
+
+Show clan if war
+== Показувати клан
+
+Chat Binds
+== Бінди для чату
+
+Kaomoji
+== Каомодзі
+
+Shrug:
+== Знизати плечима:
+
+Flip:
+== Перекинути стіл:
+
+Unflip:
+== Поставити стіл:
+
+Mute:
+== Мут:
+
+Status Bar
+== Статус бар 
+
+Show status bar
+== Показувати статус бар
+
+Show labels on status bar items
+== Показувати текст на елементах статус бару
+
+Status bar height
+== Висота статус бару
+
+Local Time
+== Локальний час
+
+Use 12 hour clock
+== Використовувати 12-годинну систему
+
+Show seconds on clock
+== Показувати секунди
+
+Colors
+== Кольори
+
+Status bar color
+== Колір статус бару
+
+Text color
+== Колір тексту
+
+Status bar alpha
+== Прозорість статус бару
+
+Text alpha
+== Прозорість тексту
+
+Status Bar Codes:
+== Коди статус бару
+
+a = Angle
+== a = Кут
+
+p = Ping
+== p = Пінг
+
+d = Prediction
+== d = Передбачення
+
+c = Position
+== c = Позиція
+
+l = Local Time
+== l = Локал. час
+
+r = Race Time
+== r = Час гонки
+
+f = FPS
+== f = Кадрів за секунду
+
+v = Velocity
+== v = Швидкість
+
+z = Zoom
+== z = Наближення
+
+Add Item
+== Додати
+
+Remove Item
+== Видалити
+
+Status Scheme:
+== Схема:
+
+Apply
+== Застосувати
+
+Info
+== Інформація
+
+TClient Links
+== Посилання TClient
+
+Support ♥
+== Підтримати ♥
+
+TClient Settings
+== Налаштування TClient
+
+Config Files
+== Конфіг файли
+
+TClient Developers
+== Розробники TClient
+
+Hide Settings Tabs
+== Приховати вкладки в налаштуваннях
+
+Your profile
+== Ваш профіль
+
+Profiles file
+== Файл профілів
+
+Save/Load Skin
+== Зберег./Завант. Скін
+
+Save/Load Colors
+== Зберег./Завант. Кольори
+
+Save/Load Emote
+== Зберег./Завант. Емоц.
+
+Save/Load Name
+== Зберег./Завант. Ім'я
+
+Save/Load Clan
+== Зберег./Завант. Клан
+
+Save/Load Flag
+== Зберег./Завант. Прапор
+
+Load
+== Завантажити
+
+Override
+== Змінити
+
+Command
+== Команда
+
+Extra tick other tees (increases other tees latency, \nmakes dragging slightly easier when using fast input)
+== Додатковий тік інших тії (збільшує затримку інших тії,\n трохи полегшує перетягування при використанні швидкого вводу)
+
+Prediction Margin
+== Межа передбачення
+
+Anti Ping Smoothing
+== Плавний Антипінг 
+
+Use new smoothing algorithm
+== Використовувати новий анти-пінг
+
+Use warlist colors instead of regular colors
+== Використовувати кольори списку замість звичайних
+
+Show all warlist groups
+== Показувати всі групи
+
+Last!
+== Останній!
+
+Outline kill
+== Обведення смерті
+
+Kill outline color
+== Колір обведення смерті
+
+Reason
+== Причина
+
+Are you sure that you want to remove '%s' from your war groups?
+== Ви впевнені, що хочете видалити '%s' з ваших груп?
+
+Remove War Group
+== Видалити групу
+
+Color
+== Колір
+
+Github
+== Github
+
+GitHub
+== GitHub
+
+Integration
+== Інтеграція
+
+Enable Discord Integration
+== Увімкнути Інтеграцію Discord (Discord RPC)
+
+Name: %s
+== Ім'я: %s
+
+Clan: %s
+== Клан: %s
+
+Skin: %s
+== Скін: %s
+
+After Load
+== Після завантаження
+
+TClient
+== TClient
+
+Voting
+== Голосування
+
+Auto vote no to map changes when far
+== Авто-голосування за "ні" при зміні карти якщо ви далеко
+
+Minimum Time
+== Мінімальний час
+
+Leave empty to disable
+== Залиште порожнім щоб вимкнути
+
+Message to send in chat:
+== Повідомлення для надсилання в чат
+
+Auto Reply
+== Авто-відповідь
+
+Auto reply to muted players
+== Авто-відповідь гравцям в муті
+
+Auto reply when tabbed out
+== Авто-відповідь коли не в грі
+
+Show other tees' trails
+== Показувати трейл інших тії
+
+Solid
+== Статичний
+
+Tee
+== Тії
+
+Speed
+== Швидкість
+
+Colors in spectate select
+== Вибір кольорів в спостерігачах
+
+Translated text hidden due to streamer mode
+== Перекладений текст прихований через режим стримера
+
+(On Latest)
+== (Актуальна версія)
+
+(Fetching Update Info)
+== (Отримання інформації про оновлення)
+
+[bgdraw]
+Failed to create bgdraw folder
+== Не вдалося створити папку bgdraw
+
+[bgdraw]
+Writing item %d failed
+== Не вдалося записати елемент %d
+
+[bgdraw]
+Written %d items
+== Записано елементів: %d
+
+[bgdraw]
+Loaded %d items
+== Завантажено елементів: %d
+
+[bgdraw]
+Loaded %d items (discarded %d items)
+== Завантажено елементів: %d (відкинуто елементів: %d)
+
+Cute:
+== Мило:
+
+Lenny:
+== Ленні:
+
+Add war name:
+== Додати ім'я у війну:
+
+Add war clan:
+== Додати клан у війну:
+
+Add team name:
+== Додати ім'я у команду:
+
+Add team clan:
+== Додати клан у команду:
+
+Remove war name:
+== Прибрати ім'я з війни:
+
+Remove team name:
+== Прибрати ім'я з команди:
+
+Remove team clan:
+== Прибрати клан з команди:
+
+Add [group] [name] [reason]:
+== Додати [група] [ім'я] [причина]:
+
+Add [group] [clan] [reason]:
+== Додати [група] [клан] [причина]:
+
+Remove [group] [name]:
+== Прибрати гравця [група] [ім'я]:
+
+Remove [group] [clan]:
+== Прибрати клан [група] [клан]:
+
+Translate:
+== Перекласти:
+
+Translate ID:
+== Перекласти ID:
+
+Unmute:
+== Зняти мут:
+
+Bind Wheel
+== Колесо біндів
+
+War List
+== Список воєн
+
+Bind Wheel Key
+== Клавіша колеса біндів
+
+[Hammer Mode]
+Normal
+== Звичайний
+
+[Hammer Mode]
+Rotate with cursor
+== Обертання з курсором
+
+[Hammer Mode]
+Rotate with cursor like gun
+== Обертання з курсором як у пістолета
+
+Hammer Mode: 
+== Режим молота: 
+
+Ingame cursor scale
+== Масштаб курсора в грі
+
+Wheel animate
+== Анімація колеса
+
+Show katan on frozen players
+== Показувати катану на заморожених гравцях
+
+Tiny Tees
+== Маленькі тії
+
+Tiny Tee Size
+== Розмір маленьких тії
+
+Pet
+== Питомець
+
+Show the pet
+== Показати питомця
+
+Pet size
+== Розмір питомця
+
+Pet alpha
+== Прозорість питомця
+
+Pet Skin:
+== Скін питомця:
+
+Show mini vote HUD
+== Показувати міні-HUD голосування
+
+Horizontal Position
+== Горизонтальна позиція
+
+Vertical Position
+== Вертикальна позиція
+
+Font Size
+== Розмір шрифту
+
+Show screen center lines
+== Показувати центральні лінії екрану
+
+Screen center line color
+== Колір центральної лінії екрану
+
+Screen center line width
+== Ширина центральної лінії екрану
+
+Toggle ghosts key
+== Клавіша перемикання привидів
+
+Background Draw
+== Фонове малювання
+
+ seconds (never)
+==  секунд (ніколи)
+
+ seconds
+==  секунд
+
+Width
+== Ширина
+
+Draw where mouse is
+== Малювати в місці курсора
+
+Finish Name
+== Ім'я при фініші
+
+Attempt to change your name when near finish
+== Спробувати змінити ім'я при наближенні до фінішу
+
+Finish Name:
+== Ім'я при фініші:
+
+Overwrite clan even if empty
+== Перезаписати клан, навіть якщо порожній
+
+Changing name to %s near finish
+== Зміна імені на %s біля фінішу
+
+[translate]
+%s translating to %s
+== %s перекладає на %s
+
+[translate]
+%s to %s failed: %s
+== %s на %s не вдався: %s
+
+[bgdraw]
+No items to write
+== 
+
+[bgdraw]
+No changes since last save
+== 
+
+Remove war clan:
+== 
+
+Show ping colored circle in nameplates
+== 
+
+Show country flags in nameplates
+== 
+
+Fake CTF flags
+== 
+
+Auto execute
+== 
+
+[Outlines]
+Width
+== 
+
+Unhook & hook
+== 
+
+Freeze & deep
+== 
+
+Unfreeze & undeep
+== 
+
+Kill
+== 
+
+Tele
+== 
+
+Time until strokes disappear
+== 
+
+The command is ran in console not chat
+== 
+
+_ or ' ' = Space
+== 
+
+Activating mod weapon on %d: %s\n
+== 
+
+[data_version.h]
+You have probably only installed the TClient DDNet.exe which is not supported, please use the entire TClient folder
+== 
+
+##### AMF Client #####
+
+[AMF Client]
+Information
+== Інформація
+
+[AMF Client]
+Visual
+== Візуальне
+
+[AMF Client]
+Visual settings
+== Візуальні налаштування
+
+[AMF Client]
+Motion Blur
+== Розмиття руху
+
+[AMF Client]
+Works only when using Vulkan.
+== Працює лише під час використання Vulkan.
+
+[AMF Client]
+AMF Client links
+== Посилання AMF Client
+
+[AMF Client]
+AMF Client settings
+== Налаштування AMF Client
+
+[AMF Client]
+AMF Client developer
+== Розробник AMF Client
+
+[AMF Client Info Navigation]
+About the agreement
+== Про угоду
+
+[AMF Client Info Navigation]
+Essential information
+== Основна інформація
+
+[AMF Client Info Navigation]
+About the project
+== Про проєкт
+
+[AMF Client Info Navigation]
+Project status
+== Статус проєкту
+
+[AMF Client Info Navigation]
+Unofficial modification
+== Неофіційна модифікація
+
+[AMF Client Info Navigation]
+Responsibility
+== Відповідальність
+
+[AMF Client Info Navigation]
+User
+== Користувача
+
+[AMF Client Info Navigation]
+Rules
+== Правила
+
+[AMF Client Info Navigation]
+Use
+== Використання
+
+[AMF Client Info Navigation]
+Acknowledgements
+== Подяки
+
+[AMF Client Info Navigation]
+Creators
+== Творцям
+
+[AMF Client Info]
+Client Info
+== Інформація про клієнт
+
+[AMF Client Info]
+User agreement
+== Угода користувача
+
+[AMF Client Info]
+Before using AMF Client, please read the information below carefully.
+== Перед використанням AMF Client уважно ознайомтеся з інформацією нижче.
+
+[AMF Client Info]
+About the project
+== Про проєкт
+
+[AMF Client Info]
+AMF Client 1.2.1 - Ascension Edition is a custom client based on Best Client and DDNet 19.9. This foundation is extended with AMF Client features, interface and capabilities. AMF Client is owned by alya?. Artificial intelligence, including OpenAI Codex, is used to develop the client and write code.
+== AMF Client 1.2.1 - Ascension Edition - користувацький клієнт, створений на базі Best Client і DDNet 19.9. На цій основі AMF Client додає власні функції, інтерфейс і можливості. AMF Client належить alya?. Під час розробки клієнта та написання коду використовується штучний інтелект OpenAI Codex.
+
+[AMF Client Info]
+Foundation: Best Client · Game base: DDNet 19.9 · Edition: Ascension Edition
+== Основа: Best Client · Гра: DDNet 19.9 · Редакція: Ascension Edition
+
+[AMF Client Info]
+Project status
+== Статус проєкту
+
+[AMF Client Info]
+AMF Client is an unofficial modification and is not affiliated with the official DDNet team.
+== AMF Client є неофіційною модифікацією та не пов’язаний з офіційною командою DDNet.
+
+[AMF Client Info]
+User responsibility
+== Відповідальність користувача
+
+[AMF Client Info]
+You are responsible for using the client, its settings and your actions on servers.
+== Ви самостійно відповідаєте за використання клієнта, його налаштування та свої дії на серверах.
+
+[AMF Client Info]
+Rules of use
+== Правила використання
+
+[AMF Client Info]
+Follow server rules. Do not use the client for cheats, bypassing restrictions or harming other players.
+== Дотримуйтеся правил серверів. Не використовуйте клієнт для читів, обходу обмежень або шкоди іншим гравцям.
+
+[AMF Client Info]
+Acknowledgements
+== Подяки
+
+[AMF Client Info]
+Special thanks to the Best Client creators for the project foundation and their contribution to DDNet clients. Thanks to DDNet developers, component authors and AMF Client testers.
+== Особлива подяка творцям Best Client за основу проєкту та внесок у розвиток DDNet-клієнтів. Дякуємо розробникам DDNet, авторам використаних компонентів і тестерам AMF Client.
+
+[AMF Client Info]
+Special thanks: Best Client
+== Особлива подяка: Best Client
+
+[AMF Client Info]
+Do not show on startup
+== Не показувати під час запуску
+
+[AMF Client Info]
+Close (Esc)
+== Закрити (Esc)
+
+[AMF Client Info]
+Close (Backspace)
+== Backspace - закрити
+
+[AMF Client Info]
+- close
+== - закрити
+
+Fast Input Mode
+== Режим швидкого введення
+
+[AMF Client]
+Moving Tiles
+== Рухомі тайли
+
+[AMF Client]
+Off
+== Вимк.
+
+[AMF Client]
+T Client
+== T Client
+
+[AMF Client]
+Soon...
+== Скоро...
+
+[AMF Client]
+Coming soon...
+== Скоро...
+
+Input mode
+== Режим введення
+
+Fast
+== Швидкий
+
+Best
+== Найкращий
+
+Saiko
+== Saiko
+
+Delta
+== Delta
+
+F
+== F
+
+Prediction offset
+== Зміщення передбачення
+
+Smoothing
+== Згладжування
+
+Latency compensation
+== Компенсація затримки
+
+Interpolation
+== Інтерполяція
+
+Linear
+== Лінійна
+
+Cubic
+== Кубічна
+
+Smooth
+== Плавна
+
+Best input others
+== Best Input для інших
+
+Saiko input others
+== Saiko Input для інших
+
+Delta input others
+== Delta Input для інших
+
+F input others
+== F Input для інших
+
+[AMF Client]
+General
+== Основні
+
+Enable Inputs
+== Увімкнути Fast Input
+
+Auto margin
+== Автоматичний відступ
+
+ticks
+== тіків
+
+[AMF Client]
+Indicator position
+== Положення індикатора
+
+[AMF Client]
+Left of nickname
+== Ліворуч від нікнейму
+
+[AMF Client]
+Right of nickname
+== Праворуч від нікнейму
+
+[AMF Client]
+Hide for yourself
+== Сховати для себе
+
+[AMF Client]
+Preview
+== Попередній перегляд
+
+[AMF Client]
+The indicator is displayed next to the player's nickname in game, TAB and player lists.
+== Індикатор відображається поруч із нікнеймом гравця у грі, в TAB і у списках гравців.
+
+[AMF Client]
+Changes are applied instantly and do not require restarting the client.
+== Зміни застосовуються миттєво й не потребують перезапуску клієнта.
+
+Fast Input others
+== Fast Input для інших
+
+[AMF Client]
+Show AMF Client Indicator
+== Показувати індикатор AMF Client
+
+[AMF Client]
+Show AMF Client users only
+== Показувати лише користувачів AMF Client
+
+[AMF Client]
+AMF Client online: %d
+== AMF Client онлайн: %d
+
+Sub-Tick aiming
+== Субтікове прицілювання
+
+[AMF Client]
+AMF Input
+== AMF Input
+
+[AMF Client]
+Response
+== Відгук
+
+[AMF Client]
+Predict Hook
+== Передбачати хук
+
+[AMF Client]
+AMF Input others
+== AMF Input для інших Tee
+
+[AMF Client]
+Strict Opposite Keys
+== Протилежні клавіші: стоп
+
+[AMF Client]
+Correction
+== Корекція
+
+[AMF Client]
+Auto Margin
+== Автоматичний відступ
+
+[AMF Client]
+Strength
+== Сила
+
+[AMF Client]
+Smooth HUD
+== Плавний HUD
+
+[AMF Client]
+Enables smooth HUD/interface animations.
+== Увімкнути плавні анімації HUD/інтерфейсу.
+
+[AMF Client]
+Adds smooth transitions to HUD elements, chat, notifications and menus.
+== Додає плавні переходи для елементів HUD, чату, сповіщень і меню.
+
+[AMF Client]
+Shows the AMF Client icon next to supported player names.
+== Показує значок AMF Client поруч із підтримуваними нікнеймами.
+
+[AMF Client]
+Choose where the indicator appears next to the nickname.
+== Виберіть розташування індикатора поруч із нікнеймом.
+
+[AMF Client]
+Blurs the game world slightly while it moves.
+== Злегка розмиває ігровий світ під час руху.
+
+[AMF Client]
+Controls the strength of the motion blur effect.
+== Керує силою ефекту розмиття руху.
+
+Message copied
+== Повідомлення скопійовано
+
+[AMF Client]
+Message copied
+== Повідомлення скопійовано
+
+[AMF Client]
+Player muted
+== Гравця замучено
+
+[AMF Client]
+Player blocked
+== Гравця заблоковано
+
+[AMF Client]
+Copy
+== Копіювати
+
+[AMF Client]
+Reply
+== Відповісти
+
+[AMF Client]
+Mute
+== Заглушити
+
+[AMF Client]
+Unmute
+== Увімкнути звук
+
+[AMF Client]
+Block
+== Заблокувати
+
+[AMF Client]
+Unblock
+== Розблокувати
+
+[AMF Client]
+Player unmuted
+== Гравця розмучено
+
+[AMF Client]
+Player unblocked
+== Гравця розблоковано
+
+[AMF Client]
+Enables the selected input mode.
+== Вмикає вибраний режим вводу.
+
+[AMF Client]
+Selects the input behavior used while playing.
+== Вибирає спосіб обробки вводу під час гри.
+
+[AMF Client]
+Controls how far the selected input predicts ahead.
+== Керує глибиною випередження вибраного вводу.
+
+[AMF Client]
+Applies Fast Input prediction to other tees.
+== Застосовує передбачення Fast Input до інших ТІІ.
+
+[AMF Client]
+Controls visual smoothing for Best Input.
+== Керує візуальним згладжуванням Best Input.
+
+[AMF Client]
+Compensates a small part of network latency.
+== Компенсує невелику частину мережевої затримки.
+
+[AMF Client]
+Selects the interpolation curve for Best Input.
+== Вибирає криву інтерполяції Best Input.
+
+[AMF Client]
+Applies Best Input prediction to other tees.
+== Застосовує передбачення Best Input до інших ТІІ.
+
+[AMF Client]
+Applies Saiko Input prediction to other tees.
+== Застосовує передбачення Saiko Input до інших ТІІ.
+
+[AMF Client]
+Applies Delta Input prediction to other tees.
+== Застосовує передбачення Delta Input до інших ТІІ.
+
+[AMF Client]
+Applies F Input prediction to other tees.
+== Застосовує передбачення F Input до інших ТІІ.
+
+[AMF Client]
+Sets the local response time for AMF Input.
+== Встановлює локальний час відгуку AMF Input.
+
+[AMF Client]
+Applies fresh hook input without delaying the game input.
+== Застосовує нове натискання хука без затримки ігрового вводу.
+
+[AMF Client]
+Applies AMF Input prediction to other tees.
+== Застосовує передбачення AMF Input до інших ТІІ.
+
+[AMF Client]
+Stops immediately when opposite movement keys are held.
+== Негайно зупиняє рух при утриманні протилежних клавіш.
+
+[AMF Client]
+Uses the precise mouse position when an action is pressed.
+== Використовує точну позицію миші в момент натискання дії.
+
+[AMF Client]
+Automatically replaces the manual prediction margin using latency.
+== Автоматично замінює ручний відступ передбачення за затримкою.
+
+[AMF Client]
+Controls AMF input and prediction features.
+== Налаштовує функції вводу та передбачення AMF Client.
+
+[AMF Client]
+Controls AMF visual features.
+== Налаштовує візуальні функції AMF Client.
+
+[AMF Client]
+Shows AMF Client information and links.
+== Показує інформацію та посилання AMF Client.
+
+[AMF Client]
+AMF Client Discord community.
+== Спільнота AMF Client у Discord.
+
+[AMF Client]
+Official AMF Client page on GitHub.
+== Офіційна сторінка AMF Client на GitHub.
+
+[AMF Client]
+Opens the AMF Client configuration file.
+== Відкриває файл налаштувань AMF Client.
+
+[AMF Client]
+Shows the user agreement and AMF Client information.
+== Показує користувацьку угоду та інформацію про AMF Client.
+
+[AMF Client]
+Enables the selected input mode.
+== Вмикає вибраний режим вводу.
+
+[AMF Client]
+Selects the input behavior used while playing.
+== Вибирає поведінку вводу під час гри.
+
+[AMF Client]
+Controls how far the selected input predicts ahead.
+== Керує величиною випередження вибраного вводу.
+
+[AMF Client]
+Applies Fast Input prediction to other tees.
+== Застосовує Fast Input до передбачення інших Tee.
+
+[AMF Client]
+Controls visual smoothing for Best Input.
+== Керує візуальним згладжуванням Best Input.
+
+[AMF Client]
+Compensates a small part of network latency.
+== Компенсує невелику частину мережевої затримки.
+
+[AMF Client]
+Selects the interpolation curve for Best Input.
+== Вибирає криву інтерполяції для Best Input.
+
+[AMF Client]
+Applies Best Input prediction to other tees.
+== Застосовує Best Input до передбачення інших Tee.
+
+[AMF Client]
+Applies Saiko Input prediction to other tees.
+== Застосовує Saiko Input до передбачення інших Tee.
+
+[AMF Client]
+Applies Delta Input prediction to other tees.
+== Застосовує Delta Input до передбачення інших Tee.
+
+[AMF Client]
+Applies F Input prediction to other tees.
+== Застосовує F Input до передбачення інших Tee.
+
+[AMF Client]
+Sets the local response time for AMF Input.
+== Задає локальний час відгуку AMF Input.
+
+[AMF Client]
+Applies fresh hook input without delaying the game input.
+== Застосовує новий ввід хука без затримки ігрового вводу.
+
+[AMF Client]
+Applies AMF Input prediction to other tees.
+== Застосовує AMF Input до передбачення інших Tee.
+
+[AMF Client]
+Stops immediately when opposite movement keys are held.
+== Негайно зупиняє рух при протилежних клавішах.
+
+[AMF Client]
+Uses the precise mouse position when an action is pressed.
+== Використовує точну позицію миші під час натискання дії.
+
+[AMF Client]
+Automatically replaces the manual prediction margin using latency.
+== Автоматично замінює ручний prediction margin за затримкою.
+
+[AMF Client]
+Animations
+== Анімації
+
+[AMF Client]
+Menu animations
+== Анімації меню
+
+[AMF Client]
+Start menu animations
+== Анімації стартового меню
+
+[AMF Client]
+Chat animations
+== Анімації чату
+
+[AMF Client]
+Chat opening animation
+== Анімація відкриття чату
+
+[AMF Client]
+Animate text
+== Анімувати текст
+
+[AMF Client]
+Blur effect
+== Ефект розмиття
+
+[AMF Client]
+Slide effect
+== Ефект зсуву
+
+[AMF Client]
+Duration
+== Тривалість
+
+[AMF Client]
+Blur radius
+== Радіус розмиття
+
+[AMF Client]
+Slide distance
+== Відстань зсуву
+
+[AMF Client]
+Smooth caret
+== Плавний курсор
+
+[AMF Client]
+Caret speed
+== Швидкість курсору
+
+[AMF Client]
+Caret width
+== Ширина курсору
+
+[AMF Client]
+Animate messages
+== Анімувати повідомлення
+
+[AMF Client]
+Message animation
+== Анімація повідомлень
+
+[AMF Client]
+Smoothly animates menus, tabs, lists and popups.
+== Плавно анімує відкриття меню, вкладок, списків і спливних вікон.
+
+[AMF Client]
+Smoothly shows the main menu elements when the client starts.
+== Додає плавну появу елементів головного меню клієнта.
+
+[AMF Client]
+Smoothly shows and hides the chat container without delaying input.
+== Плавно показує і приховує контейнер чату без затримки введення.
+
+[AMF Client]
+Smoothly shows text blocks without delaying typed characters.
+== Плавно показує текстові блоки, не затримуючи введення символів.
+
+[AMF Client]
+Adds a lightweight background dim behind animated containers.
+== Додає легке затемнення фону анімованих контейнерів.
+
+[AMF Client]
+Adds a small container offset when an element appears or disappears.
+== Додає невеликий зсув контейнера під час появи та зникнення.
+
+[AMF Client]
+Sets the base speed of interface animations.
+== Встановлює базову швидкість анімацій інтерфейсу.
+
+[AMF Client]
+Sets the strength of the animated container background dim.
+== Визначає силу затемнення фону анімованого контейнера.
+
+[AMF Client]
+Sets how far animated containers move.
+== Визначає відстань руху анімованого контейнера.
+
+[AMF Client]
+Smoothly moves the chat text caret between positions.
+== Плавно переміщує текстовий курсор чату між позиціями.
+
+[AMF Client]
+Sets the visual approach speed of the text caret.
+== Встановлює швидкість руху текстового курсору.
+
+[AMF Client]
+Changes the thickness of the chat text caret.
+== Змінює товщину текстового курсору.
+
+[AMF Client]
+Smoothly shows new chat messages.
+== Плавно показує нові повідомлення чату.
+
+[AMF Client]
+Sets a new message animation duration; zero uses the base duration.
+== Встановлює тривалість появи нового повідомлення; нуль використовує загальну тривалість.
+
+[AMF Client]
+Backdrop dimming
+== Затемнення тла
+
+[AMF Client]
+Backdrop darkness
+== Сила затемнення
+
+[AMF Client]
+Smooth text caret
+== Плавний текстовий курсор
+
+[AMF Client]
+Text caret speed
+== Швидкість текстового курсора
+
+[AMF Client]
+Text caret width
+== Ширина текстового курсора
+
+[AMF Client]
+Scoreboard animations
+== Анімації таблиці гравців
+
+[AMF Client]
+Animate scoreboard
+== Анімувати таблицю гравців
+
+[AMF Client]
+Scoreboard opening duration
+== Тривалість відкриття таблиці
+
+[AMF Client]
+Scoreboard closing duration
+== Тривалість закриття таблиці
+
+[AMF Client]
+Scoreboard slide distance
+== Відстань руху таблиці
+
+[AMF Client]
+Adds smooth animations to the HUD, chat, menus, notifications and other interface elements.
+== Додає плавні анімації HUD, чату, меню, сповіщень та інших елементів інтерфейсу.
+
+[AMF Client]
+Smoothly shows and hides the chat without delaying text input.
+== Плавно показує та приховує чат без затримки введення тексту.
+
+[AMF Client]
+Adds a lightweight dim behind animated containers.
+== Додає легке затемнення за анімованими контейнерами.
+
+[AMF Client]
+Adds a small container movement when it appears or disappears.
+== Додає невеликий рух контейнера під час появи та зникнення.
+
+[AMF Client]
+Smoothly moves only the text caret and does not affect the DDNet mouse cursor.
+== Плавно переміщує лише текстовий курсор і не впливає на курсор миші DDNet.
+
+[AMF Client]
+Adds a quick smooth appearance and disappearance to the scoreboard.
+== Додає швидку плавну появу та зникнення таблиці гравців.
+
+[AMF Client]
+Sets how quickly the scoreboard appears.
+== Визначає тривалість появи таблиці гравців.
+
+[AMF Client]
+Sets how quickly the scoreboard disappears.
+== Визначає тривалість зникнення таблиці гравців.
+
+[AMF Client]
+Sets how far the scoreboard moves during its transition.
+== Визначає відстань руху таблиці гравців під час анімації.
+
+[AMF Client]
+Enable Fast Input
+== Увімкнути Fast Input
+
+[AMF Client]
+Enables faster input processing to reduce control latency.
+== Вмикає прискорену обробку введення для зменшення затримки керування.
+
+[AMF Client]
+Reset animation settings
+== Скинути налаштування анімацій
+
+[AMF Client]
+Restores balanced animation values recommended for smooth and responsive interface behavior.
+== Відновлює збалансовані значення для плавної та чутливої роботи інтерфейсу.
+
+[AMF Client]
+Animation settings were reset to the recommended values.
+== Налаштування анімацій скинуто до рекомендованих значень.
+[AMF Client]
+Cloud Input
+== Cloud Input
+
+[AMF Client]
+Cloud Input Old
+== Cloud Input Old
+
+[AMF Client]
+Cloud Input others
+== Cloud Input для інших Tee
+
+[AMF Client]
+Cloud Input Old others
+== Cloud Input Old для інших Tee
+
+[AMF Client]
+Applies Cloud Input prediction to other tees.
+== Застосовує передбачення Cloud Input до інших Tee.
+
+[AMF Client]
+Applies Cloud Input Old prediction to other tees.
+== Застосовує передбачення Cloud Input Old до інших Tee.
+
+[AMF Client]
+Fast practice
+== Швидка практика
+
+[AMF Client]
+Stop practice
+== Зупинити практику
+
+[AMF Client]
+Fast Practice
+== Швидка практика
+
+[AMF Client]
+Fancy Weapons
+== Ефектна зброя
+
+[AMF Client]
+Renders rifle and shotgun lasers with the AMF visual effect without changing gameplay.
+== Відображає гвинтівкові та дробові лазери з візуальним ефектом AMF без зміни гри.
+
+[AMF Client]
+Stop Practice
+== Зупинити практику
+
+[AMF Client]
+FP
+== ШП
+
+[AMF Client]
+Runs a fast practice simulation without affecting the server.
+== Запускає швидку симуляцію практики, не впливаючи на сервер.
+
+[AMF Client]
+practice mode
+== режим практики
+
+[AMF Client]
+(you can use practice commands /tc /invincible)
+== (можна використовувати команди практики /tc /invincible)
+
+[AMF Client]
+practice local: %s
+== [локальна практика] %s
+
+[AMF Client]
+manual
+== вручну
+
+[AMF Client]
+auto
+== автоматично
+
+[AMF Client]
+practice mode disabled
+== режим практики вимкнено
+
+[AMF Client]
+practice mode already enabled
+== режим практики вже ввімкнено
+
+[AMF Client]
+available commands: /r /back /rescuemode /tp /teleport /tpxy /lasttp /tc /telecursor /totele /totelecp /solo /unsolo /deep /undeep /livefreeze /unlivefreeze /shotgun /grenade /laser /rifle /unshotgun /ungrenade /unlaser /unrifle /weapons /unweapons /addweapon /removeweapon /jetpack /unjetpack /infjump /uninfjump /setjumps /ninja /unninja /endless /unendless /invincible /collision /hookcollision /hitothers /practice /unpractice
+== доступні команди: /r /back /rescuemode /tp /teleport /tpxy /lasttp /tc /telecursor /totele /totelecp /solo /unsolo /deep /undeep /livefreeze /unlivefreeze /shotgun /grenade /laser /rifle /unshotgun /ungrenade /unlaser /unrifle /weapons /unweapons /addweapon /removeweapon /jetpack /unjetpack /infjump /uninfjump /setjumps /ninja /unninja /endless /unendless /invincible /collision /hookcollision /hitothers /practice /unpractice
+
+[AMF Client]
+rescue mode: %s
+== режим порятунку: %s
+
+[AMF Client]
+rescue mode changed to auto
+== увімкнено автоматичний режим порятунку
+
+[AMF Client]
+rescue mode changed to manual
+== увімкнено ручний режим порятунку
+
+[AMF Client]
+available rescue modes: auto, manual
+== доступні режими порятунку: автоматично, вручну
+
+[AMF Client]
+unknown argument. check '/rescuemode list'
+== невідомий аргумент. Перевірте список: /rescuemode list
+
+[AMF Client]
+manual rescue point saved
+== ручну точку порятунку збережено
+
+[AMF Client]
+can't set manual rescue while not grounded
+== ручну точку порятунку можна зберегти лише на землі
+
+[AMF Client]
+safe position updated
+== безпечну позицію оновлено
+
+[AMF Client]
+no safe rescue position found
+== безпечну позицію для порятунку не знайдено
+
+[AMF Client]
+there is nowhere to go back to
+== немає позиції для повернення
+
+[AMF Client]
+you haven't previously teleported
+== попередня точка телепортації відсутня
+
+[AMF Client]
+no player with this name found
+== гравця з таким ім’ям не знайдено
+
+[AMF Client]
+usage: /tpxy x y
+== використання: /tpxy x y
+
+[AMF Client]
+invalid X coordinate
+== некоректна координата X
+
+[AMF Client]
+invalid Y coordinate
+== некоректна координата Y
+
+[AMF Client]
+usage: /%s <index>
+== використання: /%s <індекс>
+
+[AMF Client]
+invalid teleporter index
+== некоректний індекс телепорту
+
+[AMF Client]
+there is no teleporter with that index on the map
+== на мапі немає телепорту з таким індексом
+
+[AMF Client]
+usage: /%s <weapon-id>
+== використання: /%s <ID зброї>
+
+[AMF Client]
+invalid weapon id
+== некоректний ID зброї
+
+[AMF Client]
+usage: /setjumps <count>
+== використання: /setjumps <кількість>
+
+[AMF Client]
+invalid jumps value
+== некоректна кількість стрибків
+
+[AMF Client]
+invalid value, use 0 or 1
+== некоректне значення: використовуйте 0 або 1
+
+[AMF Client]
+unknown argument for /hitothers
+== невідомий аргумент команди /hitothers
+
+[AMF Client]
+practice character is not available
+== персонаж практики недоступний
+
+[AMF Client]
+AMF Client Practice
+== Практика AMF Client
+
+[AMF Client]
+say /r
+== надіслати /r
+
+[AMF Client]
+say /invincible
+== надіслати /invincible
+
+[AMF Client]
+say /telecursor
+== надіслати /telecursor
+
+[AMF Client]
+say /weapons
+== надіслати /weapons
+
+[AMF Client]
+say /unweapons
+== надіслати /unweapons
+
+[AMF Client]
+Key Indicator
+== Індикатор клавіш
+
+[AMF Client]
+Enable Key Indicator
+== Увімкнути індикатор клавіш
+
+[AMF Client]
+Shows the Minecraft-style movement, jump, fire and hook keys.
+== Показує клавіші руху, стрибка, вогню та хука у стилі Minecraft.
+
+[AMF Client]
+Horizontal position
+== Горизонтальна позиція
+
+[AMF Client]
+Vertical position
+== Вертикальна позиція
+
+[AMF Client]
+Size
+== Розмір
+
+[AMF Client]
+Opacity
+== Прозорість
+
+[AMF Client]
+High Priority DDNet
+== Високий пріоритет DDNet
+
+[AMF Client]
+Sets only the AMF Client process to Windows High priority while enabled.
+== Установлює високий пріоритет Windows лише для процесу AMF Client.
+
+[AMF Client]
+Low Priority Discord
+== Низький пріоритет Discord
+
+[AMF Client]
+Sets only Discord.exe processes to Windows Low priority while enabled.
+== Установлює низький пріоритет Windows лише для процесів Discord.exe.
+
+[AMF Client]
+Rifle preview
+== Попередній перегляд лазера
+
+[AMF Client]
+Shotgun preview
+== Попередній перегляд дробовика
+
+[AMF Client]
+System
+== Система
+
+[AMF Client]
+HUD Editor
+== Редактор HUD
+
+Style
+== Стиль
+
+Classic
+== Класичний
+
+Clean
+== Чистий
+
+Rounded
+== Заокруглений
+
+Minimal
+== Мінімалістичний
+
+[AMF Client]
+Drag, scale, reset and save the position of AMF HUD elements.
+== Перетягуйте, масштабуйте, скидайте та зберігайте позиції елементів HUD AMF Client.
+
+[AMF Client]
+Connect to a server first to open the HUD Editor.
+== Спочатку підключіться до сервера, щоб відкрити редактор HUD.
+
+[AMF Client]
+Textures
+== Текстури
+
+[AMF Client]
+Arrows
+== Стрілки
+
+[AMF Client]
+Sounds
+== Звуки
+
+[AMF Client]
+Snap Tap
+== Snap Tap
+
+[AMF Client]
+Prioritizes the most recently pressed direction when Left and Right are held together.
+== При одночасному утриманні Left і Right вибирає напрямок останньої натиснутої клавіші.
+
+[AMF Client]
+Looks like you're on a server where this feature is forbidden
+== Схоже, ви на сервері, де цю функцію заборонено.
+
+[AMF Client]
+Join team
+== Приєднатися до команди
+
+[AMF Client]
+Invite to team
+== Запросити до команди
+
+[AMF Client]
+An invitation to this team is required.
+== Потрібне запрошення до цієї команди.
+
+[AMF Client]
+Profile
+== Профіль
+
+[AMF Client]
+Whisper
+== Приватне повідомлення
+
+[AMF Client]
+Vote Kick
+== Голосувати за кік
+
+[AMF Client]
+Clip Name
+== Скопіювати ім'я
+
+[AMF Client]
+Copy Skin
+== Копіювати скін
+
+[AMF Client]
+Add teammate
+== Додати до напарників
+
+[AMF Client]
+Remove teammate
+== Прибрати з напарників
+
+[AMF Client]
+Favorites
+== Обране
+
+[AMF Client]
+Unsorted
+== Без папки
+
+[AMF Client]
+Folder name
+== Назва папки
+
+[AMF Client]
+New folder
+== Нова папка
+
+[AMF Client]
+Drop here to create folder
+== Перетягніть сюди, щоб створити папку
+
+[AMF Client]
+LMB - select
+== ЛКМ - вибрати
+
+[AMF Client]
+RMB - actions
+== ПКМ - дії
+
+[AMF Client]
+Drag - move
+== Перетягнути - перемістити
+
+[AMF Client]
+Mouse wheel - scroll
+== Колесо миші - прокрутка
+
+[AMF Client]
+Esc - back
+== Esc - назад
+
+[AMF Client]
+Rename folder
+== Перейменувати папку
+
+[AMF Client]
+Delete folder
+== Видалити папку
+
+[AMF Client]
+Page
+== Сторінка
+
+[AMF Client]
+Position
+== Позиція
+
+[AMF Client]
+Move left
+== Перемістити ліворуч
+
+[AMF Client]
+Move right
+== Перемістити праворуч
+
+[AMF Client]
+Move here
+== Перемістити сюди
+
+[AMF Client]
+Add to favorites
+== Додати до обраного
+
+[AMF Client]
+Remove from favorites
+== Прибрати з обраного
+
+[AMF Client]
+Folders
+== Папки
+
+[AMF Client]
+Create folder
+== Створити папку
+
+[AMF Client]
+Rename
+== Перейменувати
+
+[AMF Client]
+Delete
+== Видалити
+
+[AMF Client]
+Move folder up
+== Перемістити папку вгору
+
+[AMF Client]
+Move folder down
+== Перемістити папку вниз
+
+[AMF Client]
+New page
+== Нова сторінка
+
+[AMF Client]
+Delete page
+== Видалити сторінку
+[AMF Client]
+Check for updates
+== Перевірити оновлення
+
+[AMF Client]
+Checking for updates...
+== Перевірка оновлень...
+
+[AMF Client]
+(Checking for updates)
+== (Перевірка оновлень)
+
+[AMF Client]
+(Update available)
+== (Доступне оновлення)
+
+[AMF Client]
+(Downloading update)
+== (Завантаження оновлення)
+
+[AMF Client]
+(Update ready)
+== (Оновлення готове)
+
+[AMF Client]
+(Update error)
+== (Помилка оновлення)
+
+[AMF Client]
+(Up to date)
+== (Актуальна версія)
+
+[AMF Client]
+AMF Client update %s is available
+== Доступне оновлення AMF Client %s
+
+[AMF Client]
+Download update
+== Завантажити оновлення
+
+[AMF Client]
+Downloading update... %d%%
+== Завантаження оновлення... %d%%
+
+[AMF Client]
+Update is ready to install
+== Оновлення готове до встановлення
+
+[AMF Client]
+Restart and update
+== Перезапустити та оновити
+
+[AMF Client]
+Update failed
+== Помилка оновлення
+
+[AMF Client]
+AMF Client is up to date
+== AMF Client оновлено до останньої версії
+
+[AMF Client]
+Music Player
+== Музичний плеєр
+
+[AMF Client]
+Enable Music Player
+== Увімкнути музичний плеєр
+
+[AMF Client]
+No media
+== Немає музики
+
+[AMF Client]
+Shows the current Windows media session in the HUD.
+== Показує поточну медіасесію Windows у HUD.
+
+[AMF Client]
+Open Music Player in the HUD Editor.
+== Відкрити музичний плеєр у редакторі HUD.
+
+[AMF Client]
+Reset Music Player settings
+== Скинути налаштування музичного плеєра
+
+[AMF Client]
+Tune Zone Color
+== Колір Tune Zone
+
+[AMF Client]
+Blue
+== Синій
+
+[AMF Client]
+Red
+== Червоний
+
+[AMF Client]
+Green
+== Зелений
+
+[AMF Client]
+Purple
+== Фіолетовий
+
+[AMF Client]
+Color Mode
+== Режим кольору
+
+[AMF Client]
+Static
+== Статичний
+
+[AMF Client]
+Cover
+== Обкладинка
+
+[AMF Client]
+Translucent
+== Напівпрозорий
+
+[AMF Client]
+Static Color
+== Статичний колір
+
+[AMF Client]
+Visualizer Position
+== Положення візуалізатора
+
+[AMF Client]
+Bottom
+== Внизу
+
+[AMF Client]
+Center
+== По центру
+
+[AMF Client]
+Up
+== Вгорі
+
+[AMF Client]
+Text Scale
+== Масштаб тексту
+
+[AMF Client]
+Columns
+== Стовпці
+
+[AMF Client]
+Rounding
+== Заокруглення
+
+[AMF Client]
+Cube
+== Куб
+
+[AMF Client]
+Soft
+== М'який
+
+[AMF Client]
+Focus Mode
+== Режим концентрації
+
+[AMF Client]
+Enable Focus Mode
+== Увімкнути режим концентрації
+
+[AMF Client]
+Hide Player Names
+== Приховати імена гравців
+
+[AMF Client]
+Hide Visual Effects
+== Приховати візуальні ефекти
+
+[AMF Client]
+Hide Emoticons
+== Приховувати емоції
+
+[AMF Client]
+Hide HUD
+== Приховати HUD
+
+[AMF Client]
+Hide Music Player
+== Приховати музичний плеєр
+
+[AMF Client]
+Hide Unnecessary UI
+== Приховати зайвий інтерфейс
+
+[AMF Client]
+Hide Chat
+== Приховати чат
+
+[AMF Client]
+Hide Scoreboard
+== Приховати таблицю результатів
+
+[AMF Client]
+Focus Mode Bind
+== Клавіша режиму концентрації
+
+[AMF Client]
+Gradient Modules
+== Градієнтні модулі
+
+[AMF Client]
+Gradient Nicknames
+== Градієнт нікнеймів
+
+[AMF Client]
+Gradient Source
+== Від чого
+
+[AMF Client]
+Skin Color
+== За кольором скіна
+
+[AMF Client]
+Team/War
+== За командою/варом
+
+[AMF Client]
+Preview
+== Попередній перегляд
+
+[AMF Client]
+Other Players
+== Інші гравці
+
+[AMF Client]
+You
+== Ти
+
+[AMF Client]
+Team
+== Команда
+
+[AMF Client]
+Generate Random Tee
+== Згенерувати випадкову Tee
+
+[AMF Client]
+Generate Random Team
+== Згенерувати випадкову команду
+
+[AMF Client]
+Custom Gradient for Yourself
+== Власний градієнт для себе
+
+[AMF Client]
+Show Custom Player Gradients
+== Показувати кастомні градієнти гравців
+
+[AMF Client]
+Gradient Team Colors
+== Градієнт кольорів команд
+
+[AMF Client]
+Gradient Spectator Menu
+== Градієнт меню спостерігача
+
+[AMF Client]
+Gradient Position
+== Позиція градієнта
+
+[AMF Client]
+Gradient Strength
+== Сила градієнта
+
+[AMF Client]
+Left
+== Ліворуч
+
+[AMF Client]
+Right
+== Праворуч
+
+[AMF Client]
+Show CPS
+== Показувати CPS
+
+[AMF Client]
+Default
+== Типовий
+
+[AMF Client]
+Minecraft
+== Minecraft
+
+[AMF Client]
+Shows movement, jump, fire and hook keys.
+== Показує клавіші руху, стрибка, вогню та хука.
+
+[AMF Client]
+Show Lyrics
+== Показувати текст пісні
+
+[AMF Client]
+Show Current Time
+== Показувати поточний час
+
+[AMF Client]
+Aspect Ratio
+== Співвідношення сторін
+
+[AMF Client]
+Off (default)
+== Вимк. (за замовчуванням)
+
+[AMF Client]
+Custom
+== Користувацьке
+
+[AMF Client]
+Preset
+== Попереднє налаштування
+
+[AMF Client]
+Apply
+== Застосувати
+
+[AMF Client]
+Confirm
+== Підтвердити
+
+[AMF Client]
+Revert
+== Повернути
+
+[AMF Client]
+Game only
+== Лише гра
+
+[AMF Client]
+Full
+== Повністю
+
+[AMF Client]
+Game no HUD
+== Гра без HUD
+
+[AMF Client]
+Custom size
+== Користувацьке співвідношення
+
+[AMF Client]
+Selected aspect:
+== Вибране співвідношення:
+
+[AMF Client]
+Resolution
+== Роздільна здатність
+
+[AMF Client]
+Mode
+== Режим
+
+[AMF Client]
+Keep this aspect ratio?
+== Зберегти це співвідношення сторін?
+
+[AMF Client]
+Reverting in %d seconds
+== Повернення через %d с
+
+[AMF Client]
+This feature is blocked on this server
+== Ця функція заблокована на цьому сервері
+
+[AMF Client]
+Mouse Indicator
+== Індикатор миші
+
+[AMF Client]
+Show Mouse Indicator
+== Показувати індикатор миші
+
+[AMF Client]
+Style
+== Стиль
+
+[AMF Client]
+Arrow
+== Стрілка
+
+[AMF Client]
+Dot Dot
+== Дві крапки
+
+[AMF Client]
+Nothing
+== Без маркера
+
+[AMF Client]
+Pressed Color
+== Колір натискання
+
+[AMF Client]
+Yellow
+== Жовтий
+
+[AMF Client]
+White
+== Білий

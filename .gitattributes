@@ -1,0 +1,8 @@
+README.md merge=ours
+
+# Empty translations are represented as `== ` by the DDNet language-file format.
+# Keep that meaningful trailing separator out of generic whitespace diagnostics.
+data/languages/*.txt whitespace=-trailing-space
+
+other/*/include/* linguist-vendored
+src/engine/external/* linguist-vendored
