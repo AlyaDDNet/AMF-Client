@@ -88,11 +88,10 @@ namespace
 	static constexpr float VISUALIZER_RELEASE_RATE = 19.0f;
 	static constexpr int COVER_BAR_TINT_CELLS = MUSIC_PLAYER_MAX_VISUALIZER_BARS * COVER_BAR_SEGMENTS;
 	// Some MPRIS players publish Playing before their decoder has advanced the
-	// Position property. Require consecutive meaningful position changes before
-	// starting the local HUD clock, so loading media cannot advance the timer or
-	// lyrics.
+	// Position property. Ignore the initial snapshot, then require one meaningful
+	// position change before starting the local HUD clock, so loading media cannot
+	// advance the timer or lyrics without adding a visible start delay.
 	static constexpr int64_t MPRIS_PLAYBACK_START_CONFIRMATION_MS = 50;
-	static constexpr int MPRIS_PLAYBACK_START_CONFIRMATION_SAMPLES = 2;
 
 	static CUIRect HudToUiRect(const CUIRect &HudRect, const CUIRect &UiScreen, float HudWidth, float HudHeight)
 	{
@@ -2510,7 +2509,6 @@ public:
 	int64_t m_PlaybackAnchorPositionMs = 0;
 	int64_t m_PlaybackAnchorTick = 0;
 	int64_t m_LastProviderPositionMs = 0;
-	int m_ConsecutiveProviderPositionAdvances = 0;
 	int64_t m_LastTimelineUpdatedTicks = 0;
 	EMusicPlaybackState m_PlaybackAnchorState = EMusicPlaybackState::STOPPED;
 	bool m_PlaybackPositionConfirmed = false;
@@ -2623,7 +2621,6 @@ public:
 		m_PlaybackAnchorPositionMs = 0;
 		m_PlaybackAnchorTick = 0;
 		m_LastProviderPositionMs = 0;
-		m_ConsecutiveProviderPositionAdvances = 0;
 		m_PlaybackAnchorState = EMusicPlaybackState::STOPPED;
 		m_PlaybackPositionConfirmed = false;
 		m_VisualTrackKey.clear();
@@ -3144,28 +3141,19 @@ public:
 			// not, so wait for its next advancing Position sample before trusting
 			// the provider's Playing status.
 			m_PlaybackPositionConfirmed = HasAuthoritativeTimelineTimestamp;
-			m_ConsecutiveProviderPositionAdvances = 0;
 		}
 		else if(Snapshot.m_PlaybackState != EMusicPlaybackState::PLAYING)
 		{
 			m_PlaybackPositionConfirmed = false;
-			m_ConsecutiveProviderPositionAdvances = 0;
 		}
 
 		const bool AwaitingMprisPlaybackConfirmation =
 			Snapshot.m_PlaybackState == EMusicPlaybackState::PLAYING &&
 			!m_PlaybackPositionConfirmed &&
 			!NewOrResumedPlaying;
-		if(AwaitingMprisPlaybackConfirmation)
-		{
-			if(SnapshotPosition >= m_LastProviderPositionMs + MPRIS_PLAYBACK_START_CONFIRMATION_MS)
-				++m_ConsecutiveProviderPositionAdvances;
-			else
-				m_ConsecutiveProviderPositionAdvances = 0;
-		}
 		const bool PlaybackJustConfirmed =
 			AwaitingMprisPlaybackConfirmation &&
-			m_ConsecutiveProviderPositionAdvances >= MPRIS_PLAYBACK_START_CONFIRMATION_SAMPLES;
+			SnapshotPosition >= m_LastProviderPositionMs + MPRIS_PLAYBACK_START_CONFIRMATION_MS;
 		if(PlaybackJustConfirmed)
 			m_PlaybackPositionConfirmed = true;
 		const bool NeedsHardResync =

@@ -872,18 +872,11 @@ void CMusicPlayerLyrics::Render(ITextRender *pTextRender, CUi *pUi, const CUIRec
 
 	if(LineIndex != m_CurrentLineIndex)
 	{
-		const bool SequentialForward =
-			m_CurrentLineIndex != LINE_NONE && LineIndex == m_CurrentLineIndex + 1;
-		if(SequentialForward)
-		{
-			m_OutgoingLineIndex = m_CurrentLineIndex;
-			m_LineTransitionT = 0.0f;
-		}
-		else
-		{
-			m_OutgoingLineIndex = LINE_NONE;
-			m_LineTransitionT = 1.0f;
-		}
+		// The HUD timestamp is authoritative. Sliding the next line in over 260 ms
+		// makes the visible lyric lag behind that timestamp and can overlap words
+		// on a short line. Replace the line in the same frame instead.
+		m_OutgoingLineIndex = LINE_NONE;
+		m_LineTransitionT = 1.0f;
 		m_CurrentLineIndex = LineIndex;
 		m_LayoutValid = false;
 	}
