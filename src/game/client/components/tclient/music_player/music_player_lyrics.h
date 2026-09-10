@@ -55,7 +55,7 @@ public:
 	// HUD text-slot width for the current lyrics/status/title content, clamped to MaxWidth.
 	float PreferredTextSlotWidth(ITextRender *pTextRender, float FontSize, float MaxWidth, float Scale, float WidthScale) const;
 
-	void Render(ITextRender *pTextRender, CUi *pUi, const CUIRect &Area, float FontSize, float Delta, float CountdownCenterX);
+	void Render(ITextRender *pTextRender, CUi *pUi, const CUIRect &Area, float FontSize, float Delta, float CountdownCenterX, int64_t PositionMs);
 
 private:
 	// Display index: -99 = none, -20/-19 = not-found then title, -3/-2/-1 = countdown 3/2/1, >=0 = lyric line.
@@ -84,7 +84,7 @@ private:
 	static bool IsFallbackIndex(int Index) { return Index == FALLBACK_NOT_FOUND || Index == FALLBACK_TITLE; }
 	static int CountdownDigit(int Index) { return -Index; }
 	const char *FallbackText(int Index) const;
-	int ResolveDisplayLineIndex() const;
+	int ResolveDisplayLineIndex(int64_t PositionMs) const;
 	void ApplyCacheEntry(const SCacheEntry &Entry);
 	void StartRequest(IHttp *pHttp, const char *pTitle, const char *pArtist, const char *pAlbum, int64_t DurationMs);
 	void ProcessRequest();

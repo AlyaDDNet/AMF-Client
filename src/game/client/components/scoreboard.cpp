@@ -982,7 +982,6 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 				CountryOffset, Row.y + (Spacing + TeeSizeMod * 5.0f) / 2.0f, CountryLength, Row.h - Spacing - TeeSizeMod * 5.0f);
 
 			// ping
-			ColorRGBA PingColor = TextRender()->DefaultTextColor();
 			if(g_Config.m_ClEnablePingColor)
 			{
 				TextRender()->TextColor(WithRenderAlpha(color_cast<ColorRGBA>(ColorHSLA((300.0f - std::clamp(pInfo->m_Latency, 0, 300)) / 1000.0f, 1.0f, 0.5f))));

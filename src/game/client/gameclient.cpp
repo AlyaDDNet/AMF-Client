@@ -1764,9 +1764,7 @@ void CGameClient::ReleaseAmfDiscordProcessHandles(bool PreserveOwnedRestoreHelpe
 
 void CGameClient::UpdateAmfConfigPersistence()
 {
-	constexpr int64_t SAVE_DEBOUNCE = 250;
 	const int64_t Now = time_get();
-	const int64_t DebounceTicks = time_freq() * SAVE_DEBOUNCE / 1000;
 	if(m_AmfConfigSavePending && Now >= m_AmfConfigSaveDeadline)
 	{
 		if(!ConfigManager()->SaveDomain(ConfigDomain::AMFCLIENT))

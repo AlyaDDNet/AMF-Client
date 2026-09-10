@@ -320,12 +320,14 @@ public:
 				// Development builds place the executable in a configuration
 				// subdirectory (for example, build/release) and the data directory
 				// next to it (build/data).
-				fs_parent_dir(aDir);
-				str_format(aBuf, sizeof(aBuf), "%s/data/mapres", aDir);
-				if(fs_is_dir(aBuf))
+				if(fs_parent_dir(aDir) == 0)
 				{
-					str_format(m_aDatadir, sizeof(m_aDatadir), "%s/data", aDir);
-					return;
+					str_format(aBuf, sizeof(aBuf), "%s/data/mapres", aDir);
+					if(fs_is_dir(aBuf))
+					{
+						str_format(m_aDatadir, sizeof(m_aDatadir), "%s/data", aDir);
+						return;
+					}
 				}
 			}
 		}

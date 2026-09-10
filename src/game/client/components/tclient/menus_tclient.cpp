@@ -2317,12 +2317,12 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 
 		// Both module-local buttons use the same activation path; their owning
 		// card decides where the row is placed.
-		auto RenderModuleHudEditorButton = [&](CUIRect &HudEditorButton, CButtonContainer *pButtonContainer) {
+		auto RenderModuleHudEditorButton = [&](CUIRect &HudEditorButtonRect, CButtonContainer *pButtonContainer) {
 			if(DoButtonLineSize_Menu(
 				pButtonContainer,
 				TCLocalize("HUD Editor", "AMF Client"),
 				0,
-				&HudEditorButton,
+				&HudEditorButtonRect,
 				LineSize,
 				false,
 				nullptr,
@@ -2335,7 +2335,7 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			}
 			GameClient()->m_Tooltips.DoToolTip(
 				pButtonContainer,
-				&HudEditorButton,
+				&HudEditorButtonRect,
 				CanOpenHudEditor ? TCLocalize("Drag, scale, reset and save the position of AMF HUD elements.", "AMF Client") : TCLocalize("Connect to a server first to open the HUD Editor.", "AMF Client"));
 		};
 
@@ -2770,9 +2770,9 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			auto DoMusicPlayerDropDown = [&](const char *pLabel, int &Value, const char **ppNames, int NumNames, CUi::SDropDownState &State, CScrollRegion &ScrollRegion) {
 				MusicPlayerContent.HSplitTop(MarginExtraSmall, nullptr, &MusicPlayerContent);
 				MusicPlayerContent.HSplitTop(LineSize, &Button, &MusicPlayerContent);
-				CUIRect Label, Select;
-				Button.VSplitLeft(std::min(150.0f, Button.w * 0.45f), &Label, &Select);
-				Ui()->DoLabel(&Label, pLabel, 12.0f, TEXTALIGN_ML);
+				CUIRect DropDownLabel, Select;
+				Button.VSplitLeft(std::min(150.0f, Button.w * 0.45f), &DropDownLabel, &Select);
+				Ui()->DoLabel(&DropDownLabel, pLabel, 12.0f, TEXTALIGN_ML);
 				State.m_SelectionPopupContext.m_pScrollRegion = &ScrollRegion;
 				Value = Ui()->DoDropDown(&Select, std::clamp(Value, 0, NumNames - 1), ppNames, NumNames, State);
 			};

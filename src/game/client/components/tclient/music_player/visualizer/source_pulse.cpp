@@ -36,7 +36,7 @@ namespace
 #if defined(CONF_PLATFORM_LINUX) && defined(BC_MUSICPLAYER_HAS_PULSE) && BC_MUSICPLAYER_HAS_PULSE
 static bool VisualizerDebugEnabled(int Level)
 {
-	return g_Config.m_DbgMusicPlayer >= Level;
+	return g_Config.m_AmfMusicPlayerDebug >= Level;
 }
 
 static void VisualizerDebugLog(int Level, const char *pFmt, ...)
