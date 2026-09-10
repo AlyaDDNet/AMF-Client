@@ -117,6 +117,7 @@ private:
 	int m_CurrentLineIndex = LINE_NONE;
 	int m_OutgoingLineIndex = LINE_NONE;
 	float m_LineTransitionT = 1.0f;
+	float m_LineTransitionDurationMs = 260.0f;
 
 	std::string m_LayoutText;
 	float m_LayoutFontSize = 0.0f;

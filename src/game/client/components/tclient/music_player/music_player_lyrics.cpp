@@ -22,7 +22,9 @@
 namespace
 {
 	static constexpr float LYRICS_SLOT_WIDTH = 70.0f;
-	static constexpr float LYRICS_LINE_SLIDE_MS = 260.0f;
+	static constexpr float LYRICS_LINE_SLIDE_MIN_MS = 80.0f;
+	static constexpr float LYRICS_LINE_SLIDE_MAX_MS = 260.0f;
+	static constexpr float LYRICS_LINE_SLIDE_INTERVAL_FRACTION = 0.12f;
 	static constexpr float LYRICS_TITLE_MARQUEE_GAP_FACTOR = 2.5f;
 	static constexpr ColorRGBA LYRICS_PASSED_COLOR(1.0f, 1.0f, 1.0f, 1.0f);
 	static constexpr ColorRGBA LYRICS_UPCOMING_COLOR(0.45f, 0.45f, 0.48f, 1.0f);
@@ -170,6 +172,7 @@ void CMusicPlayerLyrics::ClearActiveTrack()
 	m_CurrentLineIndex = LINE_NONE;
 	m_OutgoingLineIndex = LINE_NONE;
 	m_LineTransitionT = 1.0f;
+	m_LineTransitionDurationMs = LYRICS_LINE_SLIDE_MAX_MS;
 	m_LayoutValid = false;
 	m_LayoutText.clear();
 	m_vCharMetrics.clear();
@@ -187,6 +190,7 @@ void CMusicPlayerLyrics::ClearLayoutState()
 	m_CurrentLineIndex = LINE_NONE;
 	m_OutgoingLineIndex = LINE_NONE;
 	m_LineTransitionT = 1.0f;
+	m_LineTransitionDurationMs = LYRICS_LINE_SLIDE_MAX_MS;
 	m_LayoutValid = false;
 	m_LayoutText.clear();
 	m_vCharMetrics.clear();
@@ -876,6 +880,18 @@ void CMusicPlayerLyrics::Render(ITextRender *pTextRender, CUi *pUi, const CUIRec
 			m_CurrentLineIndex != LINE_NONE && LineIndex == m_CurrentLineIndex + 1;
 		if(SequentialForward)
 		{
+			m_LineTransitionDurationMs = LYRICS_LINE_SLIDE_MAX_MS;
+			if(m_CurrentLineIndex >= 0 && LineIndex >= 0)
+			{
+				const int64_t PreviousLineDurationMs = std::max<int64_t>(1, m_vLines[LineIndex].m_StartMs - m_vLines[m_CurrentLineIndex].m_StartMs);
+				// The karaoke wipe already consumes the whole timestamp interval. Keep
+				// the line slide short, but make it faster for tightly packed lyrics so
+				// it finishes before the next text change.
+				m_LineTransitionDurationMs = std::clamp(
+					(float)PreviousLineDurationMs * LYRICS_LINE_SLIDE_INTERVAL_FRACTION,
+					LYRICS_LINE_SLIDE_MIN_MS,
+					LYRICS_LINE_SLIDE_MAX_MS);
+			}
 			m_OutgoingLineIndex = m_CurrentLineIndex;
 			m_LineTransitionT = 0.0f;
 		}
@@ -883,6 +899,7 @@ void CMusicPlayerLyrics::Render(ITextRender *pTextRender, CUi *pUi, const CUIRec
 		{
 			m_OutgoingLineIndex = LINE_NONE;
 			m_LineTransitionT = 1.0f;
+			m_LineTransitionDurationMs = LYRICS_LINE_SLIDE_MAX_MS;
 		}
 		m_CurrentLineIndex = LineIndex;
 		m_LayoutValid = false;
@@ -890,7 +907,7 @@ void CMusicPlayerLyrics::Render(ITextRender *pTextRender, CUi *pUi, const CUIRec
 
 	if(m_LineTransitionT < 1.0f)
 	{
-		m_LineTransitionT = std::clamp(m_LineTransitionT + Delta * 1000.0f / LYRICS_LINE_SLIDE_MS, 0.0f, 1.0f);
+		m_LineTransitionT = std::clamp(m_LineTransitionT + Delta * 1000.0f / m_LineTransitionDurationMs, 0.0f, 1.0f);
 		if(m_LineTransitionT >= 1.0f)
 			m_OutgoingLineIndex = LINE_NONE;
 	}
