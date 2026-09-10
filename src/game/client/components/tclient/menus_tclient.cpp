@@ -70,19 +70,19 @@ typedef struct
 static float s_Time = 0.0f;
 static bool s_StartedTime = false;
 
-const float FontSize = 14.0f;
-const float EditBoxFontSize = 12.0f;
-const float LineSize = 20.0f;
-const float ColorPickerLineSize = 25.0f;
-const float HeadlineFontSize = 20.0f;
-const float StandardFontSize = 14.0f;
+constexpr float FontSize = 14.0f;
+constexpr float EditBoxFontSize = 12.0f;
+constexpr float LineSize = 20.0f;
+constexpr float ColorPickerLineSize = 25.0f;
+constexpr float HeadlineFontSize = 20.0f;
+constexpr float StandardFontSize = 14.0f;
 
-const float HeadlineHeight = HeadlineFontSize + 0.0f;
-const float Margin = 10.0f;
-const float MarginSmall = 5.0f;
-const float MarginExtraSmall = 2.5f;
-const float MarginBetweenSections = 30.0f;
-const float MarginBetweenViews = 30.0f;
+constexpr float HeadlineHeight = HeadlineFontSize + 0.0f;
+constexpr float Margin = 10.0f;
+constexpr float MarginSmall = 5.0f;
+constexpr float MarginExtraSmall = 2.5f;
+constexpr float MarginBetweenSections = 30.0f;
+constexpr float MarginBetweenViews = 30.0f;
 
 namespace
 {
