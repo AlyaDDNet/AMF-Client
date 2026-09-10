@@ -77,7 +77,7 @@ private:
 		float m_PrefixWidth = 0.0f; // width of text[0 .. byteOffset)
 	};
 
-	static std::string BuildCacheKey(const char *pTitle, const char *pArtist, const char *pAlbum, int64_t DurationMs);
+	static std::string BuildCacheKey(const char *pTitle, const char *pArtist, const char *pAlbum);
 	static bool ParseLrcTimestamp(const char *pText, int64_t &OutMs, const char **ppEnd);
 	static void MergeConsecutiveIdenticalLines(std::vector<SLine> &vLines);
 	static bool IsCountdownIndex(int Index) { return Index >= -3 && Index <= -1; }

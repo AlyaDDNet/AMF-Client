@@ -219,19 +219,19 @@ void CMusicPlayerLyrics::AbortRequest()
 	m_RequestKey.clear();
 }
 
-std::string CMusicPlayerLyrics::BuildCacheKey(const char *pTitle, const char *pArtist, const char *pAlbum, int64_t DurationMs)
+std::string CMusicPlayerLyrics::BuildCacheKey(const char *pTitle, const char *pArtist, const char *pAlbum)
 {
-	const int DurationSec = (int)((std::max<int64_t>(0, DurationMs) + 500) / 1000);
 	std::string Key;
 	Key.reserve(160);
-	Key += "v3|";
+	// Duration often arrives in a later MPRIS metadata update. It narrows the
+	// LRCLIB request, but it is not track identity: changing it must not discard
+	// lyrics that are already on screen and trigger another network request.
+	Key += "v4|";
 	Key += pArtist ? pArtist : "";
 	Key += '|';
 	Key += pTitle ? pTitle : "";
 	Key += '|';
 	Key += pAlbum ? pAlbum : "";
-	Key += '|';
-	Key += std::to_string(DurationSec);
 	return Key;
 }
 
@@ -573,7 +573,7 @@ void CMusicPlayerLyrics::Update(IHttp *pHttp, const char *pTitle, const char *pA
 		return;
 	}
 
-	const std::string Key = BuildCacheKey(pTitle, pArtist, pAlbum, DurationMs);
+	const std::string Key = BuildCacheKey(pTitle, pArtist, pAlbum);
 	const bool NewTrack = Key != m_ActiveKey;
 	if(NewTrack)
 	{
