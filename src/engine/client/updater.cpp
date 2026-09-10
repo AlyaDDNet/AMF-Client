@@ -34,6 +34,7 @@ void BuildReleasesUrl(char *pBuf, int BufSize)
 	str_format(pBuf, BufSize, "%s%ct=%lld", pSource, str_find(pSource, "?") ? '&' : '?', (long long)time_timestamp());
 }
 
+#if defined(CONF_FAMILY_WINDOWS)
 bool StrEndsWithNoCase(const char *pStr, const char *pSuffix)
 {
 	if(!pStr || !pSuffix)
@@ -42,6 +43,7 @@ bool StrEndsWithNoCase(const char *pStr, const char *pSuffix)
 	const int SuffixLen = str_length(pSuffix);
 	return SuffixLen <= StrLen && str_comp_nocase(pStr + StrLen - SuffixLen, pSuffix) == 0;
 }
+#endif
 
 std::string ToLowerAscii(const char *pStr)
 {
@@ -216,6 +218,7 @@ bool ParseLatestRelease(json_value *pJson, char *pVersion, int VersionSize, char
 	return true;
 }
 
+#if defined(CONF_FAMILY_WINDOWS)
 void StripFilename(char *pPath)
 {
 	for(int i = str_length(pPath) - 1; i >= 0; --i)
@@ -250,6 +253,7 @@ bool IsLegacyPortableDirectory(const char *pDirectory)
 		str_comp_nocase_num(pName, pPrefix, str_length(pPrefix)) == 0 &&
 		StrEndsWithNoCase(pName, pSuffix);
 }
+#endif
 } // namespace
 
 CUpdater::CUpdater()

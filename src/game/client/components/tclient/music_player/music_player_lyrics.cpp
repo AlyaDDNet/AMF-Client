@@ -107,7 +107,7 @@ void CMusicPlayerLyrics::TickDisplay(float Delta)
 		m_NotFoundDisplayMs += std::max(0.0f, Delta) * 1000.0f;
 }
 
-int CMusicPlayerLyrics::ResolveDisplayLineIndex() const
+int CMusicPlayerLyrics::ResolveDisplayLineIndex(int64_t PositionMs) const
 {
 	if(m_DisplayState == EDisplayState::NotFound)
 		return (m_NotFoundDisplayMs < (float)NOT_FOUND_HOLD_MS) ? FALLBACK_NOT_FOUND : FALLBACK_TITLE;
@@ -115,7 +115,7 @@ int CMusicPlayerLyrics::ResolveDisplayLineIndex() const
 	if(m_DisplayState != EDisplayState::Ready)
 		return LINE_NONE;
 
-	const int64_t PositionMs = CurrentPositionMs();
+	PositionMs = std::max<int64_t>(0, PositionMs);
 	int LineIndex = FindLineIndex(PositionMs);
 	if(LineIndex < 0 && !m_vLines.empty())
 	{
@@ -141,7 +141,7 @@ float CMusicPlayerLyrics::PreferredTextSlotWidth(ITextRender *pTextRender, float
 
 	// The no-media fallback and track title shrink to content; lyrics, errors, and countdown keep full width.
 	const bool ShowNoMedia = m_DisplayState == EDisplayState::Idle;
-	const bool ShowTitle = m_DisplayState == EDisplayState::NotFound && ResolveDisplayLineIndex() == FALLBACK_TITLE;
+	const bool ShowTitle = m_DisplayState == EDisplayState::NotFound && ResolveDisplayLineIndex(CurrentPositionMs()) == FALLBACK_TITLE;
 	if(!ShowNoMedia && !ShowTitle)
 		return ClampedMax;
 
@@ -827,7 +827,7 @@ float CMusicPlayerLyrics::ComputeTextStartX(float AreaLeft, float AreaWidth, flo
 	return std::clamp(IdealStartX, MinStartX, MaxStartX);
 }
 
-void CMusicPlayerLyrics::Render(ITextRender *pTextRender, CUi *pUi, const CUIRect &Area, float FontSize, float Delta, float CountdownCenterX)
+void CMusicPlayerLyrics::Render(ITextRender *pTextRender, CUi *pUi, const CUIRect &Area, float FontSize, float Delta, float CountdownCenterX, int64_t PositionMs)
 {
 	if(pTextRender == nullptr || pUi == nullptr || Area.w <= 0.0f || Area.h <= 0.0f)
 		return;
@@ -862,8 +862,10 @@ void CMusicPlayerLyrics::Render(ITextRender *pTextRender, CUi *pUi, const CUIRec
 		return;
 	}
 
-	const int64_t PositionMs = CurrentPositionMs();
-	int LineIndex = ResolveDisplayLineIndex();
+	PositionMs = std::max<int64_t>(0, PositionMs);
+	if(m_ClockDurationMs > 0)
+		PositionMs = std::min(PositionMs, m_ClockDurationMs);
+	int LineIndex = ResolveDisplayLineIndex(PositionMs);
 	int64_t CountdownRemainingMs = 0;
 	if(IsCountdownIndex(LineIndex) && !m_vLines.empty())
 		CountdownRemainingMs = m_vLines.front().m_StartMs - PositionMs;

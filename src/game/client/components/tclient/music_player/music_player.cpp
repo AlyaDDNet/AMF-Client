@@ -87,6 +87,10 @@ namespace
 	static constexpr float VISUALIZER_ATTACK_RATE = 46.0f;
 	static constexpr float VISUALIZER_RELEASE_RATE = 19.0f;
 	static constexpr int COVER_BAR_TINT_CELLS = MUSIC_PLAYER_MAX_VISUALIZER_BARS * COVER_BAR_SEGMENTS;
+	// Some MPRIS players publish Playing before their decoder has advanced the
+	// Position property. Require a meaningful position change before starting the
+	// local HUD clock, so loading media cannot advance the timer or lyrics.
+	static constexpr int64_t MPRIS_PLAYBACK_START_CONFIRMATION_MS = 50;
 
 	static CUIRect HudToUiRect(const CUIRect &HudRect, const CUIRect &UiScreen, float HudWidth, float HudHeight)
 	{
@@ -190,6 +194,7 @@ namespace
 	{
 		bool m_Valid = false;
 		std::string m_ServiceId;
+		std::string m_TrackId;
 		std::string m_Title;
 		std::string m_Artist;
 		std::string m_Album;
@@ -352,7 +357,7 @@ namespace
 
 	static std::string BuildSnapshotTrackKey(const SNowPlayingSnapshot &Snapshot)
 	{
-		return Snapshot.m_ServiceId + "|" + Snapshot.m_Title + "|" + Snapshot.m_Artist + "|" + std::to_string(Snapshot.m_DurationMs);
+		return Snapshot.m_ServiceId + "|" + Snapshot.m_TrackId + "|" + Snapshot.m_Title + "|" + Snapshot.m_Artist + "|" + std::to_string(Snapshot.m_DurationMs);
 	}
 
 #if BC_MUSICPLAYER_HAS_WINRT
@@ -569,6 +574,10 @@ namespace
 						int64_t DurationUs = 0;
 						if(VariantToInt64(ValueVariantIter, DurationUs))
 							Out.m_DurationMs = std::max<int64_t>(0, DurationUs / 1000);
+					}
+					else if(str_comp(pKey, "mpris:trackid") == 0)
+					{
+						VariantToString(ValueVariantIter, Out.m_TrackId);
 					}
 					else if(str_comp(pKey, "mpris:artUrl") == 0)
 					{
@@ -2498,9 +2507,10 @@ public:
 	std::string m_PlaybackTrackKey;
 	int64_t m_PlaybackAnchorPositionMs = 0;
 	int64_t m_PlaybackAnchorTick = 0;
-	int64_t m_LastRawSnapshotPositionMs = -1;
+	int64_t m_LastProviderPositionMs = 0;
 	int64_t m_LastTimelineUpdatedTicks = 0;
 	EMusicPlaybackState m_PlaybackAnchorState = EMusicPlaybackState::STOPPED;
+	bool m_PlaybackPositionConfirmed = false;
 	std::string m_LastArtKey;
 	std::shared_ptr<CHttpRequest> m_pArtRequest;
 	std::shared_ptr<CMusicPlayerArtDecodeJob> m_pArtDecodeJob;
@@ -2609,8 +2619,9 @@ public:
 		m_PlaybackTrackKey.clear();
 		m_PlaybackAnchorPositionMs = 0;
 		m_PlaybackAnchorTick = 0;
-		m_LastRawSnapshotPositionMs = -1;
+		m_LastProviderPositionMs = 0;
 		m_PlaybackAnchorState = EMusicPlaybackState::STOPPED;
+		m_PlaybackPositionConfirmed = false;
 		m_VisualTrackKey.clear();
 		m_VisualPositionMs = 0.0f;
 	}
@@ -3030,11 +3041,16 @@ public:
 	int64_t DisplayPositionMs() const
 	{
 		int64_t Position = std::max<int64_t>(0, m_PlaybackAnchorPositionMs);
-		if(m_PlaybackAnchorState == EMusicPlaybackState::PLAYING && m_PlaybackAnchorTick > 0)
+		if(m_PlaybackAnchorState == EMusicPlaybackState::PLAYING && m_PlaybackPositionConfirmed && m_PlaybackAnchorTick > 0)
 			Position += ((time_get() - m_PlaybackAnchorTick) * 1000) / time_freq();
 		if(m_Snapshot.m_DurationMs > 0)
 			Position = std::min(Position, m_Snapshot.m_DurationMs);
 		return Position;
+	}
+
+	bool PlaybackClockRunning() const
+	{
+		return m_PlaybackAnchorState == EMusicPlaybackState::PLAYING && m_PlaybackPositionConfirmed;
 	}
 
 	void AttachVisualizerData(SNowPlayingSnapshot &Snapshot) const
@@ -3095,29 +3111,54 @@ public:
 
 		const std::string TrackKey = BuildSnapshotTrackKey(Snapshot);
 		const int64_t SnapshotPosition = std::clamp<int64_t>(Snapshot.m_PositionMs, 0, std::max<int64_t>(Snapshot.m_DurationMs, Snapshot.m_PositionMs));
-		const bool NewTrack = TrackKey != m_PlaybackTrackKey;
 		// A duration-only media-session update is not a new track. Treating it as
 		// one can rewind the lyrics to a stale provider position.
-		const bool TrackIdentityChanged = NewTrack &&
-			(Snapshot.m_ServiceId != m_Snapshot.m_ServiceId ||
-				Snapshot.m_Title != m_Snapshot.m_Title ||
-				Snapshot.m_Artist != m_Snapshot.m_Artist);
+		const bool TrackIdentityChanged =
+			Snapshot.m_ServiceId != m_Snapshot.m_ServiceId ||
+			Snapshot.m_Title != m_Snapshot.m_Title ||
+			Snapshot.m_Artist != m_Snapshot.m_Artist ||
+			(!Snapshot.m_TrackId.empty() && Snapshot.m_TrackId != m_Snapshot.m_TrackId);
 		const bool StateChanged = Snapshot.m_PlaybackState != m_PlaybackAnchorState;
 		const int64_t PredictedPosition = DisplayPositionMs();
 		const int64_t Drift = SnapshotPosition - PredictedPosition;
-		const bool SnapshotSeekedBackwards =
-			m_LastRawSnapshotPositionMs >= 0 &&
-			SnapshotPosition + 500 < m_LastRawSnapshotPositionMs;
-		// Browser/MPRIS providers can freeze their reported position while the
-		// local clock advances. Only a real raw backward movement is a seek.
-		const bool StaleRewind = Drift < -1500 && !SnapshotSeekedBackwards;
+		// A Linux MPRIS Position property is a snapshot rather than a timeline
+		// event. Some players intermittently report a stale zero/old position for
+		// the current track. Never rewind a playing MPRIS timeline from that alone:
+		// a track id/title change or pause/resume remains an explicit reset. Windows
+		// provides LastUpdatedTime, which makes a fresh backward timeline sample a
+		// reliable seek and keeps that platform's direct-seek behavior intact.
 		const bool FreshTimelineSample = Snapshot.m_TimelineUpdatedTicks == 0 ||
 			m_LastTimelineUpdatedTicks == 0 ||
 			Snapshot.m_TimelineUpdatedTicks != m_LastTimelineUpdatedTicks;
+		const bool HasAuthoritativeTimelineTimestamp = Snapshot.m_TimelineUpdatedTicks != 0;
+		const bool NewOrResumedPlaying =
+			Snapshot.m_PlaybackState == EMusicPlaybackState::PLAYING &&
+			(TrackIdentityChanged || m_PlaybackAnchorTick == 0 || StateChanged);
+		if(NewOrResumedPlaying)
+		{
+			// Windows pairs the timeline position with LastUpdatedTime. MPRIS does
+			// not, so wait for its next advancing Position sample before trusting
+			// the provider's Playing status.
+			m_PlaybackPositionConfirmed = HasAuthoritativeTimelineTimestamp;
+		}
+		else if(Snapshot.m_PlaybackState != EMusicPlaybackState::PLAYING)
+		{
+			m_PlaybackPositionConfirmed = false;
+		}
+
+		const bool PlaybackJustConfirmed =
+			Snapshot.m_PlaybackState == EMusicPlaybackState::PLAYING &&
+			!m_PlaybackPositionConfirmed &&
+			SnapshotPosition >= m_LastProviderPositionMs + MPRIS_PLAYBACK_START_CONFIRMATION_MS;
+		if(PlaybackJustConfirmed)
+			m_PlaybackPositionConfirmed = true;
 		const bool NeedsHardResync =
 			TrackIdentityChanged ||
 			m_PlaybackAnchorTick == 0 ||
-			(!StaleRewind && (StateChanged || (FreshTimelineSample && std::llabs(Drift) > 1500)));
+			StateChanged ||
+			PlaybackJustConfirmed ||
+			(FreshTimelineSample &&
+				(Drift > 1500 || (HasAuthoritativeTimelineTimestamp && Drift < -1500)));
 
 		if(NeedsHardResync)
 		{
@@ -3146,7 +3187,7 @@ public:
 
 		m_PlaybackTrackKey = TrackKey;
 		m_PlaybackAnchorState = Snapshot.m_PlaybackState;
-		m_LastRawSnapshotPositionMs = SnapshotPosition;
+		m_LastProviderPositionMs = SnapshotPosition;
 		m_LastTimelineUpdatedTicks = Snapshot.m_TimelineUpdatedTicks;
 		m_Snapshot = std::move(Snapshot);
 		m_LastSnapshotTick = Now;
@@ -3631,7 +3672,7 @@ void CMusicPlayer::OnUpdate()
 			m_pImpl->m_Snapshot.m_Album.c_str(),
 			m_pImpl->m_Snapshot.m_DurationMs,
 			m_pImpl->DisplayPositionMs(),
-			m_pImpl->m_Snapshot.m_PlaybackState == EMusicPlaybackState::PLAYING);
+			m_pImpl->PlaybackClockRunning());
 	}
 	else
 	{
@@ -3997,7 +4038,7 @@ void CMusicPlayer::RenderMusicPlayer(bool ForcePreview)
 	const float UiTitleFont = TitleFont * UiFontScale;
 	if(LyricsEnabled)
 	{
-		CUIRect UiLyricsTimerText;
+		CUIRect UiLyricsTimerText{};
 		float TimerFont = 0.0f;
 		std::string TimerText;
 		if(DrawLyricsTimerTab)
@@ -4010,7 +4051,11 @@ void CMusicPlayer::RenderMusicPlayer(bool ForcePreview)
 			UiLyricsTimerText = {UiLyricsTimerTab.x + (UiLyricsTimerTab.w - TimerTextWidth) * 0.5f, UiLyricsTimerTab.y + (UiLyricsTimerTab.h - TimerFont) * 0.5f, TimerTextWidth, TimerFont};
 		}
 		const float CountdownCenterX = UiLyricsTimerText.w > 0.0f ? UiLyricsTimerText.x + UiLyricsTimerText.w * 0.5f : UiTitleRect.x + UiTitleRect.w * 0.5f;
-		m_pImpl->m_Lyrics.Render(TextRender(), Ui(), UiTitleRect, UiTitleFont, Delta, CountdownCenterX);
+		// Use the exact same monotonic timestamp as the visible timer. The lyrics
+		// component keeps its own clock for fetching/state transitions, but giving
+		// it the HUD position here prevents a poll or frame boundary from selecting
+		// a line for a neighbouring timestamp.
+		m_pImpl->m_Lyrics.Render(TextRender(), Ui(), UiTitleRect, UiTitleFont, Delta, CountdownCenterX, DisplayPositionMs);
 		if(DrawLyricsTimerTab)
 			TextRender()->Text(UiLyricsTimerText.x, UiLyricsTimerText.y, TimerFont, TimerText.c_str(), -1.0f);
 	}

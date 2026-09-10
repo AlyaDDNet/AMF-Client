@@ -417,7 +417,9 @@ if(NOT MSVC AND NOT HAIKU)
   add_cxx_compiler_flag_if_supported(OUR_FLAGS_OWN -Wdynamic-class-memaccess) # clang
   add_cxx_compiler_flag_if_supported(OUR_FLAGS_OWN -Wlogical-op)
   add_cxx_compiler_flag_if_supported(OUR_FLAGS_OWN -Wno-missing-field-initializers)
-  add_cxx_compiler_flag_if_supported(OUR_FLAGS_OWN -Wno-nullability-completeness) # Mac OS build on github
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_cxx_compiler_flag_if_supported(OUR_FLAGS_OWN -Wno-nullability-completeness) # Mac OS build on GitHub
+  endif()
   add_cxx_compiler_flag_if_supported(OUR_FLAGS_OWN -Wno-psabi) # parameter passing for argument of type ‘__gnu_cxx::__normal_iterator<CCommandProcessorFragment_Vulkan::SMemoryBlock<1>*, std::vector<CCommandProcessorFragment_Vulkan::SMemoryBlock<1>, std::allocator<CCommandProcessorFragment_Vulkan::SMemoryBlock<1> > > >’ changed in GCC 7.1
   add_cxx_compiler_flag_if_supported(OUR_FLAGS_OWN -Wno-unused-parameter)
   add_cxx_compiler_flag_if_supported(OUR_FLAGS_OWN -Wrestrict)
@@ -614,6 +616,14 @@ find_package(Python3)
 find_package(Rust)
 find_package(SDL2)
 find_package(SQLite3)
+if(CLIENT AND TARGET_OS STREQUAL "linux")
+  # The Music Player reads MPRIS sessions over D-Bus and uses PulseAudio or
+  # PipeWire's PulseAudio compatibility server for its realtime visualizer.
+  # Both integrations remain optional so minimal Linux installations keep
+  # building with the passive player fallback.
+  find_package(DBus)
+  find_package(PulseAudio)
+endif()
 if(DISCORD)
   find_package(DiscordSdk)
 endif()
@@ -2479,6 +2489,7 @@ set_src(GAME_SHARED GLOB src/game
   team_state.h
   teamscore.cpp
   teamscore.h
+  tune_zone_colors.h
   tuning.h
   version.h
   voting.h
@@ -2781,12 +2792,19 @@ if(CLIENT)
     components/tclient/fast_practice.h
     components/tclient/inputs.cpp
     components/tclient/inputs.h
+    components/tclient/menus_tclient.cpp
+    components/tclient/mod.cpp
+    components/tclient/mod.h
+    components/tclient/moving_tiles.cpp
+    components/tclient/moving_tiles.h
+    components/tclient/mumble.cpp
+    components/tclient/mumble.h
+    components/tclient/music_player/media_decoder.cpp
+    components/tclient/music_player/media_decoder.h
     components/tclient/music_player/music_player.cpp
     components/tclient/music_player/music_player.h
     components/tclient/music_player/music_player_lyrics.cpp
     components/tclient/music_player/music_player_lyrics.h
-    components/tclient/music_player/media_decoder.cpp
-    components/tclient/music_player/media_decoder.h
     components/tclient/music_player/visualizer/analyzer.cpp
     components/tclient/music_player/visualizer/analyzer.h
     components/tclient/music_player/visualizer/service.cpp
@@ -2799,13 +2817,6 @@ if(CLIENT)
     components/tclient/music_player/visualizer/source_pulse.cpp
     components/tclient/music_player/visualizer/source_wasapi.cpp
     components/tclient/music_player/visualizer/types.h
-    components/tclient/menus_tclient.cpp
-    components/tclient/mod.cpp
-    components/tclient/mod.h
-    components/tclient/moving_tiles.cpp
-    components/tclient/moving_tiles.h
-    components/tclient/mumble.cpp
-    components/tclient/mumble.h
     components/tclient/outlines.cpp
     components/tclient/outlines.h
     components/tclient/pet.cpp
@@ -3030,6 +3041,15 @@ if(CLIENT)
     ${LIBS}
   )
 
+  if(TARGET_OS STREQUAL "linux")
+    if(DBus_FOUND)
+      list(APPEND LIBS_CLIENT ${DBUS_LIBRARIES})
+    endif()
+    if(PulseAudio_FOUND)
+      list(APPEND LIBS_CLIENT ${PULSEAUDIO_LIBRARIES})
+    endif()
+  endif()
+
   if(DISCORD)
     if(NOT DISCORD_DYNAMIC)
       list(APPEND LIBS_CLIENT discord-shared)
@@ -3166,6 +3186,7 @@ if(CLIENT)
 
   target_include_directories(game-client SYSTEM PRIVATE
     # tidy-alphabetical-start
+    ${DBUS_INCLUDE_DIRS}
     ${DISCORDSDK_INCLUDE_DIRS}
     ${FFMPEG_INCLUDE_DIRS}
     ${FREETYPE_INCLUDE_DIRS}
@@ -3174,6 +3195,7 @@ if(CLIENT)
     ${OPUSFILE_INCLUDE_DIRS}
     ${OPUS_INCLUDE_DIRS}
     ${PNG_INCLUDE_DIRS}
+    ${PULSEAUDIO_INCLUDE_DIRS}
     ${SDL2_INCLUDE_DIRS}
     ${WAVPACK_INCLUDE_DIRS}
     # tidy-alphabetical-end
@@ -3214,6 +3236,15 @@ if(CLIENT)
 
   if(VULKAN)
     target_compile_definitions(game-client PRIVATE CONF_BACKEND_VULKAN)
+  endif()
+
+  if(TARGET_OS STREQUAL "linux")
+    if(DBus_FOUND)
+      target_compile_definitions(game-client PRIVATE BC_MUSICPLAYER_HAS_DBUS=1)
+    endif()
+    if(PulseAudio_FOUND)
+      target_compile_definitions(game-client PRIVATE BC_MUSICPLAYER_HAS_PULSE=1)
+    endif()
   endif()
 
   if(WIN32)
