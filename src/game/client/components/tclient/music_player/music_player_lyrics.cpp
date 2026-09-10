@@ -164,6 +164,7 @@ void CMusicPlayerLyrics::Reset()
 	m_DisplayState = EDisplayState::Idle;
 	m_vLines.clear();
 	m_OfflineRetryAt = 0;
+	m_UseLyricsOvhFallback = false;
 	ClearActiveTrack();
 }
 
@@ -206,6 +207,7 @@ void CMusicPlayerLyrics::Disable()
 	m_DisplayState = EDisplayState::Idle;
 	m_vLines.clear();
 	m_OfflineRetryAt = 0;
+	m_UseLyricsOvhFallback = false;
 	ClearActiveTrack();
 }
 
@@ -367,6 +369,45 @@ bool CMusicPlayerLyrics::ParseSyncedLyrics(const char *pSyncedLyrics, std::vecto
 	return !vOut.empty();
 }
 
+bool CMusicPlayerLyrics::ParsePlainLyrics(const char *pLyrics, int64_t DurationMs, std::vector<SLine> &vOut)
+{
+	vOut.clear();
+	if(pLyrics == nullptr || pLyrics[0] == '\0')
+		return false;
+
+	const char *p = pLyrics;
+	while(*p)
+	{
+		while(*p == '\r' || *p == '\n')
+			++p;
+		if(*p == '\0')
+			break;
+
+		const char *pLineStart = p;
+		while(*p && *p != '\n' && *p != '\r')
+			++p;
+		const char *pLineEnd = p;
+		while(pLineStart < pLineEnd && std::isspace((unsigned char)*pLineStart))
+			++pLineStart;
+		while(pLineEnd > pLineStart && std::isspace((unsigned char)pLineEnd[-1]))
+			--pLineEnd;
+		if(pLineStart == pLineEnd)
+			continue;
+
+		SLine Line;
+		Line.m_Text.assign(pLineStart, pLineEnd);
+		vOut.push_back(std::move(Line));
+	}
+
+	if(vOut.empty())
+		return false;
+
+	const int64_t TotalDurationMs = DurationMs > 0 ? DurationMs : (int64_t)vOut.size() * 4000;
+	for(int i = 0; i < (int)vOut.size(); ++i)
+		vOut[i].m_StartMs = (int64_t)i * TotalDurationMs / (int)vOut.size();
+	return true;
+}
+
 void CMusicPlayerLyrics::MergeConsecutiveIdenticalLines(std::vector<SLine> &vLines)
 {
 	if(vLines.size() < 2)
@@ -419,7 +460,13 @@ void CMusicPlayerLyrics::StartRequest(IHttp *pHttp, const char *pTitle, const ch
 
 	const int DurationSec = (int)((std::max<int64_t>(0, DurationMs) + 500) / 1000);
 	char aUrl[2048];
-	if(DurationSec >= 1 && DurationSec <= 3600)
+	if(m_UseLyricsOvhFallback)
+	{
+		str_format(aUrl, sizeof(aUrl),
+			"https://api.lyrics.ovh/v1/%s/%s",
+			aEscapedArtist, aEscapedTitle);
+	}
+	else if(DurationSec >= 1 && DurationSec <= 3600)
 	{
 		str_format(aUrl, sizeof(aUrl),
 			"https://lrclib.net/api/get?track_name=%s&artist_name=%s&album_name=%s&duration=%d",
@@ -433,10 +480,11 @@ void CMusicPlayerLyrics::StartRequest(IHttp *pHttp, const char *pTitle, const ch
 	}
 
 	m_pRequest = HttpGet(aUrl);
-	m_pRequest->Timeout(CTimeout{10000, 0, 500, 10});
+	m_pRequest->Timeout(CTimeout{m_UseLyricsOvhFallback ? 5000 : 2500, 0, 500, 5});
 	m_pRequest->LogProgress(HTTPLOG::FAILURE);
 	m_pRequest->FailOnErrorStatus(false);
-	m_pRequest->HeaderString("Lrclib-Client", "AMF Client/" AMF_CLIENT_VERSION " (https://github.com/AlyaDDNet/AMF-Client)");
+	m_pRequest->IpResolve(IPRESOLVE::V4);
+	m_pRequest->HeaderString("User-Agent", "AMF Client/" AMF_CLIENT_VERSION " (https://github.com/AlyaDDNet/AMF-Client)");
 	m_RequestKey = m_ActiveKey;
 	m_DisplayState = EDisplayState::Loading;
 	pHttp->Run(m_pRequest);
@@ -455,28 +503,45 @@ void CMusicPlayerLyrics::ProcessRequest()
 	if(FinishedKey != m_ActiveKey)
 		return;
 
-	// Done() is also true for ERROR/ABORTED — must not call StatusCode() unless DONE.
-	if(pFinished->State() != EHttpState::DONE)
-	{
+	auto RetryWithLyricsOvh = [this]() {
+		if(m_UseLyricsOvhFallback)
+			return false;
+		// lrclib.net is unavailable from some networks. Retry the same track with
+		// the public fallback instead of replacing its lyrics with an error.
+		m_UseLyricsOvhFallback = true;
+		m_DisplayState = EDisplayState::Offline;
+		m_OfflineRetryAt = 0;
+		return true;
+	};
+	auto ShowOffline = [this]() {
 		m_DisplayState = EDisplayState::Offline;
 		m_vLines.clear();
 		ClearActiveTrack();
 		m_OfflineRetryAt = time_get() + time_freq() * LYRICS_OFFLINE_RETRY_MS / 1000;
+	};
+
+	// Done() is also true for ERROR/ABORTED — must not call StatusCode() unless DONE.
+	if(pFinished->State() != EHttpState::DONE)
+	{
+		if(RetryWithLyricsOvh())
+			return;
+		ShowOffline();
 		return;
 	}
 
 	const int StatusCode = pFinished->StatusCode();
 	if(StatusCode == 0)
 	{
-		m_DisplayState = EDisplayState::Offline;
-		m_vLines.clear();
-		ClearActiveTrack();
-		m_OfflineRetryAt = time_get() + time_freq() * LYRICS_OFFLINE_RETRY_MS / 1000;
+		if(RetryWithLyricsOvh())
+			return;
+		ShowOffline();
 		return;
 	}
 
 	if(StatusCode == 404)
 	{
+		if(RetryWithLyricsOvh())
+			return;
 		SCacheEntry Entry;
 		Entry.m_State = EDisplayState::NotFound;
 		if(m_Cache.size() >= LYRICS_CACHE_MAX)
@@ -488,24 +553,40 @@ void CMusicPlayerLyrics::ProcessRequest()
 
 	if(StatusCode < 200 || StatusCode >= 300)
 	{
-		m_DisplayState = EDisplayState::Offline;
-		m_vLines.clear();
-		ClearActiveTrack();
-		m_OfflineRetryAt = time_get() + time_freq() * LYRICS_OFFLINE_RETRY_MS / 1000;
+		if(RetryWithLyricsOvh())
+			return;
+		ShowOffline();
 		return;
 	}
 
 	json_value *pRoot = pFinished->ResultJson();
 	SCacheEntry Entry;
 	Entry.m_State = EDisplayState::NotFound;
+	bool FoundLyrics = false;
 	if(pRoot != nullptr && pRoot != &json_value_none && pRoot->type == json_object)
 	{
-		const char *pSynced = JsonStringOrEmpty(json_object_get(pRoot, "syncedLyrics"));
-		if(ParseSyncedLyrics(pSynced, Entry.m_vLines))
+		if(!m_UseLyricsOvhFallback)
+		{
+			const char *pSynced = JsonStringOrEmpty(json_object_get(pRoot, "syncedLyrics"));
+			FoundLyrics = ParseSyncedLyrics(pSynced, Entry.m_vLines);
+			if(!FoundLyrics)
+			{
+				const char *pPlain = JsonStringOrEmpty(json_object_get(pRoot, "plainLyrics"));
+				FoundLyrics = ParsePlainLyrics(pPlain, m_ClockDurationMs, Entry.m_vLines);
+			}
+		}
+		else
+		{
+			const char *pPlain = JsonStringOrEmpty(json_object_get(pRoot, "lyrics"));
+			FoundLyrics = ParsePlainLyrics(pPlain, m_ClockDurationMs, Entry.m_vLines);
+		}
+		if(FoundLyrics)
 			Entry.m_State = EDisplayState::Ready;
 	}
 	if(pRoot)
 		json_value_free(pRoot);
+	if(!FoundLyrics && RetryWithLyricsOvh())
+		return;
 
 	if(m_Cache.size() >= LYRICS_CACHE_MAX)
 		m_Cache.clear();
@@ -582,6 +663,7 @@ void CMusicPlayerLyrics::Update(IHttp *pHttp, const char *pTitle, const char *pA
 		m_vLines.clear();
 		ClearActiveTrack();
 		m_OfflineRetryAt = 0;
+		m_UseLyricsOvhFallback = false;
 		SyncMediaClock(SnapshotPositionMs, DurationMs, Playing, true);
 
 		const auto It = m_Cache.find(Key);

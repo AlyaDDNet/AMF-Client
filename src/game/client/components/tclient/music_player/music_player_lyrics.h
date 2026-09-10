@@ -79,6 +79,7 @@ private:
 
 	static std::string BuildCacheKey(const char *pTitle, const char *pArtist, const char *pAlbum);
 	static bool ParseLrcTimestamp(const char *pText, int64_t &OutMs, const char **ppEnd);
+	static bool ParsePlainLyrics(const char *pLyrics, int64_t DurationMs, std::vector<SLine> &vOut);
 	static void MergeConsecutiveIdenticalLines(std::vector<SLine> &vLines);
 	static bool IsCountdownIndex(int Index) { return Index >= -3 && Index <= -1; }
 	static bool IsFallbackIndex(int Index) { return Index == FALLBACK_NOT_FOUND || Index == FALLBACK_TITLE; }
@@ -105,6 +106,7 @@ private:
 	std::shared_ptr<CHttpRequest> m_pRequest;
 	std::unordered_map<std::string, SCacheEntry> m_Cache;
 	int64_t m_OfflineRetryAt = 0;
+	bool m_UseLyricsOvhFallback = false;
 	float m_NotFoundDisplayMs = 0.0f;
 	float m_TitleMarqueeOffset = 0.0f;
 
