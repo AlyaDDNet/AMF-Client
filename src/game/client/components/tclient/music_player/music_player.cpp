@@ -88,9 +88,9 @@ namespace
 	static constexpr float VISUALIZER_RELEASE_RATE = 19.0f;
 	static constexpr int COVER_BAR_TINT_CELLS = MUSIC_PLAYER_MAX_VISUALIZER_BARS * COVER_BAR_SEGMENTS;
 	// Some MPRIS players publish Playing before their decoder has advanced the
-	// Position property. Ignore the initial snapshot, then require one meaningful
-	// position change before starting the local HUD clock, so loading media cannot
-	// advance the timer or lyrics without adding a visible start delay.
+	// Position property. Ignore the initial snapshot, then require either one
+	// meaningful position change or a real audio signal before starting the local
+	// HUD clock, so loading media cannot advance the timer or lyrics.
 	static constexpr int64_t MPRIS_PLAYBACK_START_CONFIRMATION_MS = 50;
 
 	static CUIRect HudToUiRect(const CUIRect &HudRect, const CUIRect &UiScreen, float HudWidth, float HudHeight)
@@ -3138,8 +3138,8 @@ public:
 		if(NewOrResumedPlaying)
 		{
 			// Windows pairs the timeline position with LastUpdatedTime. MPRIS does
-			// not, so wait for its next advancing Position sample before trusting
-			// the provider's Playing status.
+			// not, so wait for its next advancing Position sample or a real audio
+			// signal before trusting the provider's Playing status.
 			m_PlaybackPositionConfirmed = HasAuthoritativeTimelineTimestamp;
 		}
 		else if(Snapshot.m_PlaybackState != EMusicPlaybackState::PLAYING)
@@ -3153,7 +3153,8 @@ public:
 			!NewOrResumedPlaying;
 		const bool PlaybackJustConfirmed =
 			AwaitingMprisPlaybackConfirmation &&
-			SnapshotPosition >= m_LastProviderPositionMs + MPRIS_PLAYBACK_START_CONFIRMATION_MS;
+			(SnapshotPosition >= m_LastProviderPositionMs + MPRIS_PLAYBACK_START_CONFIRMATION_MS ||
+				(Snapshot.m_HasVisualizer && Snapshot.m_Visualizer.m_HasRealtimeSignal));
 		if(PlaybackJustConfirmed)
 			m_PlaybackPositionConfirmed = true;
 		const bool NeedsHardResync =
