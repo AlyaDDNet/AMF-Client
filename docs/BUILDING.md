@@ -53,6 +53,9 @@ FLUSH PRIVILEGES;
 	You need to install the [Vulkan SDK](https://vulkan.lunarg.com/sdk/home) and set the `VULKAN_SDK` environment flag accordingly.
 	Default value is ON for Linux, and OFF for Windows and macOS.
 
+* **Linux Music Player support** <br>
+	The music player reads MPRIS-compatible players (such as Spotify, VLC, mpv, and browser media sessions) from the desktop session bus. Its realtime visualizer uses PulseAudio; this also works with PipeWire when its PulseAudio compatibility service is enabled. Install `libdbus-1-dev libpulse-dev` on Debian/Ubuntu, `dbus libpulse` on Arch Linux, or `dbus-devel pulseaudio-libs-devel` on Fedora. These are optional: when unavailable, the client still builds, but the music player uses its passive fallback.
+
 * **-GNinja** <br>
 	Use the Ninja build system instead of Make. This automatically parallelizes the build and is generally faster. Compile with `ninja` instead of `make`. Install Ninja with `sudo apt install ninja-build` on Debian, `sudo pacman -S --needed ninja` on Arch Linux.
 

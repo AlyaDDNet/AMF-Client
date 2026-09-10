@@ -222,27 +222,27 @@ namespace
 		// the HUD element is very wide, tall or tiny.
 		DrawRoundedRectOutline(pGraphics, Rect, IGraphics::CORNER_NONE, 0.0f, Color);
 
-	const float ShortSide = std::min(Rect.w, Rect.h);
-	const float CornerSize = std::min(std::clamp(ShortSide * 0.14f, 0.8f, 5.0f), ShortSide * 0.25f);
-	const float Outset = std::min(CornerSize * 0.22f, 0.8f);
-	if(CornerSize <= 0.0f)
-		return;
+		const float ShortSide = std::min(Rect.w, Rect.h);
+		const float CornerSize = std::min(std::clamp(ShortSide * 0.14f, 0.8f, 5.0f), ShortSide * 0.25f);
+		const float Outset = std::min(CornerSize * 0.22f, 0.8f);
+		if(CornerSize <= 0.0f)
+			return;
 		const float Right = Rect.x + Rect.w;
 		const float Bottom = Rect.y + Rect.h;
 
 		pGraphics->TextureClear();
-	pGraphics->QuadsBegin();
-	pGraphics->SetColor(Color);
-	// Four identical, mirrored triangular markers. They are decoration only;
-	// no input state or resize hitbox is attached to any corner.
-	IGraphics::CFreeformItem aCorners[] = {
-		{Rect.x - Outset, Rect.y - Outset, Rect.x - Outset + CornerSize, Rect.y - Outset, Rect.x - Outset, Rect.y - Outset + CornerSize, Rect.x - Outset, Rect.y - Outset + CornerSize},
-		{Right + Outset, Rect.y - Outset, Right + Outset - CornerSize, Rect.y - Outset, Right + Outset, Rect.y - Outset + CornerSize, Right + Outset, Rect.y - Outset + CornerSize},
-		{Rect.x - Outset, Bottom + Outset, Rect.x - Outset + CornerSize, Bottom + Outset, Rect.x - Outset, Bottom + Outset - CornerSize, Rect.x - Outset, Bottom + Outset - CornerSize},
-		{Right + Outset, Bottom + Outset, Right + Outset - CornerSize, Bottom + Outset, Right + Outset, Bottom + Outset - CornerSize, Right + Outset, Bottom + Outset - CornerSize},
-	};
-	pGraphics->QuadsDrawFreeform(aCorners, sizeof(aCorners) / sizeof(aCorners[0]));
-	pGraphics->QuadsEnd();
+		pGraphics->QuadsBegin();
+		pGraphics->SetColor(Color);
+		// Four identical, mirrored triangular markers. They are decoration only;
+		// no input state or resize hitbox is attached to any corner.
+		IGraphics::CFreeformItem aCorners[] = {
+			{Rect.x - Outset, Rect.y - Outset, Rect.x - Outset + CornerSize, Rect.y - Outset, Rect.x - Outset, Rect.y - Outset + CornerSize, Rect.x - Outset, Rect.y - Outset + CornerSize},
+			{Right + Outset, Rect.y - Outset, Right + Outset - CornerSize, Rect.y - Outset, Right + Outset, Rect.y - Outset + CornerSize, Right + Outset, Rect.y - Outset + CornerSize},
+			{Rect.x - Outset, Bottom + Outset, Rect.x - Outset + CornerSize, Bottom + Outset, Rect.x - Outset, Bottom + Outset - CornerSize, Rect.x - Outset, Bottom + Outset - CornerSize},
+			{Right + Outset, Bottom + Outset, Right + Outset - CornerSize, Bottom + Outset, Right + Outset, Bottom + Outset - CornerSize, Right + Outset, Bottom + Outset - CornerSize},
+		};
+		pGraphics->QuadsDrawFreeform(aCorners, sizeof(aCorners) / sizeof(aCorners[0]));
+		pGraphics->QuadsEnd();
 	}
 
 	CUIRect ClampToBounds(CUIRect Rect, float Width, float Height)
@@ -250,12 +250,6 @@ namespace
 		Rect.x = std::clamp(Rect.x, 0.0f, std::max(0.0f, Width - Rect.w));
 		Rect.y = std::clamp(Rect.y, 0.0f, std::max(0.0f, Height - Rect.h));
 		return Rect;
-	}
-
-	float ChatInputBottomExtra(const CChat &Chat)
-	{
-		const float ScaledFontSize = Chat.FontSize() * (8.0f / 6.0f);
-		return std::max(2.25f * ScaledFontSize, std::max(ScaledFontSize + 4.0f, 16.0f));
 	}
 
 } // namespace

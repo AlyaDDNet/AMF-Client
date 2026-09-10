@@ -55,7 +55,7 @@ public:
 	// HUD text-slot width for the current lyrics/status/title content, clamped to MaxWidth.
 	float PreferredTextSlotWidth(ITextRender *pTextRender, float FontSize, float MaxWidth, float Scale, float WidthScale) const;
 
-	void Render(ITextRender *pTextRender, CUi *pUi, const CUIRect &Area, float FontSize, float Delta, float CountdownCenterX);
+	void Render(ITextRender *pTextRender, CUi *pUi, const CUIRect &Area, float FontSize, float Delta, float CountdownCenterX, int64_t PositionMs);
 
 private:
 	// Display index: -99 = none, -20/-19 = not-found then title, -3/-2/-1 = countdown 3/2/1, >=0 = lyric line.
@@ -77,14 +77,15 @@ private:
 		float m_PrefixWidth = 0.0f; // width of text[0 .. byteOffset)
 	};
 
-	static std::string BuildCacheKey(const char *pTitle, const char *pArtist, const char *pAlbum, int64_t DurationMs);
+	static std::string BuildCacheKey(const char *pTitle, const char *pArtist, const char *pAlbum);
 	static bool ParseLrcTimestamp(const char *pText, int64_t &OutMs, const char **ppEnd);
+	static bool ParsePlainLyrics(const char *pLyrics, int64_t DurationMs, std::vector<SLine> &vOut);
 	static void MergeConsecutiveIdenticalLines(std::vector<SLine> &vLines);
 	static bool IsCountdownIndex(int Index) { return Index >= -3 && Index <= -1; }
 	static bool IsFallbackIndex(int Index) { return Index == FALLBACK_NOT_FOUND || Index == FALLBACK_TITLE; }
 	static int CountdownDigit(int Index) { return -Index; }
 	const char *FallbackText(int Index) const;
-	int ResolveDisplayLineIndex() const;
+	int ResolveDisplayLineIndex(int64_t PositionMs) const;
 	void ApplyCacheEntry(const SCacheEntry &Entry);
 	void StartRequest(IHttp *pHttp, const char *pTitle, const char *pArtist, const char *pAlbum, int64_t DurationMs);
 	void ProcessRequest();
@@ -105,6 +106,7 @@ private:
 	std::shared_ptr<CHttpRequest> m_pRequest;
 	std::unordered_map<std::string, SCacheEntry> m_Cache;
 	int64_t m_OfflineRetryAt = 0;
+	bool m_UseLyricsOvhFallback = false;
 	float m_NotFoundDisplayMs = 0.0f;
 	float m_TitleMarqueeOffset = 0.0f;
 
@@ -117,6 +119,7 @@ private:
 	int m_CurrentLineIndex = LINE_NONE;
 	int m_OutgoingLineIndex = LINE_NONE;
 	float m_LineTransitionT = 1.0f;
+	float m_LineTransitionDurationMs = 260.0f;
 
 	std::string m_LayoutText;
 	float m_LayoutFontSize = 0.0f;

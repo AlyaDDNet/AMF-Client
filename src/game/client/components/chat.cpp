@@ -332,7 +332,7 @@ void CChat::ExecuteSmoothHudContextAction(int Action)
 
 	if(Action == 0) // Copy
 	{
-		char aText[MAX_NAME_LENGTH + MAX_LINE_LENGTH + 4];
+		char aText[static_cast<int>(MAX_NAME_LENGTH) + MAX_LINE_LENGTH + 4];
 		str_format(aText, sizeof(aText), "%s%s%s", Line.m_aName, Line.m_ClientId >= 0 ? ": " : "", Line.m_aText);
 		Input()->SetClipboardText(aText);
 		str_copy(m_aSmoothHudNotification, TCLocalize("Message copied", "AMF Client"), sizeof(m_aSmoothHudNotification));

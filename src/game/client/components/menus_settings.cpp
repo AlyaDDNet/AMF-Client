@@ -4749,9 +4749,9 @@ struct SAssetOrganizerPopupContext : public SPopupMenuId
 		const ColorRGBA PopupBorder = ColorRGBA(0.10f, 0.13f, 0.17f, 0.78f);
 		auto DoOrganizerPopupButton = [pUi, &PopupAccentPressed, &PopupAccentSoft, &PopupNeutral, &PopupNeutralHover, &PopupNeutralDisabled, &PopupBorder](CButtonContainer *pButton, const char *pText, const CUIRect *pRect, float FontSize, bool Enabled = true) {
 			const bool Hovered = Enabled && pUi->MouseHovered(pRect);
-			const bool Active = Enabled && pUi->CheckActiveItem(pButton);
-			const ColorRGBA Fill = !Enabled ? PopupNeutralDisabled : (Active ? PopupAccentPressed : (Hovered ? PopupNeutralHover : PopupNeutral));
-			const ColorRGBA Border = !Enabled ? PopupBorder : (Active ? PopupAccentPressed : (Hovered ? PopupAccentSoft : PopupBorder));
+			const bool IsActive = Enabled && pUi->CheckActiveItem(pButton);
+			const ColorRGBA Fill = !Enabled ? PopupNeutralDisabled : (IsActive ? PopupAccentPressed : (Hovered ? PopupNeutralHover : PopupNeutral));
+			const ColorRGBA Border = !Enabled ? PopupBorder : (IsActive ? PopupAccentPressed : (Hovered ? PopupAccentSoft : PopupBorder));
 			pRect->Draw(Border, IGraphics::CORNER_ALL, 3.0f);
 			CUIRect Inner = *pRect;
 			Inner.Margin(1.0f, &Inner);

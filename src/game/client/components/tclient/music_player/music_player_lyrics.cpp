@@ -22,7 +22,9 @@
 namespace
 {
 	static constexpr float LYRICS_SLOT_WIDTH = 70.0f;
-	static constexpr float LYRICS_LINE_SLIDE_MS = 260.0f;
+	static constexpr float LYRICS_LINE_SLIDE_MIN_MS = 80.0f;
+	static constexpr float LYRICS_LINE_SLIDE_MAX_MS = 260.0f;
+	static constexpr float LYRICS_LINE_SLIDE_INTERVAL_FRACTION = 0.12f;
 	static constexpr float LYRICS_TITLE_MARQUEE_GAP_FACTOR = 2.5f;
 	static constexpr ColorRGBA LYRICS_PASSED_COLOR(1.0f, 1.0f, 1.0f, 1.0f);
 	static constexpr ColorRGBA LYRICS_UPCOMING_COLOR(0.45f, 0.45f, 0.48f, 1.0f);
@@ -107,7 +109,7 @@ void CMusicPlayerLyrics::TickDisplay(float Delta)
 		m_NotFoundDisplayMs += std::max(0.0f, Delta) * 1000.0f;
 }
 
-int CMusicPlayerLyrics::ResolveDisplayLineIndex() const
+int CMusicPlayerLyrics::ResolveDisplayLineIndex(int64_t PositionMs) const
 {
 	if(m_DisplayState == EDisplayState::NotFound)
 		return (m_NotFoundDisplayMs < (float)NOT_FOUND_HOLD_MS) ? FALLBACK_NOT_FOUND : FALLBACK_TITLE;
@@ -115,7 +117,7 @@ int CMusicPlayerLyrics::ResolveDisplayLineIndex() const
 	if(m_DisplayState != EDisplayState::Ready)
 		return LINE_NONE;
 
-	const int64_t PositionMs = CurrentPositionMs();
+	PositionMs = std::max<int64_t>(0, PositionMs);
 	int LineIndex = FindLineIndex(PositionMs);
 	if(LineIndex < 0 && !m_vLines.empty())
 	{
@@ -141,7 +143,7 @@ float CMusicPlayerLyrics::PreferredTextSlotWidth(ITextRender *pTextRender, float
 
 	// The no-media fallback and track title shrink to content; lyrics, errors, and countdown keep full width.
 	const bool ShowNoMedia = m_DisplayState == EDisplayState::Idle;
-	const bool ShowTitle = m_DisplayState == EDisplayState::NotFound && ResolveDisplayLineIndex() == FALLBACK_TITLE;
+	const bool ShowTitle = m_DisplayState == EDisplayState::NotFound && ResolveDisplayLineIndex(CurrentPositionMs()) == FALLBACK_TITLE;
 	if(!ShowNoMedia && !ShowTitle)
 		return ClampedMax;
 
@@ -162,6 +164,7 @@ void CMusicPlayerLyrics::Reset()
 	m_DisplayState = EDisplayState::Idle;
 	m_vLines.clear();
 	m_OfflineRetryAt = 0;
+	m_UseLyricsOvhFallback = false;
 	ClearActiveTrack();
 }
 
@@ -170,6 +173,7 @@ void CMusicPlayerLyrics::ClearActiveTrack()
 	m_CurrentLineIndex = LINE_NONE;
 	m_OutgoingLineIndex = LINE_NONE;
 	m_LineTransitionT = 1.0f;
+	m_LineTransitionDurationMs = LYRICS_LINE_SLIDE_MAX_MS;
 	m_LayoutValid = false;
 	m_LayoutText.clear();
 	m_vCharMetrics.clear();
@@ -187,6 +191,7 @@ void CMusicPlayerLyrics::ClearLayoutState()
 	m_CurrentLineIndex = LINE_NONE;
 	m_OutgoingLineIndex = LINE_NONE;
 	m_LineTransitionT = 1.0f;
+	m_LineTransitionDurationMs = LYRICS_LINE_SLIDE_MAX_MS;
 	m_LayoutValid = false;
 	m_LayoutText.clear();
 	m_vCharMetrics.clear();
@@ -202,6 +207,7 @@ void CMusicPlayerLyrics::Disable()
 	m_DisplayState = EDisplayState::Idle;
 	m_vLines.clear();
 	m_OfflineRetryAt = 0;
+	m_UseLyricsOvhFallback = false;
 	ClearActiveTrack();
 }
 
@@ -215,19 +221,19 @@ void CMusicPlayerLyrics::AbortRequest()
 	m_RequestKey.clear();
 }
 
-std::string CMusicPlayerLyrics::BuildCacheKey(const char *pTitle, const char *pArtist, const char *pAlbum, int64_t DurationMs)
+std::string CMusicPlayerLyrics::BuildCacheKey(const char *pTitle, const char *pArtist, const char *pAlbum)
 {
-	const int DurationSec = (int)((std::max<int64_t>(0, DurationMs) + 500) / 1000);
 	std::string Key;
 	Key.reserve(160);
-	Key += "v3|";
+	// Duration often arrives in a later MPRIS metadata update. It narrows the
+	// LRCLIB request, but it is not track identity: changing it must not discard
+	// lyrics that are already on screen and trigger another network request.
+	Key += "v4|";
 	Key += pArtist ? pArtist : "";
 	Key += '|';
 	Key += pTitle ? pTitle : "";
 	Key += '|';
 	Key += pAlbum ? pAlbum : "";
-	Key += '|';
-	Key += std::to_string(DurationSec);
 	return Key;
 }
 
@@ -363,6 +369,45 @@ bool CMusicPlayerLyrics::ParseSyncedLyrics(const char *pSyncedLyrics, std::vecto
 	return !vOut.empty();
 }
 
+bool CMusicPlayerLyrics::ParsePlainLyrics(const char *pLyrics, int64_t DurationMs, std::vector<SLine> &vOut)
+{
+	vOut.clear();
+	if(pLyrics == nullptr || pLyrics[0] == '\0')
+		return false;
+
+	const char *p = pLyrics;
+	while(*p)
+	{
+		while(*p == '\r' || *p == '\n')
+			++p;
+		if(*p == '\0')
+			break;
+
+		const char *pLineStart = p;
+		while(*p && *p != '\n' && *p != '\r')
+			++p;
+		const char *pLineEnd = p;
+		while(pLineStart < pLineEnd && std::isspace((unsigned char)*pLineStart))
+			++pLineStart;
+		while(pLineEnd > pLineStart && std::isspace((unsigned char)pLineEnd[-1]))
+			--pLineEnd;
+		if(pLineStart == pLineEnd)
+			continue;
+
+		SLine Line;
+		Line.m_Text.assign(pLineStart, pLineEnd);
+		vOut.push_back(std::move(Line));
+	}
+
+	if(vOut.empty())
+		return false;
+
+	const int64_t TotalDurationMs = DurationMs > 0 ? DurationMs : (int64_t)vOut.size() * 4000;
+	for(int i = 0; i < (int)vOut.size(); ++i)
+		vOut[i].m_StartMs = (int64_t)i * TotalDurationMs / (int)vOut.size();
+	return true;
+}
+
 void CMusicPlayerLyrics::MergeConsecutiveIdenticalLines(std::vector<SLine> &vLines)
 {
 	if(vLines.size() < 2)
@@ -415,7 +460,13 @@ void CMusicPlayerLyrics::StartRequest(IHttp *pHttp, const char *pTitle, const ch
 
 	const int DurationSec = (int)((std::max<int64_t>(0, DurationMs) + 500) / 1000);
 	char aUrl[2048];
-	if(DurationSec >= 1 && DurationSec <= 3600)
+	if(m_UseLyricsOvhFallback)
+	{
+		str_format(aUrl, sizeof(aUrl),
+			"https://api.lyrics.ovh/v1/%s/%s",
+			aEscapedArtist, aEscapedTitle);
+	}
+	else if(DurationSec >= 1 && DurationSec <= 3600)
 	{
 		str_format(aUrl, sizeof(aUrl),
 			"https://lrclib.net/api/get?track_name=%s&artist_name=%s&album_name=%s&duration=%d",
@@ -429,10 +480,11 @@ void CMusicPlayerLyrics::StartRequest(IHttp *pHttp, const char *pTitle, const ch
 	}
 
 	m_pRequest = HttpGet(aUrl);
-	m_pRequest->Timeout(CTimeout{10000, 0, 500, 10});
+	m_pRequest->Timeout(CTimeout{m_UseLyricsOvhFallback ? 5000 : 2500, 0, 500, 5});
 	m_pRequest->LogProgress(HTTPLOG::FAILURE);
 	m_pRequest->FailOnErrorStatus(false);
-	m_pRequest->HeaderString("Lrclib-Client", "AMF Client/" AMF_CLIENT_VERSION " (https://github.com/AlyaDDNet/AMF-Client)");
+	m_pRequest->IpResolve(IPRESOLVE::V4);
+	m_pRequest->HeaderString("User-Agent", "AMF Client/" AMF_CLIENT_VERSION " (https://github.com/AlyaDDNet/AMF-Client)");
 	m_RequestKey = m_ActiveKey;
 	m_DisplayState = EDisplayState::Loading;
 	pHttp->Run(m_pRequest);
@@ -451,28 +503,45 @@ void CMusicPlayerLyrics::ProcessRequest()
 	if(FinishedKey != m_ActiveKey)
 		return;
 
-	// Done() is also true for ERROR/ABORTED — must not call StatusCode() unless DONE.
-	if(pFinished->State() != EHttpState::DONE)
-	{
+	auto RetryWithLyricsOvh = [this]() {
+		if(m_UseLyricsOvhFallback)
+			return false;
+		// lrclib.net is unavailable from some networks. Retry the same track with
+		// the public fallback instead of replacing its lyrics with an error.
+		m_UseLyricsOvhFallback = true;
+		m_DisplayState = EDisplayState::Offline;
+		m_OfflineRetryAt = 0;
+		return true;
+	};
+	auto ShowOffline = [this]() {
 		m_DisplayState = EDisplayState::Offline;
 		m_vLines.clear();
 		ClearActiveTrack();
 		m_OfflineRetryAt = time_get() + time_freq() * LYRICS_OFFLINE_RETRY_MS / 1000;
+	};
+
+	// Done() is also true for ERROR/ABORTED — must not call StatusCode() unless DONE.
+	if(pFinished->State() != EHttpState::DONE)
+	{
+		if(RetryWithLyricsOvh())
+			return;
+		ShowOffline();
 		return;
 	}
 
 	const int StatusCode = pFinished->StatusCode();
 	if(StatusCode == 0)
 	{
-		m_DisplayState = EDisplayState::Offline;
-		m_vLines.clear();
-		ClearActiveTrack();
-		m_OfflineRetryAt = time_get() + time_freq() * LYRICS_OFFLINE_RETRY_MS / 1000;
+		if(RetryWithLyricsOvh())
+			return;
+		ShowOffline();
 		return;
 	}
 
 	if(StatusCode == 404)
 	{
+		if(RetryWithLyricsOvh())
+			return;
 		SCacheEntry Entry;
 		Entry.m_State = EDisplayState::NotFound;
 		if(m_Cache.size() >= LYRICS_CACHE_MAX)
@@ -484,24 +553,40 @@ void CMusicPlayerLyrics::ProcessRequest()
 
 	if(StatusCode < 200 || StatusCode >= 300)
 	{
-		m_DisplayState = EDisplayState::Offline;
-		m_vLines.clear();
-		ClearActiveTrack();
-		m_OfflineRetryAt = time_get() + time_freq() * LYRICS_OFFLINE_RETRY_MS / 1000;
+		if(RetryWithLyricsOvh())
+			return;
+		ShowOffline();
 		return;
 	}
 
 	json_value *pRoot = pFinished->ResultJson();
 	SCacheEntry Entry;
 	Entry.m_State = EDisplayState::NotFound;
+	bool FoundLyrics = false;
 	if(pRoot != nullptr && pRoot != &json_value_none && pRoot->type == json_object)
 	{
-		const char *pSynced = JsonStringOrEmpty(json_object_get(pRoot, "syncedLyrics"));
-		if(ParseSyncedLyrics(pSynced, Entry.m_vLines))
+		if(!m_UseLyricsOvhFallback)
+		{
+			const char *pSynced = JsonStringOrEmpty(json_object_get(pRoot, "syncedLyrics"));
+			FoundLyrics = ParseSyncedLyrics(pSynced, Entry.m_vLines);
+			if(!FoundLyrics)
+			{
+				const char *pPlain = JsonStringOrEmpty(json_object_get(pRoot, "plainLyrics"));
+				FoundLyrics = ParsePlainLyrics(pPlain, m_ClockDurationMs, Entry.m_vLines);
+			}
+		}
+		else
+		{
+			const char *pPlain = JsonStringOrEmpty(json_object_get(pRoot, "lyrics"));
+			FoundLyrics = ParsePlainLyrics(pPlain, m_ClockDurationMs, Entry.m_vLines);
+		}
+		if(FoundLyrics)
 			Entry.m_State = EDisplayState::Ready;
 	}
 	if(pRoot)
 		json_value_free(pRoot);
+	if(!FoundLyrics && RetryWithLyricsOvh())
+		return;
 
 	if(m_Cache.size() >= LYRICS_CACHE_MAX)
 		m_Cache.clear();
@@ -569,7 +654,7 @@ void CMusicPlayerLyrics::Update(IHttp *pHttp, const char *pTitle, const char *pA
 		return;
 	}
 
-	const std::string Key = BuildCacheKey(pTitle, pArtist, pAlbum, DurationMs);
+	const std::string Key = BuildCacheKey(pTitle, pArtist, pAlbum);
 	const bool NewTrack = Key != m_ActiveKey;
 	if(NewTrack)
 	{
@@ -578,6 +663,7 @@ void CMusicPlayerLyrics::Update(IHttp *pHttp, const char *pTitle, const char *pA
 		m_vLines.clear();
 		ClearActiveTrack();
 		m_OfflineRetryAt = 0;
+		m_UseLyricsOvhFallback = false;
 		SyncMediaClock(SnapshotPositionMs, DurationMs, Playing, true);
 
 		const auto It = m_Cache.find(Key);
@@ -827,7 +913,7 @@ float CMusicPlayerLyrics::ComputeTextStartX(float AreaLeft, float AreaWidth, flo
 	return std::clamp(IdealStartX, MinStartX, MaxStartX);
 }
 
-void CMusicPlayerLyrics::Render(ITextRender *pTextRender, CUi *pUi, const CUIRect &Area, float FontSize, float Delta, float CountdownCenterX)
+void CMusicPlayerLyrics::Render(ITextRender *pTextRender, CUi *pUi, const CUIRect &Area, float FontSize, float Delta, float CountdownCenterX, int64_t PositionMs)
 {
 	if(pTextRender == nullptr || pUi == nullptr || Area.w <= 0.0f || Area.h <= 0.0f)
 		return;
@@ -862,8 +948,10 @@ void CMusicPlayerLyrics::Render(ITextRender *pTextRender, CUi *pUi, const CUIRec
 		return;
 	}
 
-	const int64_t PositionMs = CurrentPositionMs();
-	int LineIndex = ResolveDisplayLineIndex();
+	PositionMs = std::max<int64_t>(0, PositionMs);
+	if(m_ClockDurationMs > 0)
+		PositionMs = std::min(PositionMs, m_ClockDurationMs);
+	int LineIndex = ResolveDisplayLineIndex(PositionMs);
 	int64_t CountdownRemainingMs = 0;
 	if(IsCountdownIndex(LineIndex) && !m_vLines.empty())
 		CountdownRemainingMs = m_vLines.front().m_StartMs - PositionMs;
@@ -874,6 +962,18 @@ void CMusicPlayerLyrics::Render(ITextRender *pTextRender, CUi *pUi, const CUIRec
 			m_CurrentLineIndex != LINE_NONE && LineIndex == m_CurrentLineIndex + 1;
 		if(SequentialForward)
 		{
+			m_LineTransitionDurationMs = LYRICS_LINE_SLIDE_MAX_MS;
+			if(m_CurrentLineIndex >= 0 && LineIndex >= 0)
+			{
+				const int64_t PreviousLineDurationMs = std::max<int64_t>(1, m_vLines[LineIndex].m_StartMs - m_vLines[m_CurrentLineIndex].m_StartMs);
+				// The karaoke wipe already consumes the whole timestamp interval. Keep
+				// the line slide short, but make it faster for tightly packed lyrics so
+				// it finishes before the next text change.
+				m_LineTransitionDurationMs = std::clamp(
+					(float)PreviousLineDurationMs * LYRICS_LINE_SLIDE_INTERVAL_FRACTION,
+					LYRICS_LINE_SLIDE_MIN_MS,
+					LYRICS_LINE_SLIDE_MAX_MS);
+			}
 			m_OutgoingLineIndex = m_CurrentLineIndex;
 			m_LineTransitionT = 0.0f;
 		}
@@ -881,6 +981,7 @@ void CMusicPlayerLyrics::Render(ITextRender *pTextRender, CUi *pUi, const CUIRec
 		{
 			m_OutgoingLineIndex = LINE_NONE;
 			m_LineTransitionT = 1.0f;
+			m_LineTransitionDurationMs = LYRICS_LINE_SLIDE_MAX_MS;
 		}
 		m_CurrentLineIndex = LineIndex;
 		m_LayoutValid = false;
@@ -888,7 +989,7 @@ void CMusicPlayerLyrics::Render(ITextRender *pTextRender, CUi *pUi, const CUIRec
 
 	if(m_LineTransitionT < 1.0f)
 	{
-		m_LineTransitionT = std::clamp(m_LineTransitionT + Delta * 1000.0f / LYRICS_LINE_SLIDE_MS, 0.0f, 1.0f);
+		m_LineTransitionT = std::clamp(m_LineTransitionT + Delta * 1000.0f / m_LineTransitionDurationMs, 0.0f, 1.0f);
 		if(m_LineTransitionT >= 1.0f)
 			m_OutgoingLineIndex = LINE_NONE;
 	}
