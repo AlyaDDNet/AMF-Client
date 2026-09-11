@@ -1,276 +1,104 @@
-[![DDraceNetwork](docs/assets/TClient_Logo_Horizontal.svg)](https://tclient.app) 
+# AMF Client
 
-[![Build status](https://github.com/TaterClient/TClient/workflows/Build/badge.svg)](https://github.com/TaterClient/TClient/actions/workflows/build.yaml)
-<!-- [![Code coverage](https://github.com/TaterClient/TClient/branch/master/graph/badge.svg)](https://codecov.io/gh/TaterClient/TClient/branch/master) -->
-<!-- [![Translation status](https://hosted.weblate.org/widget/ddnet/ddnet/svg-badge.svg)](https://hosted.weblate.org/engage/ddnet/) -->
+> Неофициальный клиент DDNet с гибким HUD, игровыми инструментами и Music Player.
 
-### Taters custom ddnet client with some modifications
+## О проекте
 
-Not guaranteed to be bug free, but I will try to fix them.
+AMF Client построен на основе Best Client и DDNet. Это не просто набор скинов: у клиента есть собственные модули интерфейса, редактор HUD, предикт ввода, визуальные настройки и интеграция с медиаплеером. Он остаётся совместимым с серверами DDNet и не меняет правила игры.
 
-If ddnet devs are reading this and want to steal my changes please feel free.
+> AMF Client не связан с официальной командой DDNet. Некоторые функции могут быть недоступны на серверах с ограничениями.
 
-Thanks to tela for the logo design, and solly for svg <3
+## Ссылки
 
-### Links
+- [Релизы AMF Client](https://github.com/AlyaDDNet/AMF-Client/releases)
+- [Discord-сообщество](https://discord.gg/7zG28thvRV)
+- [Инструкция по сборке](docs/BUILDING.md)
 
-[Discord](https://discord.gg/BgPSapKRkZ)
-[Website](https://tclient.app)
+## Скриншоты
 
-### Installation
+Снимки сделаны в текущей локальной сборке клиента.
 
-* Download the latest [release](https://github.com/sjrc6/TaterClient-ddnet/releases)
-* Download a [nightly (dev/unstable) build](https://github.com/sjrc6/TaterClient-ddnet/actions/workflows/fast-build.yml?query=branch%3Amaster)
-* [Clone](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) this repo and build using the [guide from DDNet](https://github.com/ddnet/ddnet?tab=readme-ov-file#cloning)
+### Настройки → AMF Client → Основное
 
-### Translation
+![Основные настройки AMF Client](docs/assets/screenshots/amf-general.png)
 
-FTAPI (a simple wrapper for Google translate) will work out of the box, however it will quickly become overloaded
+### Настройки → AMF Client → Визуальное
 
-This is a guide for setting up [libretranslate](https://docs.libretranslate.com/guides/installation/)
+![Визуальные настройки AMF Client](docs/assets/screenshots/amf-visual.png)
 
-First you need an old version of python (3.8, 3.9 or 3.10), along with `pip`
+### Music Player
 
-If you do not have this you can use [conda](https://www.anaconda.com/docs/getting-started/miniconda/install#quickstart-install-instructions) to install it
+![Настройки Music Player](docs/assets/screenshots/amf-music-player.png)
+
+## Главные возможности
+
+| Music Player | Редактор HUD |
+| --- | --- |
+| - Название трека, обложка, таймер и визуализатор<br>- Текст песни и плавная смена строк<br>- На Linux: MPRIS-плееры, включая Spotify, VLC, mpv и браузерные медиа-сессии | - Перенос и масштабирование AMF-модулей прямо в игре<br>- Сохранение позиций каждого элемента<br>- Отдельная настройка Music Player, индикаторов и HUD |
+| **Предикт ввода** | **Визуальная настройка** |
+| - Fast, Best, Saiko, Saiko+, Delta, F, Cloud и Meow<br>- Auto Margin по задержке и джиттеру<br>- Snap Tap для противоположных направлений | - Плавные анимации интерфейса, чата и таба<br>- Градиенты никнеймов и командных цветов<br>- Соотношение сторон, эффекты оружия и Motion Blur |
+
+## Обзор функций
+
+### Визуальное
+
+- Music Player: обложка или статичный цвет, масштаб текста, столбики и положение визуализатора, скругление, текст песни и текущее время.
+- Плавный HUD и анимации меню, чата, таблицы счёта и стартового экрана.
+- Индикатор AMF Client возле никнеймов и фильтр серверов с пользователями AMF Client.
+- Настраиваемое соотношение сторон: пресеты, собственный размер и безопасное подтверждение перед применением.
+- Градиентные никнеймы, командные цвета, эффекты винтовки и дробовика, движущиеся тайлы и Tune Zone.
+- Индикаторы клавиш/мыши с CPS и стилями Default или Minecraft.
+- Motion Blur на Vulkan.
+
+### Игра
+
+- Режимы предикта Fast, Best, Saiko, Saiko+, Delta, F, Cloud и Meow.
+- Auto Margin для подстройки запаса предикта по сети.
+- Snap Tap для приоритета последнего нажатого направления.
+- Focus Mode: скрывает отвлекающие элементы по выбору — имена, эффекты, HUD, чат, таблицу счёта и музыкальный плеер.
+
+### Вне меню
+
+- Discord Rich Presence.
+- Профили, конфиги, бинды и колесо биндов.
+- Перевод чата.
+- Скрипты ChaiScript. Они не запускаются в песочнице: используй только файлы, которым доверяешь.
+
+## Где искать настройки
+
+1. Открой **Настройки** через значок шестерёнки.
+2. Справа выбери **AMF Client**.
+3. **Основное** — ввод, Auto Margin, Snap Tap, Focus Mode и системные настройки.
+4. **Визуальное** — HUD, Music Player, эффекты, индикаторы и соотношение сторон.
+5. Для редактора HUD подключись к серверу и нажми **Редактор HUD**.
+
+## Сборка
+
+Сначала инициализируй подмодули:
 
 ```sh
-conda create -n libretranslate python=3.9
-conda activate libretranslate
+git submodule update --init --recursive
 ```
 
-Then you can install and run libretranslate, do note that this requires large libraries like `torch` so it's a couple of gigs
+Быстрая сборка клиента на Linux:
 
 ```sh
-pip install libretranslate
-libretranslate
+cmake -S . -B build -G Ninja
+cmake --build build --target game-client -j"$(nproc)"
 ```
 
-You can then set `tc_translate_backend libretranslate`, the port is automatically 5000
+`$(nproc)` задействует все доступные ядра процессора.
 
-### Scripting
+Для полной Linux-интеграции Music Player поставь DBus и PulseAudio-совместимые библиотеки. С PipeWire визуализатор работает при включённом PulseAudio compatibility service.
 
-TClient supports the [ChaiScript](https://chaiscript.com/) language for simple tasks
+- Debian/Ubuntu: `libdbus-1-dev libpulse-dev`
+- Arch Linux: `dbus libpulse`
+- Fedora: `dbus-devel pulseaudio-libs-devel`
 
-Add scripts to your config dir then run them with `chai [scriptname] [args]`
+Без этих библиотек клиент всё равно собирается, но часть возможностей Linux Music Player недоступна.
 
-> [!CAUTION]
-> There are no runtime restrictions, you can easily `while (true) {}` yourself or run out of memory, be careful!
+## Благодарности и лицензия
 
-```js
-var a // Declare a variable
-a = 1 // Set it
-var b = 2 // Do both at once
-var c = "strings"
-var d = ["lists", 2] // not strongly typed
-// var e, f = d // no list deconstruction
-print(d[0] + to_string(d[1])) // explicit to_string required for string concat
-var bass = "ba" + "s" + "s"
-var ass = bass.substr(1, -1) // both indices required, use -1 for end
-if (a == b) { // brackets required
-	print("this will never happen") // output
-} else if (c == "strings") { // string comparison
-	exec("echo hello world") // run console stuff
-}
-var current_game_mode = state("game_mode") // Get the current game mode, all states you can get are listed below
-def myfunc(a, b, c) { // yeah it uses def for function definition idk
-	print(a, b, c)
-	if (a == b) { return "early" }
-	c // last statement returns like in rust
-}
-print(myfunc(1, 2, 3)) // prints "early"
-for (var i = 0; i < 10; i += 1) { // for loops (c style)
-	print(i) // auto converts to string, will throw if it cant
-}
-return "top level return"
-```
+Спасибо авторам DDNet и Best Client за основу проекта, а также участникам и тестерам AMF Client.
 
-Here is a list of states which are available:
-
-| Return type | Call | Description |
-| --- | -- | --- |
-| `string` | `state("game_mode")` | Returns the current game mode name (e.g., “DM”, “TDM”, “CTF”). |
-| `bool` | `state("game_mode_pvp")` | Whether the current mode is PvP. |
-| `bool` | `state("game_mode_race")` | Whether the current mode is a race mode. |
-| `bool` | `state("eye_wheel_allowed")` | Whether the “eye wheel” feature is allowed on this server. |
-| `bool` | `state("zoom_allowed")` | Whether camera zoom is allowed. |
-| `bool` | `state("dummy_allowed")` | Whether using a dummy client is allowed. |
-| `bool` | `state("dummy_connected")` | Whether the dummy client is currently connected. |
-| `bool` | `state("rcon_authed")` | Whether the client is authenticated with RCON (admin access). |
-| `int` | `state("team")` | The player’s current team number. |
-| `int` | `state("ddnet_team")` | The player’s DDNet team number. |
-| `string` | `state("map")` | The name of the current or connecting map. |
-| `string` | `state("server_ip")` | The IP address of the connected or connecting server. |
-| `int` | `state("players_connected")` | Number of currently connected players. |
-| `int` | `state("players_cap")` | Maximum number of players the server supports. |
-| `string` | `state("server_name")` | The server’s name. |
-| `string` | `state("community")` | The server’s community identifier. |
-| `string` | `state("location")` | The player’s approximate map location (“NW”, “C”, “SE”, etc.). |
-| `string` | `state("state")` | The client’s connection state (e.g., “online”, “offline”, “loading”, “demo”). |
-| `int` | `state("id", string Name)` | Finds and returns a client ID by player name (exact or case-insensitive match). |
-| `string` | `state("name", int Id)` | Returns the name of a player given their client ID. |
-| `string` | `state("clan", int Id)` | Returns the clan name of a player given their client ID. |
-
-```js
-var what = include("thatscript.chai") // you can include other scripts, they use absolute paths from config dir
-print(what) // prints "top level return"
-if (!file_exists("file")) { // check if a file exists, also absolute from config dir
-	throw("why doesn't this file exist")
-}
-```
-
-There is also `math` and `re` modules
-
-```js
-import("math")
-math.pi
-math.e
-math.pow(1, 2)
-math.sqrt(3)
-math.sin(1)
-math.cos(1)
-math.tan(1)
-math.asin(1)
-math.acos(1)
-math.atan(1)
-math.atan2(1, 1)
-math.log(1)
-math.log10(1)
-math.log2(1)
-math.ceil(1)
-math.floor(1)
-math.round(1)
-math.abs(1)
-```
-
-```js
-import("re")
-
-if(re.test(re.compile(".+?ello.+?"), "hello")) { // re.test(r, string)
-	print("hi")
-}
-re.match(re.compile("\\d"), "h3ll0", false, fun[](str, match, group) { // re.match(r, string, global, callback)
-	print("not global: " + to_string(match) + " " + str)
-})
-re.match(re.compile("\\d"), "h3ll0", true, fun[](str, match, group) {
-	print("global: " + to_string(match) + " " + str)
-})
-re.match(re.compile("(h3)l(l0)"), "h3ll0", false, fun[](str, match, group) {
-	print("groups: " + to_string(match) + " " + to_string(group) + " " + str)
-})
-print(re.replace(re.compile("\\d"), "h3ll0", true, fun[](str, match, group) { // re.replace(r, string, global, callback)
-	if (str == "3") {
-		return "e"
-	} else if (str == "0") {
-		return "o"
-	}
-	return str
-}))
-```
-
-### Settings Page
-
-> [!NOTE]
-> This is out of date
-
-![image](https://github.com/user-attachments/assets/a6ccb206-9fed-48be-a2d2-8fc50a6be882)
-![image](https://github.com/user-attachments/assets/9251509a-d852-41ac-bf6b-9a610db08945)
-![image](https://github.com/user-attachments/assets/47dab977-1311-4963-a11a-81b78005b12b)
-![image](https://github.com/user-attachments/assets/29bddfd9-fcf1-420c-b7e0-958493051a3c)
-![image](https://github.com/user-attachments/assets/efe3528f-a962-4dc0-aa8c-9ca963c246e5)
-![image](https://github.com/user-attachments/assets/9f15023d-2a27-44ee-8157-e76da53c875a)
-
-![image](https://user-images.githubusercontent.com/22122579/182528700-4c8238c3-836e-49c3-9996-68025e7f5d58.png)
-
-### Features
-
-> [!NOTE]
-> This is out of date
-
-```
-tc_run_on_join_console
-tc_run_on_join_delay
-tc_nameplate_ping_circle
-tc_hammer_rotates_with_cursor
-tc_freeze_update_fix
-tc_show_center
-tc_skin_name
-tc_color_freeze
-tc_freeze_stars
-tc_white_feet
-tc_white_feet_skin
-tc_mini_debug
-tc_last_notify
-tc_last_notify_text
-tc_last_notify_color
-tc_cursor_in_spec
-tc_render_nameplate_spec
-tc_fast_input
-tc_fast_input_others
-tc_improve_mouse_precision
-tc_frozen_tees_hud
-tc_frozen_tees_text
-tc_frozen_tees_hud_skins
-tc_frozen_tees_size
-tc_frozen_tees_max_rows
-tc_frozen_tees_only_inteam
-tc_remove_anti
-tc_remove_anti_ticks
-tc_remove_anti_delay_ticks
-tc_unpred_others_in_freeze
-tc_pred_margin_in_freeze
-tc_pred_margin_in_freeze_amount
-tc_show_others_ghosts
-tc_swap_ghosts
-tc_hide_frozen_ghosts
-tc_pred_ghosts_alpha
-tc_unpred_ghosts_alpha
-tc_render_ghost_as_circle
-tc_outline
-tc_outline_in_entities
-tc_outline_freeze
-tc_outline_unfreeze
-tc_outline_tele
-tc_outline_solid
-tc_outline_width
-tc_outline_alpha
-tc_outline_alpha_solid
-tc_outline_color_solid
-tc_outline_color_freeze
-tc_outline_color_tele
-tc_outline_color_unfreeze
-tc_player_indicator
-tc_player_indicator_freeze
-tc_indicator_alive
-tc_indicator_freeze
-tc_indicator_dead
-tc_indicator_offset
-tc_indicator_offset_max
-tc_indicator_variable_distance
-tc_indicator_variable_max_distance
-tc_indicator_radius
-tc_indicator_opacity
-tc_indicator_inteam
-tc_indicator_tees
-tc_profile_skin
-tc_profile_name
-tc_profile_clan
-tc_profile_flag
-tc_profile_colors
-tc_profile_emote
-tc_auto_verify
-tc_rainbow
-tc_rainbow_others
-tc_rainbow_mode
-tc_reset_bindwheel_mouse
-add_profile
-add_bindwheel
-remove_bindwheel
-delete_all_bindwheel_binds
-+bindwheel_execute_hover
-+bindwheel
-tc_regex_chat_ignore
-tc_color_freeze_darken
-tc_color_freeze_feet
-tc_spec_menu_ID
-tc_limit_mouse_to_screen
-```
+Код DDNet/Teeworlds, сторонние библиотеки и ассеты сохраняют свои лицензии. Подробности — в [license.txt](license.txt) и файлах лицензий внутри соответствующих каталогов.
