@@ -9,16 +9,14 @@
 #include <engine/demo.h>
 #include <engine/font_icons.h>
 #include <engine/graphics.h>
-#include <engine/serverbrowser.h>
+#include <engine/http.h>
 #include <engine/shared/config.h>
-#include <engine/shared/http.h>
 #include <engine/textrender.h>
 
 #include <generated/client_data7.h>
 #include <generated/protocol.h>
 
 #include <game/client/animstate.h>
-#include <game/client/components/tclient/amf_gradient.h>
 #include <game/client/components/countryflags.h>
 #include <game/client/components/motd.h>
 #include <game/client/components/statboard.h>
@@ -27,11 +25,11 @@
 #include <game/client/ui.h>
 #include <game/localization.h>
 
-namespace
-{
-constexpr int SERVER_CHAT_CLIENT_ID = -1;
-constexpr float MARGIN = 10.0f;
-}
+#include <game/client/components/tclient/amf_gradient.h>
+
+// Horizontal spacing of the scoreboard contents, both to its edges and between columns
+static constexpr float MARGIN = 10.0f;
+static constexpr const char *SCOREBOARD_CURSOR_BIND_NAME = "toggle_scoreboard_cursor";
 
 CScoreboard::CScoreboard()
 {
@@ -44,9 +42,6 @@ float CScoreboard::GetPopupHeight(int ClientId, bool IsLocal, bool IsSpectating)
 		return 0.0f;
 
 	constexpr float Margin = 5.0f;
-	// CUi adds a 1 px border and 4 px margin before this popup's renderer gets
-	// its view. Account for that outer padding as well as the renderer's own
-	// margin, so the action stack ends above the popup frame.
 	constexpr float PopupFrameMargin = 5.0f;
 	constexpr float FontSize = 12.0f;
 	constexpr float ItemSpacing = 2.0f;
@@ -56,9 +51,6 @@ float CScoreboard::GetPopupHeight(int ClientId, bool IsLocal, bool IsSpectating)
 	float Height = (Margin + PopupFrameMargin) * 2.0f + FontSize;
 	if(!IsLocal)
 	{
-		// Donor action row, its six standard player actions, AMF's chat-
-		// equivalent Block/Mute actions, the team Join/Invite actions and the
-		// already available AMF WarList quick-action row.
 		Height += ItemSpacing * 2.0f + ActionSize;
 		Height += (ItemSpacing * 2.0f + ButtonSize) * 10.0f;
 		Height += ItemSpacing * 2.0f + ActionSize;
@@ -102,8 +94,6 @@ float CScoreboard::GetPopupWidth(int ClientId, bool IsLocal, bool IsSpectating) 
 	if(!IsSpectating)
 		AddLabelWidth(Localize("Spectate"));
 
-	// Keep the popup usable on every supported UI resolution while reserving
-	// enough space for the longest translated action label.
 	return std::min(Width, std::max(MinWidth, Ui()->Screen()->w - 10.0f));
 }
 
@@ -145,24 +135,15 @@ void CScoreboard::LockMouse()
 void CScoreboard::ConKeyScoreboard(IConsole::IResult *pResult, void *pUserData)
 {
 	CScoreboard *pSelf = static_cast<CScoreboard *>(pUserData);
-	const bool Activate = pResult->GetInteger(0) != 0;
 
 	pSelf->GameClient()->m_Spectator.OnRelease();
 	pSelf->GameClient()->m_Emoticon.OnRelease();
 
-	pSelf->m_Active = Activate;
+	pSelf->m_Active = pResult->GetInteger(0) != 0;
 	pSelf->m_SmoothHudTargetActive = pSelf->IsActive();
-	if(pSelf->m_SmoothHudTargetActive &&
-		g_Config.m_AmfSmoothHud &&
-		g_Config.m_AmfAnimScoreboard &&
-		pSelf->m_SmoothHudOpenProgress <= 0.002f)
-	{
-		// A fully closed scoreboard starts above its final position. Reopening
-		// during a close keeps the current offset to avoid a direction jump.
+	if(pSelf->m_SmoothHudTargetActive && g_Config.m_AmfSmoothHud && g_Config.m_AmfAnimScoreboard && pSelf->m_SmoothHudOpenProgress <= 0.002f)
 		pSelf->m_SmoothHudOffsetY = -(float)g_Config.m_AmfAnimScoreboardSlideDistance;
-	}
-	else if(!pSelf->m_SmoothHudTargetActive &&
-		(!g_Config.m_AmfSmoothHud || !g_Config.m_AmfAnimScoreboard))
+	else if(!pSelf->m_SmoothHudTargetActive && (!g_Config.m_AmfSmoothHud || !g_Config.m_AmfAnimScoreboard))
 	{
 		pSelf->m_SmoothHudOpenProgress = 0.0f;
 		pSelf->m_SmoothHudOffsetY = 0.0f;
@@ -211,7 +192,7 @@ void CScoreboard::ConToggleScoreboardCursor(IConsole::IResult *pResult, void *pU
 void CScoreboard::OnConsoleInit()
 {
 	Console()->Register("+scoreboard", "", CFGFLAG_CLIENT, ConKeyScoreboard, this, "Show scoreboard");
-	Console()->Register("toggle_scoreboard_cursor", "", CFGFLAG_CLIENT, ConToggleScoreboardCursor, this, "Toggle scoreboard cursor");
+	Console()->Register(SCOREBOARD_CURSOR_BIND_NAME, "", CFGFLAG_CLIENT, ConToggleScoreboardCursor, this, "Toggle scoreboard cursor");
 }
 
 void CScoreboard::OnInit()
@@ -228,6 +209,35 @@ void CScoreboard::OnReset()
 	m_SmoothHudTargetActive = false;
 	m_MouseUnlocked = false;
 	m_LastMousePos = std::nullopt;
+}
+
+void CScoreboard::ResetTexts()
+{
+	for(CPlayerElement &Player : m_aPlayers)
+	{
+		Player.m_Score.Reset(TextRender());
+		Player.m_ScoreMillis.Reset(TextRender());
+		Player.m_Name.Reset(TextRender());
+		Player.m_ReadyMark.Reset(TextRender());
+		Player.m_Clan.Reset(TextRender());
+		Player.m_Ping.Reset(TextRender());
+	}
+	m_TitleScore.Reset(TextRender());
+	m_TitleScoreMillis.Reset(TextRender());
+	m_HeadlineScore.Reset(TextRender());
+	m_HeadlineName.Reset(TextRender());
+	m_HeadlineClan.Reset(TextRender());
+	m_HeadlinePing.Reset(TextRender());
+}
+
+void CScoreboard::OnShutdown()
+{
+	ResetTexts();
+}
+
+void CScoreboard::OnWindowResize()
+{
+	ResetTexts();
 }
 
 void CScoreboard::OnRelease()
@@ -316,7 +326,8 @@ void CScoreboard::RenderTitleScore(CUIRect ScoreLabel, int Team, float TitleFont
 				GameClient()->m_MapBestTimeSeconds,
 				GameClient()->m_MapBestTimeSeconds == FinishTime::NOT_FINISHED_MILLIS,
 				GameClient()->m_MapBestTimeMillis,
-				GameClient()->m_ReceivedDDNetPlayerFinishTimesMillis);
+				GameClient()->m_ReceivedDDNetPlayerFinishTimesMillis,
+				m_TitleScore, m_TitleScoreMillis, WithRenderAlpha(TextRender()->DefaultTextColor()));
 			return;
 		}
 	}
@@ -491,15 +502,15 @@ void CScoreboard::RenderSpectators(CUIRect Spectators)
 		}
 
 		const bool ShowAmfIndicator = GameClient()->m_AmfClientIndicator.CanRender(pInfo->m_ClientId);
-		const float IndicatorSize = Cursor.m_FontSize;
-		const float IndicatorSpacing = 2.0f;
-		TextRender()->TextEx(&Cursor, GameClient()->m_aClients[pInfo->m_ClientId].m_aName);
+		if(AmfGradient::NicknamesEnabled())
+			AmfGradient::AppendNicknameColorSplits(Cursor, ClientData.m_aName, pInfo->m_ClientId, GameClient(), TextRender()->GetTextColor());
+		TextRender()->TextEx(&Cursor, ClientData.m_aName);
 		if(ShowAmfIndicator)
 		{
-			Cursor.m_X += IndicatorSpacing;
-			const CUIRect IndicatorRect = {Cursor.m_X, Cursor.m_Y, IndicatorSize, IndicatorSize};
+			Cursor.m_X += 2.0f;
+			const CUIRect IndicatorRect = {Cursor.m_X, Cursor.m_Y, Cursor.m_FontSize, Cursor.m_FontSize};
 			GameClient()->m_AmfClientIndicator.RenderIcon(IndicatorRect, m_SmoothHudRenderAlpha);
-			Cursor.m_X += IndicatorSize;
+			Cursor.m_X += Cursor.m_FontSize;
 		}
 		TextRender()->TextColor(WithRenderAlpha(TextRender()->DefaultTextColor()));
 
@@ -533,7 +544,7 @@ void CScoreboard::RenderSpectators(CUIRect Spectators)
 			{
 				ButtonResult = Ui()->DoButtonLogic(&m_aPlayers[pInfo->m_ClientId].m_SpectatorSecondLineButtonId, 0, &SpectatorRectLineBreak, BUTTONFLAG_LEFT | BUTTONFLAG_RIGHT);
 			}
-			if(ButtonResult == BUTTONFLAG_LEFT || ButtonResult == BUTTONFLAG_RIGHT)
+			if(ButtonResult != 0)
 				OpenPlayerPopup(pInfo->m_ClientId, true, Ui()->MouseX(), Ui()->MouseY());
 
 			if(Ui()->HotItem() == &m_aPlayers[pInfo->m_ClientId].m_PlayerButtonId ||
@@ -554,7 +565,7 @@ void CScoreboard::RenderSpectators(CUIRect Spectators)
 	}
 }
 
-void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart, int CountEnd, CScoreboardRenderState &State)
+void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart, int CountEnd, CScoreboardRenderState &State, int NumPlayersForSize)
 {
 	dbg_assert(Team == TEAM_RED || Team == TEAM_BLUE, "Team invalid");
 
@@ -563,7 +574,7 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 	const bool TimeScore = GameClient()->m_GameInfo.m_TimeScore;
 	const bool MillisecondScore = GameClient()->m_ReceivedDDNetPlayerFinishTimes;
 	const bool TrueMilliseconds = GameClient()->m_ReceivedDDNetPlayerFinishTimesMillis;
-	const int NumPlayers = CountEnd - CountStart;
+	const int NumPlayers = NumPlayersForSize >= 0 ? NumPlayersForSize : (CountEnd - CountStart);
 	const bool LowScoreboardWidth = Scoreboard.w < 350.0f;
 
 	bool Race7 = Client()->IsSixup() && pGameInfoObj && pGameInfoObj->m_GameFlags & protocol7::GAMEFLAG_RACE;
@@ -616,7 +627,7 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 		RoundRadius = 2.5f;
 		FontSize = 8.0f;
 	}
-	else if(LowScoreboardWidth)
+	else if(LowScoreboardWidth && NumPlayers <= 48)
 	{
 		LineHeight = 7.5f;
 		TeeSizeMod = 0.125f;
@@ -638,29 +649,37 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 	const float TeeOffset = ScoreOffset + ScoreLength + MARGIN;
 	const float TeeLength = 60.0f * TeeSizeMod;
 	const float NameOffset = TeeOffset + TeeLength;
-	const float NameLength = (LowScoreboardWidth ? 90.0f : 150.0f) - TeeLength;
 	const float CountryLength = (LineHeight - Spacing - TeeSizeMod * 5.0f) * 2.0f;
 	const float PingLength = 27.5f;
 	const float PingOffset = Scoreboard.x + Scoreboard.w - PingLength - MARGIN;
 	const float CountryOffset = PingOffset - CountryLength;
+
+	float NameLength = (LowScoreboardWidth ? 90.0f : 150.0f) - TeeLength;
+	const float MinMiddleGap = 5.0f; // 2.5 before and after clan
+	const float AvailableMiddle = CountryOffset - NameOffset;
+	if(NameLength + MinMiddleGap > AvailableMiddle)
+	{
+		const float Shrinkable = AvailableMiddle - MinMiddleGap;
+		NameLength = std::max(0.0f, Shrinkable * 0.7f);
+	}
+
 	const float ClanOffset = NameOffset + NameLength + 2.5f;
-	const float ClanLength = CountryOffset - ClanOffset - 2.5f;
+	const float ClanLength = std::max(0.0f, CountryOffset - ClanOffset - 2.5f);
 
 	// render headlines
 	const float HeadlineFontsize = 11.0f;
 	CUIRect Headline;
 	Scoreboard.HSplitTop(HeadlineFontsize * 2.0f, &Headline, &Scoreboard);
 	const float HeadlineY = Headline.y + Headline.h / 2.0f - HeadlineFontsize / 2.0f;
-	const ColorRGBA HeadlineColor = TextRender()->DefaultTextColor();
-	TextRender()->TextColor(HeadlineColor);
-	const char *pHeadlineScore = UseTime ? Localize("Time") : Localize("Score");
-	const char *pHeadlineName = Localize("Name");
-	const char *pHeadlineClan = Localize("Clan");
-	const char *pHeadlinePing = Localize("Ping");
-	TextRender()->Text(ScoreOffset + ScoreLength - TextRender()->TextWidth(HeadlineFontsize, pHeadlineScore), HeadlineY, HeadlineFontsize, pHeadlineScore);
-	TextRender()->Text(NameOffset, HeadlineY, HeadlineFontsize, pHeadlineName);
-	TextRender()->Text(ClanOffset + (ClanLength - TextRender()->TextWidth(HeadlineFontsize, pHeadlineClan)) / 2.0f, HeadlineY, HeadlineFontsize, pHeadlineClan);
-	TextRender()->Text(PingOffset + PingLength - TextRender()->TextWidth(HeadlineFontsize, pHeadlinePing), HeadlineY, HeadlineFontsize, pHeadlinePing);
+	const ColorRGBA HeadlineColor = WithRenderAlpha(TextRender()->DefaultTextColor());
+	m_HeadlineScore.Update(TextRender(), UseTime ? Localize("Time") : Localize("Score"), HeadlineFontsize);
+	m_HeadlineName.Update(TextRender(), Localize("Name"), HeadlineFontsize);
+	m_HeadlineClan.Update(TextRender(), Localize("Clan"), HeadlineFontsize);
+	m_HeadlinePing.Update(TextRender(), Localize("Ping"), HeadlineFontsize);
+	m_HeadlineScore.Render(TextRender(), vec2(ScoreOffset + ScoreLength - m_HeadlineScore.Width(), HeadlineY), HeadlineColor);
+	m_HeadlineName.Render(TextRender(), vec2(NameOffset, HeadlineY), HeadlineColor);
+	m_HeadlineClan.Render(TextRender(), vec2(ClanOffset + (ClanLength - m_HeadlineClan.Width()) / 2.0f, HeadlineY), HeadlineColor);
+	m_HeadlinePing.Render(TextRender(), vec2(PingOffset + PingLength - m_HeadlinePing.Width(), HeadlineY), HeadlineColor);
 
 	// render player entries
 	int CountRendered = 0;
@@ -668,7 +687,7 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 	int &CurrentDDTeamSize = State.m_CurrentDDTeamSize;
 
 	char aBuf[64];
-	int MaxTeamSize = Config()->m_SvMaxTeamSize;
+	int MaxTeamSize = GameClient()->MaxTeamSize();
 
 	for(int RenderDead = 0; RenderDead < 2; RenderDead++)
 	{
@@ -689,7 +708,7 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 			int DDTeam = GameClient()->m_Teams.Team(pInfo->m_ClientId);
 			int NextDDTeam = 0;
 
-			ColorRGBA TextColor = WithRenderAlpha(TextRender()->DefaultTextColor());
+			ColorRGBA TextColor = TextRender()->DefaultTextColor();
 			TextColor.a = RenderDead ? 0.5f : 1.0f;
 			TextColor.a *= m_SmoothHudRenderAlpha;
 			TextRender()->TextColor(TextColor);
@@ -738,10 +757,7 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 				{
 					ColorRGBA TopLeft, TopRight, BottomLeft, BottomRight;
 					AmfGradient::GetBackgroundGradient(Color, TopLeft, TopRight, BottomLeft, BottomRight);
-					RowAndSpacing.Draw4(
-						WithRenderAlpha(TopLeft), WithRenderAlpha(TopRight),
-						WithRenderAlpha(BottomLeft), WithRenderAlpha(BottomRight),
-						TeamRectCorners, RoundRadius);
+					RowAndSpacing.Draw4(WithRenderAlpha(TopLeft), WithRenderAlpha(TopRight), WithRenderAlpha(BottomLeft), WithRenderAlpha(BottomRight), TeamRectCorners, RoundRadius);
 				}
 				else
 				{
@@ -756,7 +772,7 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 
 					if(NumPlayers > 8)
 					{
-						if(DDTeam == TEAM_SUPER)
+						if(DDTeam == GameClient()->m_Teams.TeamSuper())
 							str_copy(aBuf, Localize("Super"));
 						else if(CurrentDDTeamSize <= 1)
 							str_format(aBuf, sizeof(aBuf), "%d", DDTeam);
@@ -766,7 +782,7 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 					}
 					else
 					{
-						if(DDTeam == TEAM_SUPER)
+						if(DDTeam == GameClient()->m_Teams.TeamSuper())
 							str_copy(aBuf, Localize("Super"));
 						else if(CurrentDDTeamSize > 1)
 							str_format(aBuf, sizeof(aBuf), Localize("Team %d (%d/%d)"), DDTeam, CurrentDDTeamSize, MaxTeamSize);
@@ -793,8 +809,8 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 
 			if(m_MouseUnlocked)
 			{
-				const int ButtonResult = Ui()->DoButtonLogic(&m_aPlayers[pInfo->m_ClientId].m_PlayerButtonId, 0, &Row, BUTTONFLAG_LEFT | BUTTONFLAG_RIGHT);
-				if(ButtonResult == BUTTONFLAG_LEFT || ButtonResult == BUTTONFLAG_RIGHT)
+				const int ButtonResult = Ui()->DoButtonLogic(&Player.m_PlayerButtonId, 0, &Row, BUTTONFLAG_LEFT | BUTTONFLAG_RIGHT);
+				if(ButtonResult != 0)
 					OpenPlayerPopup(pInfo->m_ClientId, false, Ui()->MouseX(), Ui()->MouseY());
 
 				if(Ui()->HotItem() == &Player.m_PlayerButtonId ||
@@ -813,20 +829,24 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 
 			if(Race7)
 			{
-				Ui()->RenderTime(ScorePosition, FontSize, pInfo->m_Score / 1000, pInfo->m_Score == protocol7::FinishTime::NOT_FINISHED, pInfo->m_Score % 1000, true);
+				Ui()->RenderTime(ScorePosition, FontSize, pInfo->m_Score / 1000, pInfo->m_Score == protocol7::FinishTime::NOT_FINISHED, pInfo->m_Score % 1000, true,
+					Player.m_Score, Player.m_ScoreMillis, TextColor);
 			}
 			else if(MillisecondScore)
 			{
-				Ui()->RenderTime(ScorePosition, FontSize, ClientData.m_FinishTimeSeconds, ClientData.m_FinishTimeSeconds == FinishTime::NOT_FINISHED_MILLIS, ClientData.m_FinishTimeMillis, TrueMilliseconds);
+				Ui()->RenderTime(ScorePosition, FontSize, ClientData.m_FinishTimeSeconds, ClientData.m_FinishTimeSeconds == FinishTime::NOT_FINISHED_MILLIS, ClientData.m_FinishTimeMillis, TrueMilliseconds,
+					Player.m_Score, Player.m_ScoreMillis, TextColor);
 			}
 			else if(TimeScore)
 			{
-				Ui()->RenderTime(ScorePosition, FontSize, pInfo->m_Score, pInfo->m_Score == FinishTime::NOT_FINISHED_TIMESCORE, -1, false);
+				Ui()->RenderTime(ScorePosition, FontSize, pInfo->m_Score, pInfo->m_Score == FinishTime::NOT_FINISHED_TIMESCORE, -1, false,
+					Player.m_Score, Player.m_ScoreMillis, TextColor);
 			}
 			else
 			{
 				str_format(aBuf, sizeof(aBuf), "%d", std::clamp(pInfo->m_Score, -999, 99999));
-				TextRender()->Text(ScoreOffset + ScoreLength - TextRender()->TextWidth(FontSize, aBuf), ScorePosition.y + (Row.h - FontSize) / 2.0f, FontSize, aBuf);
+				Player.m_Score.Update(TextRender(), aBuf, FontSize);
+				Player.m_Score.Render(TextRender(), vec2(ScoreOffset + ScoreLength - Player.m_Score.Width(), ScorePosition.y + (Row.h - FontSize) / 2.0f), TextColor);
 			}
 
 			// CTF flag
@@ -867,6 +887,11 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 				const vec2 TeeRenderPos = vec2(TeeOffset + TeeLength / 2, Row.y + Row.h / 2.0f + OffsetToMid.y);
 				RenderTools()->RenderTee(CAnimState::GetIdle(), &TeeInfo, EMOTE_NORMAL, vec2(1.0f, 0.0f), TeeRenderPos, m_SmoothHudRenderAlpha);
 
+				if(m_MouseUnlocked)
+				{
+					const CUIRect SkinRect = {TeeOffset, Row.y, TeeLength, Row.h};
+					GameClient()->m_Tooltips.DoToolTip(&m_aPlayers[pInfo->m_ClientId].m_PlayerButtonId, &SkinRect, ClientData.m_aSkinName);
+				}
 			}
 
 			const float TextY = Row.y + (Row.h - FontSize) / 2.0f;
@@ -885,20 +910,14 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 					str_copy(aBuf, ClientData.m_aName);
 				}
 
-				const bool ShowMutedIcon = GameClient()->m_aClients[pInfo->m_ClientId].m_Foe || GameClient()->m_aClients[pInfo->m_ClientId].m_ChatIgnore;
+				const bool ShowMutedIcon = ClientData.m_Foe || ClientData.m_ChatIgnore;
 				const CUIRect NameAvailable = {NameOffset, Row.y, NameLength, Row.h};
 				CUIRect NameRect, IndicatorRect;
 				float NameContentWidth = TextRender()->TextWidth(FontSize, aBuf);
 				if(ShowMutedIcon)
 					NameContentWidth += FontSize;
 				const bool ShowAmfIndicator = GameClient()->m_AmfClientIndicator.LayoutName(
-					NameAvailable,
-					pInfo->m_ClientId,
-					FontSize,
-					NameContentWidth,
-					NameRect,
-					IndicatorRect,
-					true);
+					NameAvailable, pInfo->m_ClientId, FontSize, NameContentWidth, NameRect, IndicatorRect, true);
 
 				ColorRGBA NameColor = TextColor;
 				if(ClientData.m_AuthLevel)
@@ -922,7 +941,7 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 
 				const float NameTextWidth = std::max(0.0f, NameRect.x + NameRect.w - NameTextX);
 				float RenderedNameWidth;
-				if(AmfGradient::NicknamesEnabled())
+			if(AmfGradient::NicknamesEnabled())
 				{
 					CTextCursor Cursor;
 					Cursor.SetPosition(vec2(NameTextX, TextY));
@@ -938,14 +957,9 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 				}
 				else
 				{
-					CTextCursor Cursor;
-					Cursor.SetPosition(vec2(NameTextX, TextY));
-					Cursor.m_FontSize = FontSize;
-					Cursor.m_LineWidth = NameTextWidth;
-					Cursor.m_Flags = TEXTFLAG_RENDER | TEXTFLAG_ELLIPSIS_AT_END;
-					TextRender()->TextColor(NameColor);
-					TextRender()->TextEx(&Cursor, aBuf);
-					RenderedNameWidth = std::min(Cursor.m_LongestLineWidth, NameTextWidth);
+					Player.m_Name.Update(TextRender(), aBuf, FontSize, NameTextWidth, TEXTFLAG_RENDER | TEXTFLAG_ELLIPSIS_AT_END);
+					Player.m_Name.Render(TextRender(), vec2(NameTextX, TextY), NameColor);
+					RenderedNameWidth = std::min(Player.m_Name.Width(), NameTextWidth);
 				}
 				if(ShowAmfIndicator)
 					GameClient()->m_AmfClientIndicator.RenderIcon(IndicatorRect, TextColor.a);
@@ -962,19 +976,13 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 			{
 				ColorRGBA ClanColor = TextColor;
 				if(GameClient()->m_aLocalIds[g_Config.m_ClDummy] >= 0 && str_comp(ClientData.m_aClan, GameClient()->m_aClients[GameClient()->m_aLocalIds[g_Config.m_ClDummy]].m_aClan) == 0)
+				{
 					ClanColor = WithRenderAlpha(color_cast<ColorRGBA>(ColorHSLA(g_Config.m_ClSameClanColor)));
-
-				// TClient
-				if(pInfo->m_ClientId >= 0 && g_Config.m_TcWarList && g_Config.m_TcWarListScoreboard && GameClient()->m_WarList.GetAnyWar(pInfo->m_ClientId))
+				}
+				if(g_Config.m_TcWarList && g_Config.m_TcWarListScoreboard && GameClient()->m_WarList.GetAnyWar(pInfo->m_ClientId))
 					ClanColor = WithRenderAlpha(GameClient()->m_WarList.GetClanColor(pInfo->m_ClientId));
-
-				CTextCursor ClanCursor;
-				ClanCursor.SetPosition(vec2(ClanOffset, TextY));
-				ClanCursor.m_FontSize = FontSize;
-				ClanCursor.m_LineWidth = ClanLength;
-				ClanCursor.m_Flags = TEXTFLAG_RENDER | TEXTFLAG_ELLIPSIS_AT_END;
-				TextRender()->TextColor(ClanColor);
-				TextRender()->TextEx(&ClanCursor, ClientData.m_aClan);
+				Player.m_Clan.Update(TextRender(), ClientData.m_aClan, FontSize, ClanLength, TEXTFLAG_RENDER | TEXTFLAG_ELLIPSIS_AT_END);
+				Player.m_Clan.Render(TextRender(), vec2(ClanOffset + (ClanLength - std::min(Player.m_Clan.Width(), ClanLength)) / 2.0f, TextY), ClanColor);
 			}
 
 			// country flag
@@ -985,15 +993,14 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 			ColorRGBA PingColor = TextRender()->DefaultTextColor();
 			if(g_Config.m_ClEnablePingColor)
 			{
-				TextRender()->TextColor(WithRenderAlpha(color_cast<ColorRGBA>(ColorHSLA((300.0f - std::clamp(pInfo->m_Latency, 0, 300)) / 1000.0f, 1.0f, 0.5f))));
+				PingColor = WithRenderAlpha(color_cast<ColorRGBA>(ColorHSLA((300.0f - std::clamp(pInfo->m_Latency, 0, 300)) / 1000.0f, 1.0f, 0.5f)));
 			}
 			else
-			{
-				TextRender()->TextColor(WithRenderAlpha(TextRender()->DefaultTextColor()));
-			}
+				PingColor = WithRenderAlpha(PingColor);
 			str_format(aBuf, sizeof(aBuf), "%d", std::clamp(pInfo->m_Latency, 0, 999));
-			TextRender()->Text(PingOffset + PingLength - TextRender()->TextWidth(FontSize, aBuf), Row.y + (Row.h - FontSize) / 2.0f, FontSize, aBuf);
-			TextRender()->TextColor(WithRenderAlpha(TextRender()->DefaultTextColor()));
+			Player.m_Ping.Update(TextRender(), aBuf, FontSize);
+			Player.m_Ping.Render(TextRender(), vec2(PingOffset + PingLength - Player.m_Ping.Width(), TextY), PingColor);
+			TextRender()->TextColor(TextRender()->DefaultTextColor());
 
 			if(CountRendered == CountEnd)
 				break;
@@ -1001,6 +1008,69 @@ void CScoreboard::RenderScoreboard(CUIRect Scoreboard, int Team, int CountStart,
 		if(CountRendered == CountEnd)
 			break;
 	}
+}
+
+void CScoreboard::RenderMouseHint(CUIRect MouseHint)
+{
+	constexpr float FontSize = 11.0f;
+	constexpr float PillPaddingX = 8.0f;
+	constexpr float PillPaddingY = 5.0f;
+	constexpr float TextKeycapGap = 5.0f;
+	constexpr float KeycapPaddingX = 4.0f;
+	constexpr float KeycapPaddingY = 2.0f;
+	constexpr float KeycapRadius = 3.5f;
+
+	char aKey[64];
+	GameClient()->m_Binds.GetKey(SCOREBOARD_CURSOR_BIND_NAME, aKey, sizeof(aKey));
+
+	char aHint[128];
+	if(!aKey[0])
+	{
+		str_copy(aHint, Localize("not bound"));
+	}
+	else
+	{
+		str_copy(aHint, Localize("Show cursor"));
+	}
+
+	const bool HasKeycap = aKey[0] != '\0';
+	const char *pChipText = HasKeycap ? aKey : SCOREBOARD_CURSOR_BIND_NAME;
+	const float TextWidth = TextRender()->TextWidth(FontSize, aHint, -1);
+	const float ChipWidth = TextRender()->TextWidth(FontSize, pChipText, -1) + 2 * KeycapPaddingX;
+	const float ContentWidth = ChipWidth + TextKeycapGap + TextWidth;
+	const float PillHeight = FontSize + 2 * PillPaddingY;
+	const float PillWidth = std::min(ContentWidth + 2 * PillPaddingX, MouseHint.w);
+
+	// content-sized pill, top center in the available space
+	CUIRect Pill = {MouseHint.x + (MouseHint.w - PillWidth) / 2.0f, MouseHint.y, PillWidth, PillHeight};
+	Pill.Draw(WithRenderAlpha(ColorRGBA(0.0f, 0.0f, 0.0f, 0.5f)), IGraphics::CORNER_ALL, 7.5f);
+
+	CUIRect Content = Pill;
+	Content.x += (Pill.w - ContentWidth) / 2.0f;
+	Content.w = ContentWidth;
+
+	CUIRect Label, Chip;
+	if(HasKeycap)
+	{
+		// key behind the text: "Show cursor [key]"
+		Content.VSplitLeft(TextWidth, &Label, &Content);
+		Content.VSplitLeft(TextKeycapGap, nullptr, &Content);
+		Content.VSplitLeft(ChipWidth, &Chip, nullptr);
+	}
+	else
+	{
+		// bind name in front of the text: "[bind name] not bound"
+		Content.VSplitLeft(ChipWidth, &Chip, &Content);
+		Content.VSplitLeft(TextKeycapGap, nullptr, &Content);
+		Label = Content;
+	}
+
+	// floating chip, vertically centered in the pill
+	Chip.HMargin((Chip.h - (FontSize + 2 * KeycapPaddingY)) / 2.0f, &Chip);
+	Chip.Draw(WithRenderAlpha(ColorRGBA(1.0f, 1.0f, 1.0f, 0.15f)), IGraphics::CORNER_ALL, KeycapRadius);
+
+	Ui()->DoLabel(&Label, aHint, FontSize, TEXTALIGN_ML);
+	Ui()->DoLabel(&Chip, pChipText, FontSize, TEXTALIGN_MC);
 }
 
 void CScoreboard::RenderRecordingNotification(float x)
@@ -1047,10 +1117,13 @@ void CScoreboard::OnRender()
 {
 	if(Client()->State() != IClient::STATE_ONLINE && Client()->State() != IClient::STATE_DEMOPLAYBACK)
 		return;
+
 	if(g_Config.m_AmfFocusMode && g_Config.m_AmfFocusModeHideScoreboard)
 	{
 		if(m_MouseUnlocked)
+		{
 			LockMouse();
+		}
 		return;
 	}
 
@@ -1070,7 +1143,6 @@ void CScoreboard::OnRender()
 		m_SmoothHudRenderAlpha = 1.0f;
 		if(!Active)
 		{
-			// lock mouse if scoreboard was opened by being dead or game pause
 			if(m_MouseUnlocked)
 				LockMouse();
 			return;
@@ -1087,27 +1159,13 @@ void CScoreboard::OnRender()
 			return;
 		}
 
-		const int ScoreboardDurationMs = Active ?
-			g_Config.m_AmfAnimScoreboardOpenDuration :
-			g_Config.m_AmfAnimScoreboardCloseDuration;
+		const int DurationMs = Active ? g_Config.m_AmfAnimScoreboardOpenDuration : g_Config.m_AmfAnimScoreboardCloseDuration;
 		const float TargetOffsetY = Active ? 0.0f : (float)g_Config.m_AmfAnimScoreboardSlideDistance;
 		const float TargetProgress = Active ? 1.0f : 0.0f;
 		if(m_SmoothHudOpenProgress != TargetProgress)
-		{
-			m_SmoothHudOpenProgress = SmoothApproachDuration(
-				m_SmoothHudOpenProgress,
-				TargetProgress,
-				Client()->RenderFrameTime(),
-				ScoreboardDurationMs);
-		}
+			m_SmoothHudOpenProgress = SmoothApproachDuration(m_SmoothHudOpenProgress, TargetProgress, Client()->RenderFrameTime(), DurationMs);
 		if(m_SmoothHudOffsetY != TargetOffsetY)
-		{
-			m_SmoothHudOffsetY = SmoothApproachDuration(
-				m_SmoothHudOffsetY,
-				TargetOffsetY,
-				Client()->RenderFrameTime(),
-				ScoreboardDurationMs);
-		}
+			m_SmoothHudOffsetY = SmoothApproachDuration(m_SmoothHudOffsetY, TargetOffsetY, Client()->RenderFrameTime(), DurationMs);
 		if(Active && m_SmoothHudOpenProgress >= 0.998f)
 		{
 			m_SmoothHudOpenProgress = 1.0f;
@@ -1115,16 +1173,7 @@ void CScoreboard::OnRender()
 		}
 
 		const float Progress = std::clamp(m_SmoothHudOpenProgress, 0.0f, 1.0f);
-		const float RenderAlpha = Active ?
-			1.0f - std::pow(1.0f - Progress, 3.0f) :
-			Progress * Progress;
-
-		// Text is rendered at full base opacity while the scoreboard panels use
-		// semi-transparent base colors. Near the end of a close, framebuffer
-		// quantization therefore made the panels disappear one or two frames
-		// before the names, time and map title. Stop the complete visual tail at
-		// one shared, already imperceptible threshold so no child can outlive
-		// the container.
+		const float RenderAlpha = Active ? 1.0f - std::pow(1.0f - Progress, 3.0f) : Progress * Progress;
 		constexpr float MinimumCompositeAlpha = 4.0f / 255.0f;
 		if(!Active && RenderAlpha <= MinimumCompositeAlpha)
 		{
@@ -1133,16 +1182,18 @@ void CScoreboard::OnRender()
 			m_SmoothHudRenderAlpha = 0.0f;
 			return;
 		}
-
 		m_SmoothHudRenderAlpha = RenderAlpha;
 	}
 
-	// A visual close tail is draw-only. It must not update or own scoreboard UI.
 	if(Active && !GameClient()->m_Menus.IsActive() && !GameClient()->m_Chat.IsActive())
 	{
 		Ui()->StartCheck();
 		Ui()->Update();
 	}
+
+	constexpr float TitleHeight = 30.0f;
+	constexpr float ScoreboardSmallWidth = 375.0f + 10.0f;
+	constexpr float ScoreboardSpacing = 5.0f;
 
 	// if the score board is active, then we should clear the motd message as well
 	if(Active && GameClient()->m_Motd.IsActive())
@@ -1160,16 +1211,9 @@ void CScoreboard::OnRender()
 	const auto &aTeamSize = GameClient()->m_Snap.m_aTeamSize;
 	const int NumPlayers = Teams ? std::max(aTeamSize[TEAM_RED], aTeamSize[TEAM_BLUE]) : aTeamSize[TEAM_RED];
 
-	const float ScoreboardSmallWidth = 375.0f + 10.0f;
 	const float ScoreboardWidth = !Teams && NumPlayers <= 16 ? ScoreboardSmallWidth : 750.0f;
-	const float TitleHeight = 30.0f;
 
-	// The logical state changed with the TAB event. Only the complete visual
-	// container is offset, with its hitboxes remaining at the vanilla position.
-	const float PixelSize = Ui()->PixelSize();
-	const float EntryOffset = UseSmoothHudAnimation ?
-		std::round(m_SmoothHudOffsetY / PixelSize) * PixelSize :
-		0.0f;
+	const float EntryOffset = UseSmoothHudAnimation ? std::round(m_SmoothHudOffsetY / Ui()->PixelSize()) * Ui()->PixelSize() : 0.0f;
 	CUIRect Scoreboard = {(Screen.w - ScoreboardWidth) / 2.0f, 75.0f + EntryOffset, ScoreboardWidth, 355.0f + TitleHeight};
 	CScoreboardRenderState RenderState{};
 
@@ -1232,8 +1276,24 @@ void CScoreboard::OnRender()
 		RenderTitleBar(RedTitle, TEAM_RED, pRedTeamName == nullptr ? Localize("Red team") : pRedTeamName);
 		RenderTitleBar(BlueTitle, TEAM_BLUE, pBlueTeamName == nullptr ? Localize("Blue team") : pBlueTeamName);
 
-		RenderScoreboard(RedScoreboard, TEAM_RED, 0, NumPlayers, RenderState);
-		RenderScoreboard(BlueScoreboard, TEAM_BLUE, 0, NumPlayers, RenderState);
+		auto RenderTeamScoreboard = [&](CUIRect TeamScoreboard, int Team, int TeamSize) {
+			if(TeamSize <= 64)
+			{
+				RenderScoreboard(TeamScoreboard, Team, 0, TeamSize, RenderState);
+			}
+			else
+			{
+				const int FirstColumnSize = 64;
+				CUIRect LeftColumn, RightColumn;
+				TeamScoreboard.VSplitMid(&LeftColumn, &RightColumn, 2.5f);
+
+				RenderScoreboard(LeftColumn, Team, 0, FirstColumnSize, RenderState, FirstColumnSize);
+				RenderScoreboard(RightColumn, Team, FirstColumnSize, TeamSize, RenderState, FirstColumnSize);
+			}
+		};
+
+		RenderTeamScoreboard(RedScoreboard, TEAM_RED, aTeamSize[TEAM_RED]);
+		RenderTeamScoreboard(BlueScoreboard, TEAM_BLUE, aTeamSize[TEAM_BLUE]);
 	}
 	else
 	{
@@ -1293,10 +1353,17 @@ void CScoreboard::OnRender()
 	{
 		CUIRect Goals;
 		Spectators.HSplitTop(25.0f, &Goals, &Spectators);
-		Spectators.HSplitTop(5.0f, nullptr, &Spectators);
+		Spectators.HSplitTop(ScoreboardSpacing, nullptr, &Spectators);
 		RenderGoals(Goals);
 	}
 	RenderSpectators(Spectators);
+
+	if(Active && !m_MouseUnlocked)
+	{
+		constexpr float MouseHintSize = 26.0f;
+		CUIRect MouseHint = {Spectators.x, Spectators.y + Spectators.h + ScoreboardSpacing, ScoreboardSmallWidth, MouseHintSize};
+		RenderMouseHint(MouseHint);
+	}
 
 	RenderRecordingNotification((Screen.w / 7) * 4 + 10);
 
@@ -1309,6 +1376,7 @@ void CScoreboard::OnRender()
 
 		Ui()->FinishCheck();
 	}
+
 	TextRender()->TextColor(OldTextColor);
 	TextRender()->TextOutlineColor(OldOutlineColor);
 }
@@ -1442,16 +1510,16 @@ CUi::EPopupMenuFunctionResult CScoreboard::CScoreboardPopupContext::Render(void 
 			Client.m_EmoticonIgnore ^= 1;
 		}
 		pScoreboard->GameClient()->m_Tooltips.DoToolTip(&pPopupContext->m_EmoticonAction, &Action, Client.m_EmoticonIgnore ? Localize("Unmute emoticons") : Localize("Mute emoticons"));
-
 	}
 
 	const float ButtonSize = 17.5f;
-	const bool IsSpectating = pScoreboard->GameClient()->m_Snap.m_SpecInfo.m_Active && pScoreboard->GameClient()->m_Snap.m_SpecInfo.m_SpectatorId == pPopupContext->m_ClientId;
+	View.HSplitTop(ItemSpacing * 2, nullptr, &View);
+	View.HSplitTop(ButtonSize, &Container, &View);
+
+	bool IsSpectating = pScoreboard->GameClient()->m_Snap.m_SpecInfo.m_Active && pScoreboard->GameClient()->m_Snap.m_SpecInfo.m_SpectatorId == pPopupContext->m_ClientId;
+	ColorRGBA SpectateButtonColor = ColorRGBA(1.0f, 1.0f, 1.0f, (IsSpectating ? 0.25f : 0.5f) * pUi->ButtonColorMul(&pPopupContext->m_SpectateButton));
 	if(!pPopupContext->m_IsSpectating)
 	{
-		View.HSplitTop(ItemSpacing * 2, nullptr, &View);
-		View.HSplitTop(ButtonSize, &Container, &View);
-		const ColorRGBA SpectateButtonColor = ColorRGBA(1.0f, 1.0f, 1.0f, (IsSpectating ? 0.25f : 0.5f) * pUi->ButtonColorMul(&pPopupContext->m_SpectateButton));
 		if(pUi->DoButton_PopupMenu(&pPopupContext->m_SpectateButton, Localize("Spectate"), &Container, FontSize, TEXTALIGN_MC, 0.0f, false, true, SpectateButtonColor))
 		{
 			if(IsSpectating)
@@ -1482,13 +1550,15 @@ CUi::EPopupMenuFunctionResult CScoreboard::CScoreboardPopupContext::Render(void 
 
 	if(!pPopupContext->m_IsLocal)
 	{
-		View.HSplitTop(ItemSpacing * 2, nullptr, &View);
-		View.HSplitTop(ButtonSize, &Container, &View);
-		if(pUi->DoButton_PopupMenu(&pPopupContext->m_ProfileButton, TCLocalize("Profile", "AMF Client"), &Container, FontSize, TEXTALIGN_MC))
-		{
-			// Preserve the Best Client community-specific profile routing.
-			CServerInfo ServerInfo;
-			pScoreboard->Client()->GetServerInfo(&ServerInfo);
+		const auto DoAction = [&](CButtonContainer *pButton, const char *pLabel, auto &&Action, bool Enabled = true) {
+			View.HSplitTop(ItemSpacing * 2, nullptr, &View);
+			View.HSplitTop(ButtonSize, &Container, &View);
+			if(pUi->DoButton_PopupMenu(pButton, pLabel, &Container, FontSize, TEXTALIGN_MC, 0.0f, false, Enabled))
+				Action();
+		};
+
+		DoAction(&pPopupContext->m_ProfileButton, TCLocalize("Profile", "AMF Client"), [&] {
+			const CServerInfo &ServerInfo = pScoreboard->Client()->ServerInfo();
 			const int Community = str_comp(ServerInfo.m_aCommunityId, "kog") == 0 ? 1 :
 				(str_comp(ServerInfo.m_aCommunityId, "unique") == 0 ? 2 : 0);
 
@@ -1503,40 +1573,29 @@ CUi::EPopupMenuFunctionResult CScoreboard::CScoreboardPopupContext::Render(void 
 				str_format(aCommunityLink, sizeof(aCommunityLink), "https://ddnet.org/players/%s", aEncodedName);
 
 			pScoreboard->Client()->ViewLink(aCommunityLink);
-		}
+		});
 
-		View.HSplitTop(ItemSpacing * 2, nullptr, &View);
-		View.HSplitTop(ButtonSize, &Container, &View);
-		if(pUi->DoButton_PopupMenu(&pPopupContext->m_WhisperButton, TCLocalize("Whisper", "AMF Client"), &Container, FontSize, TEXTALIGN_MC))
-		{
+		DoAction(&pPopupContext->m_WhisperButton, TCLocalize("Whisper", "AMF Client"), [&] {
 			char aWhisperBuf[512];
 			str_format(aWhisperBuf, sizeof(aWhisperBuf), "chat all /whisper %s ", Client.m_aName);
 			pScoreboard->Console()->ExecuteLine(aWhisperBuf, IConsole::CLIENT_ID_UNSPECIFIED);
-		}
+		});
 
-		View.HSplitTop(ItemSpacing * 2, nullptr, &View);
-		View.HSplitTop(ButtonSize, &Container, &View);
-		if(pUi->DoButton_PopupMenu(&pPopupContext->m_VoteKickButton, TCLocalize("Vote Kick", "AMF Client"), &Container, FontSize, TEXTALIGN_MC))
+		DoAction(&pPopupContext->m_VoteKickButton, TCLocalize("Vote Kick", "AMF Client"), [&] {
 			pScoreboard->GameClient()->m_Voting.CallvoteKick(Client.ClientId(), "");
+		});
 
-		View.HSplitTop(ItemSpacing * 2, nullptr, &View);
-		View.HSplitTop(ButtonSize, &Container, &View);
-		if(pUi->DoButton_PopupMenu(&pPopupContext->m_ClipNameButton, TCLocalize("Clip Name", "AMF Client"), &Container, FontSize, TEXTALIGN_MC))
+		DoAction(&pPopupContext->m_ClipNameButton, TCLocalize("Clip Name", "AMF Client"), [&] {
 			pScoreboard->Input()->SetClipboardText(Client.m_aName);
+		});
 
-		View.HSplitTop(ItemSpacing * 2, nullptr, &View);
-		View.HSplitTop(ButtonSize, &Container, &View);
-		if(pUi->DoButton_PopupMenu(&pPopupContext->m_SwapButton, "/Swap", &Container, FontSize, TEXTALIGN_MC))
-		{
+		DoAction(&pPopupContext->m_SwapButton, "/Swap", [&] {
 			char aSwapBuf[256];
 			str_format(aSwapBuf, sizeof(aSwapBuf), "say /swap %s", Client.m_aName);
 			pScoreboard->Console()->ExecuteLine(aSwapBuf, IConsole::CLIENT_ID_UNSPECIFIED);
-		}
+		});
 
-		View.HSplitTop(ItemSpacing * 2, nullptr, &View);
-		View.HSplitTop(ButtonSize, &Container, &View);
-		if(pUi->DoButton_PopupMenu(&pPopupContext->m_CopySkinButton, TCLocalize("Copy Skin", "AMF Client"), &Container, FontSize, TEXTALIGN_MC))
-		{
+		DoAction(&pPopupContext->m_CopySkinButton, TCLocalize("Copy Skin", "AMF Client"), [&] {
 			if(g_Config.m_ClDummy == 1)
 			{
 				str_copy(g_Config.m_ClDummySkin, Client.m_aSkinName, sizeof(g_Config.m_ClDummySkin));
@@ -1553,29 +1612,19 @@ CUi::EPopupMenuFunctionResult CScoreboard::CScoreboardPopupContext::Render(void 
 				g_Config.m_ClPlayerColorFeet = Client.m_ColorFeet;
 				pScoreboard->GameClient()->SendInfo(false);
 			}
-		}
+		});
 
 		const bool IsBlocked = pScoreboard->GameClient()->m_WarList.FindWarEntry(Client.m_aName, "", "enemy") != nullptr;
-		View.HSplitTop(ItemSpacing * 2, nullptr, &View);
-		View.HSplitTop(ButtonSize, &Container, &View);
-		if(pUi->DoButton_PopupMenu(&pPopupContext->m_BlockButton, TCLocalize(IsBlocked ? "Unblock" : "Block", "AMF Client"), &Container, FontSize, TEXTALIGN_MC))
-		{
-			// Keep exactly the same persistent enemy-list behaviour as AMF chat's
-			// Block / Unblock context action.
+		DoAction(&pPopupContext->m_BlockButton, TCLocalize(IsBlocked ? "Unblock" : "Block", "AMF Client"), [&] {
 			if(IsBlocked)
 				pScoreboard->GameClient()->m_WarList.RemoveWarEntryInGame(1, Client.m_aName, false);
 			else
 				pScoreboard->GameClient()->m_WarList.AddWarEntryInGame(1, Client.m_aName, "", false);
 			pScoreboard->GameClient()->m_WarList.UpdateWarPlayers();
-		}
+		});
 
 		const bool IsMuted = pScoreboard->GameClient()->Foes()->IsFriend(Client.m_aName, "", true);
-		View.HSplitTop(ItemSpacing * 2, nullptr, &View);
-		View.HSplitTop(ButtonSize, &Container, &View);
-		if(pUi->DoButton_PopupMenu(&pPopupContext->m_TeamMuteButton, TCLocalize(IsMuted ? "Unmute" : "Mute", "AMF Client"), &Container, FontSize, TEXTALIGN_MC))
-		{
-			// This is the same Foes path used by AMF chat, not the temporary
-			// scoreboard-only chat-ignore flag above.
+		DoAction(&pPopupContext->m_TeamMuteButton, TCLocalize(IsMuted ? "Unmute" : "Mute", "AMF Client"), [&] {
 			if(IsMuted)
 			{
 				pScoreboard->GameClient()->Foes()->RemoveFriend(Client.m_aName, "");
@@ -1586,26 +1635,16 @@ CUi::EPopupMenuFunctionResult CScoreboard::CScoreboardPopupContext::Render(void 
 				pScoreboard->GameClient()->Foes()->AddFriend(Client.m_aName, "");
 				Client.m_Foe = true;
 			}
-		}
+		});
 
-		// Always use the selected player's current team. The server remains the
-		// authority for whether this ordinary join request is accepted.
 		const int TargetTeam = pScoreboard->GameClient()->m_Teams.Team(pPopupContext->m_ClientId);
 		const bool CanJoinTeam = TargetTeam > TEAM_FLOCK && TargetTeam < TEAM_SUPER && TargetTeam < MAX_CLIENTS;
-		View.HSplitTop(ItemSpacing * 2, nullptr, &View);
-		View.HSplitTop(ButtonSize, &Container, &View);
-		if(pUi->DoButton_PopupMenu(&pPopupContext->m_TeamJoinButton, TCLocalize("Join team", "AMF Client"), &Container, FontSize, TEXTALIGN_MC, 0.0f, false, CanJoinTeam))
-		{
-			// Use the normal DDNet team command. Server-side permission checks are
-			// intentionally left untouched.
+		DoAction(&pPopupContext->m_TeamJoinButton, TCLocalize("Join team", "AMF Client"), [&] {
 			char aCmdBuf[128];
 			str_format(aCmdBuf, sizeof(aCmdBuf), "say /team %d", TargetTeam);
 			pScoreboard->Console()->ExecuteLine(aCmdBuf, IConsole::CLIENT_ID_UNSPECIFIED);
-		}
+		}, CanJoinTeam);
 
-		// Invite always originates from one of the local players' actual DDNet
-		// teams. Prefer the currently controlled connection when both are valid,
-		// then fall back to the main player and finally the dummy.
 		const auto HasInviteTeam = [&](int Connection) {
 			if(Connection == IClient::CONN_DUMMY && !pScoreboard->Client()->DummyConnected())
 				return false;
@@ -1623,22 +1662,15 @@ CUi::EPopupMenuFunctionResult CScoreboard::CScoreboardPopupContext::Render(void 
 		else if(HasInviteTeam(IClient::CONN_DUMMY))
 			InviteConnection = IClient::CONN_DUMMY;
 
-		View.HSplitTop(ItemSpacing * 2, nullptr, &View);
-		View.HSplitTop(ButtonSize, &Container, &View);
-		if(pUi->DoButton_PopupMenu(&pPopupContext->m_TeamInviteButton, TCLocalize("Invite to team", "AMF Client"), &Container, FontSize, TEXTALIGN_MC, 0.0f, false, InviteConnection >= 0))
-		{
-			// Keep this on the regular chat-command path. The server remains the
-			// authority for all invitation and team-permission checks.
+		DoAction(&pPopupContext->m_TeamInviteButton, TCLocalize("Invite to team", "AMF Client"), [&] {
 			char aInviteCommand[2 * MAX_NAME_LENGTH + 16];
 			str_copy(aInviteCommand, "/invite \"");
 			char *pDst = aInviteCommand + str_length(aInviteCommand);
 			str_escape(&pDst, Client.m_aName, aInviteCommand + sizeof(aInviteCommand));
 			str_append(aInviteCommand, "\"");
 			pScoreboard->GameClient()->m_Chat.SendChat(0, aInviteCommand, InviteConnection);
-		}
+		}, InviteConnection >= 0);
 
-		// AMF has the donor's teammate WarList group. The enemy group is already
-		// exposed above as Block / Unblock, so it is intentionally not duplicated.
 		CWarList &WarList = pScoreboard->GameClient()->m_WarList;
 		const auto &WarData = WarList.GetWarData(pPopupContext->m_ClientId);
 		const bool IsTeammate = WarList.m_WarTypes.size() > 2 &&

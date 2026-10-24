@@ -39,16 +39,14 @@ public:
 	int m_aInputDirectionLeft[NUM_DUMMIES];
 	int m_aInputDirectionRight[NUM_DUMMIES];
 	int m_aShowHookColl[NUM_DUMMIES];
-
-	// TClient
 	CNetObj_PlayerInput m_aFastInput[NUM_DUMMIES];
 	bool m_FastInputHookAction = false;
 	bool m_FastInputFireAction = false;
-	int m_aSnapTapAppliedDirection[NUM_DUMMIES];
-	int m_aSnapTapLastPressedDirection[NUM_DUMMIES];
-	int64_t m_aSnapTapLastPressedTime[NUM_DUMMIES];
-	int m_aSnapTapPrevLeft[NUM_DUMMIES];
-	int m_aSnapTapPrevRight[NUM_DUMMIES];
+	int m_aSnapTapAppliedDirection[NUM_DUMMIES]{};
+	int m_aSnapTapLastPressedDirection[NUM_DUMMIES]{};
+	int64_t m_aSnapTapLastPressedTime[NUM_DUMMIES]{};
+	int m_aSnapTapPrevLeft[NUM_DUMMIES]{};
+	int m_aSnapTapPrevRight[NUM_DUMMIES]{};
 
 	CControls();
 	int Sizeof() const override { return sizeof(*this); }
@@ -61,14 +59,15 @@ public:
 	virtual void OnPlayerDeath();
 
 	int SnapInput(int *pData);
+	void UpdateGoresMode();
+	void OnGoresFireInput(int Pressed);
 	void ClampMousePos();
 	void ResetInput(int Dummy);
 	bool CheckNewInput();
-	// SnapInput is the authoritative tick-rate caller. CheckNewInput can run at
-	// render rate, so it only reads this state and never consumes a key edge.
 	int ResolveMovementDirection(int Dummy, bool LeftPressed, bool RightPressed, bool UpdateState);
 
 private:
+	bool m_AmfGoresHeavyWeapon = false;
 	bool IsSnapTapActive() const;
 	bool UseGammaInputMovement() const;
 	void UpdateSnapTapState(int Dummy, bool LeftPressed, bool RightPressed);

@@ -15,7 +15,6 @@
 #include <engine/shared/demo.h>
 #include <engine/shared/econ.h>
 #include <engine/shared/fifo.h>
-#include <engine/shared/http.h>
 #include <engine/shared/netban.h>
 #include <engine/shared/network.h>
 #include <engine/shared/protocol.h>
@@ -85,7 +84,6 @@ class CServer : public IServer
 	class CDbConnectionPool *m_pConnectionPool;
 
 	int m_PreviousDebugDummies = 0;
-	void UpdateDebugDummies(bool ForceDisconnect);
 
 public:
 	class IGameServer *GameServer() { return m_pGameServer; }
@@ -145,6 +143,10 @@ public:
 		int m_Latency;
 		int m_SnapRate;
 
+		// Rejoining session while a game slot exists already
+		bool m_IngameBeforeRejoin;
+		bool IsKnownToGame() const { return m_State == STATE_INGAME || m_IngameBeforeRejoin; }
+
 		double m_Traffic;
 		int64_t m_TrafficSince;
 
@@ -168,6 +170,11 @@ public:
 		int m_AuthTries;
 		bool m_AuthHidden;
 		int m_NextMapChunk;
+		// map data chunks sent since the last map change
+		int m_NumMapChunks;
+		// per-tick preinput budget
+		int m_PreInputsTick;
+		int m_NumPreInputs;
 		int m_Flags;
 		bool m_ShowIps;
 		bool m_DebugDummy;
@@ -199,6 +206,9 @@ public:
 		CUuid m_ConnectionId;
 		int64_t m_RedirectDropTime;
 
+		int m_aIdMap[LEGACY_MAX_CLIENTS];
+		int m_aReverseIdMap[MAX_CLIENTS];
+
 		// DNSBL
 		EDnsblState m_DnsblState;
 		std::shared_ptr<CHostLookup> m_pDnsblLookup;
@@ -214,7 +224,6 @@ public:
 	IConsole::EAccessLevel ConsoleAccessLevel(int ClientId) const;
 
 	CClient m_aClients[MAX_CLIENTS];
-	int m_aIdMap[MAX_CLIENTS * VANILLA_MAX_CLIENTS];
 
 	CSnapshotDelta m_SnapshotDelta;
 	CSnapshotDelta m_SnapshotDeltaSixup;
@@ -239,6 +248,9 @@ public:
 	bool m_MapReload;
 	bool m_SameMapReload;
 	bool m_ReloadedWhenEmpty;
+
+	// client id of the user currently executing a rcon command
+	// can also be -1 (RCON_CID_SERV) or -2 (RCON_CID_VOTE)
 	int m_RconClientId;
 	int m_RconAuthLevel;
 	int m_PrintCBIndex;
@@ -268,6 +280,7 @@ public:
 	CDemoRecorder m_aDemoRecorder[NUM_RECORDERS];
 	CAuthManager m_AuthManager;
 
+	// start of the second the connection-less server info responses are counted in
 	int64_t m_ServerInfoFirstRequest;
 	int m_ServerInfoNumRequests;
 
@@ -338,7 +351,9 @@ public:
 	static int NewClientNoAuthCallback(int ClientId, void *pUser);
 	static int DelClientCallback(int ClientId, const char *pReason, void *pUser);
 
-	static int ClientRejoinCallback(int ClientId, void *pUser);
+	static int ClientRejoinCallback(int ClientId, void *pUser, bool Sixup, bool VanillaAuth);
+
+	void UpdateDebugDummies(bool ForceDisconnect);
 
 	void SendRconType(int ClientId, bool UsernameReq);
 	void SendCapabilities(int ClientId);
@@ -372,6 +387,7 @@ public:
 	void UpdateClientMaplistEntries(int ClientId);
 
 	bool CheckReservedSlotAuth(int ClientId, const char *pPassword);
+	bool TakePreInputBudget(int ClientId);
 	void ProcessClientPacket(CNetChunk *pPacket);
 	void OnNetMsgClientVer(int ClientId, CUuid *pConnectionId, int DDNetVersion, const char *pDDNetVersionStr);
 	void OnNetMsgInfo(int ClientId, const char *pVersion, const char *pPasswordOrNullptr);
@@ -414,16 +430,18 @@ public:
 	void CacheServerInfoSixup(CCache *pCache, bool SendClients, int MaxConsideredClients);
 	void SendServerInfo(const NETADDR *pAddr, int Token, int Type, bool SendClients);
 	void GetServerInfoSixup(CPacker *pPacker, bool SendClients);
-	bool RateLimitServerInfoConnless();
-	void SendServerInfoConnless(const NETADDR *pAddr, int Token, int Type);
+	// Whether a connection-less server info response may be sent, and if so whether it
+	// includes the client list.
+	std::optional<bool> RateLimitServerInfoConnless();
 	void UpdateRegisterServerInfo();
 	void UpdateServerInfo(bool Resend);
 
-	void PumpNetwork(bool PacketWaiting);
+	void PumpNetwork();
 
 	void ChangeMap(const char *pMap) override;
 	void ReloadMap() override;
 	int LoadMap(const char *pMapName);
+	void WritePortFile();
 
 	void SaveDemo(int ClientId, float Time) override;
 	void StartRecord(int ClientId) override;
@@ -499,6 +517,7 @@ public:
 	void InitMaplist();
 
 	int *GetIdMap(int ClientId) override;
+	int *GetReverseIdMap(int ClientId) override;
 
 	void InitDnsbl(int ClientId);
 	bool DnsblWhite(int ClientId) override
@@ -530,6 +549,8 @@ public:
 	void SetErrorShutdown(const char *pReason) override;
 
 	bool IsSixup(int ClientId) const override { return ClientId != SERVER_DEMO_CLIENT && m_aClients[ClientId].m_Sixup; }
+	int GetMaxClients(int ClientId) const override;
+	bool ClientSupportsServerMaxClients(int ClientId) const override;
 
 	void SetLoggers(std::shared_ptr<ILogger> &&pFileLogger, std::shared_ptr<ILogger> &&pStdoutLogger);
 

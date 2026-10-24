@@ -499,10 +499,14 @@ public:
 		SCommand_Update_Viewport() :
 			SCommand(CMD_UPDATE_VIEWPORT) {}
 
+		// Viewport rectangle, relative to the top left of the drawable area.
 		int m_X;
 		int m_Y;
 		int m_Width;
 		int m_Height;
+		// Size of the whole drawable area, which the viewport can be smaller than.
+		int m_DrawableWidth;
+		int m_DrawableHeight;
 		bool m_ByResize; // resized by an resize event.. a hint to make clear that the viewport update can be deferred if wanted
 	};
 
@@ -701,6 +705,9 @@ public:
 	// returns true, if the video mode changed
 	virtual bool ResizeWindow(int w, int h, int RefreshRate) = 0;
 	virtual void GetViewportSize(int &w, int &h) = 0;
+	// Insets of the drawable area which are covered by the cutout of the display,
+	// in pixels. Only determined on iOS, zero on all other platforms.
+	virtual void GetDisplayCutoutInsets(int &Left, int &Right) = 0;
 	virtual void NotifyWindow() = 0;
 	virtual bool IsScreenKeyboardShown() = 0;
 
@@ -909,6 +916,7 @@ public:
 
 	void WrapNormal() override;
 	void WrapClamp() override;
+
 	uint64_t TextureMemoryUsage() const override;
 	uint64_t BufferMemoryUsage() const override;
 	uint64_t StreamedMemoryUsage() const override;
@@ -916,8 +924,8 @@ public:
 
 	const TTwGraphicsGpuList &GetGpus() const override;
 
-	void MapScreen(float TopLeftX, float TopLeftY, float BottomRightX, float BottomRightY) override;
-	void GetScreen(float *pTopLeftX, float *pTopLeftY, float *pBottomRightX, float *pBottomRightY) const override;
+	void MapScreen(const CScreenRect &ScreenRect) override;
+	CScreenRect GetScreen() const override;
 
 	void LinesBegin() override;
 	void LinesEnd() override;
@@ -938,7 +946,7 @@ public:
 	bool UnloadTextTextures(CTextureHandle &TextTexture, CTextureHandle &TextOutlineTexture) override;
 	bool UpdateTextTexture(CTextureHandle TextureId, int x, int y, size_t Width, size_t Height, uint8_t *pData, bool IsMovedPointer) override;
 
-	CTextureHandle LoadSpriteTexture(const CImageInfo &FromImageInfo, const struct CDataSprite *pSprite) override;
+	CTextureHandle LoadSpriteTexture(const CImageInfo &FromImageInfo, const std::optional<CImageInfo> &FallbackImageInfo, const struct CDataSprite *pSprite) override;
 
 	bool IsImageSubFullyTransparent(const CImageInfo &FromImageInfo, int x, int y, int w, int h) override;
 	bool IsSpriteTextureFullyTransparent(const CImageInfo &FromImageInfo, const struct CDataSprite *pSprite) override;
@@ -965,20 +973,11 @@ public:
 	void QuadsDrawCurrentVertices(bool KeepVertices = true) override;
 	void QuadsSetRotation(float Angle) override;
 
-	template<typename TName>
-	void SetColor(TName *pVertex, int ColorIndex)
-	{
-		TName *pVert = pVertex;
-		pVert->m_Color = m_aColor[ColorIndex];
-	}
-
-	void SetColorVertex(const CColorVertex *pArray, size_t Num) override;
 	void SetColor(float r, float g, float b, float a) override;
 	void SetColor(ColorRGBA Color) override;
+	void SetColor2(ColorRGBA First, ColorRGBA Second) override;
 	void SetColor4(ColorRGBA TopLeft, ColorRGBA TopRight, ColorRGBA BottomLeft, ColorRGBA BottomRight) override;
 
-	// go through all vertices and change their color (only works for quads)
-	void ChangeColorOfCurrentQuadVertices(float r, float g, float b, float a) override;
 	void ChangeColorOfQuadVertices(size_t QuadOffset, unsigned char r, unsigned char g, unsigned char b, unsigned char a) override;
 
 	void QuadsSetSubset(float TlU, float TlV, float BrU, float BrV) override;
@@ -1003,33 +1002,33 @@ public:
 				pVertices[m_NumVertices + 6 * i].m_Pos.x = pArray[i].m_X;
 				pVertices[m_NumVertices + 6 * i].m_Pos.y = pArray[i].m_Y;
 				pVertices[m_NumVertices + 6 * i].m_Tex = m_aTexture[0];
-				SetColor(&pVertices[m_NumVertices + 6 * i], 0);
+				pVertices[m_NumVertices + 6 * i].m_Color = m_aColor[0];
 
 				pVertices[m_NumVertices + 6 * i + 1].m_Pos.x = pArray[i].m_X + pArray[i].m_Width;
 				pVertices[m_NumVertices + 6 * i + 1].m_Pos.y = pArray[i].m_Y;
 				pVertices[m_NumVertices + 6 * i + 1].m_Tex = m_aTexture[1];
-				SetColor(&pVertices[m_NumVertices + 6 * i + 1], 1);
+				pVertices[m_NumVertices + 6 * i + 1].m_Color = m_aColor[1];
 
 				pVertices[m_NumVertices + 6 * i + 2].m_Pos.x = pArray[i].m_X + pArray[i].m_Width;
 				pVertices[m_NumVertices + 6 * i + 2].m_Pos.y = pArray[i].m_Y + pArray[i].m_Height;
 				pVertices[m_NumVertices + 6 * i + 2].m_Tex = m_aTexture[2];
-				SetColor(&pVertices[m_NumVertices + 6 * i + 2], 2);
+				pVertices[m_NumVertices + 6 * i + 2].m_Color = m_aColor[2];
 
 				// second triangle
 				pVertices[m_NumVertices + 6 * i + 3].m_Pos.x = pArray[i].m_X;
 				pVertices[m_NumVertices + 6 * i + 3].m_Pos.y = pArray[i].m_Y;
 				pVertices[m_NumVertices + 6 * i + 3].m_Tex = m_aTexture[0];
-				SetColor(&pVertices[m_NumVertices + 6 * i + 3], 0);
+				pVertices[m_NumVertices + 6 * i + 3].m_Color = m_aColor[0];
 
 				pVertices[m_NumVertices + 6 * i + 4].m_Pos.x = pArray[i].m_X + pArray[i].m_Width;
 				pVertices[m_NumVertices + 6 * i + 4].m_Pos.y = pArray[i].m_Y + pArray[i].m_Height;
 				pVertices[m_NumVertices + 6 * i + 4].m_Tex = m_aTexture[2];
-				SetColor(&pVertices[m_NumVertices + 6 * i + 4], 2);
+				pVertices[m_NumVertices + 6 * i + 4].m_Color = m_aColor[2];
 
 				pVertices[m_NumVertices + 6 * i + 5].m_Pos.x = pArray[i].m_X;
 				pVertices[m_NumVertices + 6 * i + 5].m_Pos.y = pArray[i].m_Y + pArray[i].m_Height;
 				pVertices[m_NumVertices + 6 * i + 5].m_Tex = m_aTexture[3];
-				SetColor(&pVertices[m_NumVertices + 6 * i + 5], 3);
+				pVertices[m_NumVertices + 6 * i + 5].m_Color = m_aColor[3];
 
 				if(m_Rotation != 0)
 				{
@@ -1049,22 +1048,22 @@ public:
 				pVertices[m_NumVertices + 4 * i].m_Pos.x = pArray[i].m_X;
 				pVertices[m_NumVertices + 4 * i].m_Pos.y = pArray[i].m_Y;
 				pVertices[m_NumVertices + 4 * i].m_Tex = m_aTexture[0];
-				SetColor(&pVertices[m_NumVertices + 4 * i], 0);
+				pVertices[m_NumVertices + 4 * i].m_Color = m_aColor[0];
 
 				pVertices[m_NumVertices + 4 * i + 1].m_Pos.x = pArray[i].m_X + pArray[i].m_Width;
 				pVertices[m_NumVertices + 4 * i + 1].m_Pos.y = pArray[i].m_Y;
 				pVertices[m_NumVertices + 4 * i + 1].m_Tex = m_aTexture[1];
-				SetColor(&pVertices[m_NumVertices + 4 * i + 1], 1);
+				pVertices[m_NumVertices + 4 * i + 1].m_Color = m_aColor[1];
 
 				pVertices[m_NumVertices + 4 * i + 2].m_Pos.x = pArray[i].m_X + pArray[i].m_Width;
 				pVertices[m_NumVertices + 4 * i + 2].m_Pos.y = pArray[i].m_Y + pArray[i].m_Height;
 				pVertices[m_NumVertices + 4 * i + 2].m_Tex = m_aTexture[2];
-				SetColor(&pVertices[m_NumVertices + 4 * i + 2], 2);
+				pVertices[m_NumVertices + 4 * i + 2].m_Color = m_aColor[2];
 
 				pVertices[m_NumVertices + 4 * i + 3].m_Pos.x = pArray[i].m_X;
 				pVertices[m_NumVertices + 4 * i + 3].m_Pos.y = pArray[i].m_Y + pArray[i].m_Height;
 				pVertices[m_NumVertices + 4 * i + 3].m_Tex = m_aTexture[3];
-				SetColor(&pVertices[m_NumVertices + 4 * i + 3], 3);
+				pVertices[m_NumVertices + 4 * i + 3].m_Color = m_aColor[3];
 
 				if(m_Rotation != 0)
 				{
@@ -1236,9 +1235,11 @@ public:
 	void Shutdown() override;
 
 	void ReadPixel(ivec2 Position, ColorRGBA *pColor) override;
-	bool CaptureScreen(CImageInfo &Image);
+	bool CaptureScreen(CImageInfo &Image) override;
 	void TakeScreenshot(const char *pFilename) override;
 	void TakeCustomScreenshot(const char *pFilename) override;
+	void ReadFramebuffer(CImageInfo &Image);
+	void SetScreenSize(int Width, int Height);
 	void Swap() override;
 	bool SetVSync(bool State) override;
 	bool SetMultiSampling(uint32_t ReqMultiSamplingCount, uint32_t &MultiSamplingCountBackend) override;
@@ -1274,8 +1275,6 @@ public:
 	const char *GetFatalError() const override;
 
 	TGLBackendReadPresentedImageData &GetReadPresentedImageDataFuncUnsafe() override;
-
-	// TClient / AMF custom aspect ratio.
 	void SetForcedAspect(bool Force, bool ApplyCustomAspect = true) override;
 	void SetScreenAspectOverrideEnabled(bool Enabled) override;
 };

@@ -137,10 +137,8 @@ public:
 	void OnInit() override;
 	void OnConsoleInit() override;
 	void OnNewSnapshot() override;
-
-	// These are the exact screen-space bounds used by the corresponding renderers.
-	// The HUD editor consumes them directly, so its selection/drag bounds can never
-	// diverge from the visible HUD element.
+	bool GetGameTimerSeconds(int &Seconds) const;
+	float GetPlayerRecordSeconds(int Dummy) const { return m_aPlayerRecord[Dummy]; }
 	HudLayout::SModuleRect GetAmfKeyIndicatorBounds() const;
 	HudLayout::SModuleRect GetAmfMouseIndicatorBounds() const;
 	HudLayout::SModuleRect GetLocalTimeBounds() const;

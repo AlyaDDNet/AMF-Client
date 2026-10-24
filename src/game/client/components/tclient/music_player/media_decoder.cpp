@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <limits>
+#include <memory>
 
 #if defined(CONF_VIDEORECORDER)
 extern "C" {
@@ -17,6 +18,13 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
 }
+#endif
+
+#if defined(CONF_FAMILY_WINDOWS)
+#define IStorage IStorageCOM
+#include <objbase.h>
+#include <wincodec.h>
+#undef IStorage
 #endif
 
 namespace
@@ -34,6 +42,182 @@ namespace
 		static const unsigned char s_aPngSig[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
 		return pData != nullptr && DataSize >= 8 && mem_comp(pData, s_aPngSig, 8) == 0;
 	}
+
+	bool IsJpegSignature(const unsigned char *pData, size_t DataSize)
+	{
+		return pData != nullptr && DataSize >= 3 && pData[0] == 0xff && pData[1] == 0xd8 && pData[2] == 0xff;
+	}
+
+#if defined(CONF_FAMILY_WINDOWS)
+	class CScopedComInitializer
+	{
+		HRESULT m_Result;
+		bool m_Uninitialize;
+
+	public:
+		CScopedComInitializer() :
+			m_Result(CoInitializeEx(nullptr, COINIT_MULTITHREADED)),
+			m_Uninitialize(SUCCEEDED(m_Result))
+		{
+		}
+
+		~CScopedComInitializer()
+		{
+			if(m_Uninitialize)
+				CoUninitialize();
+		}
+
+		bool IsUsable() const { return SUCCEEDED(m_Result) || m_Result == RPC_E_CHANGED_MODE; }
+	};
+
+	template<typename T>
+	struct CComRelease
+	{
+		void operator()(T *pObject) const
+		{
+			if(pObject)
+				pObject->Release();
+		}
+	};
+
+	template<typename T>
+	using TWicPtr = std::unique_ptr<T, CComRelease<T>>;
+
+	bool DecodeJpegToRgba(const unsigned char *pData, size_t DataSize, CImageInfo &Image)
+	{
+		Image.Free();
+		if(!IsJpegSignature(pData, DataSize) || DataSize > (size_t)std::numeric_limits<DWORD>::max())
+			return false;
+
+		CScopedComInitializer ComInitializer;
+		if(!ComInitializer.IsUsable())
+			return false;
+
+		IWICImagingFactory *pFactoryRaw = nullptr;
+		if(FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pFactoryRaw))))
+			return false;
+		TWicPtr<IWICImagingFactory> pFactory(pFactoryRaw);
+
+		IWICStream *pStreamRaw = nullptr;
+		if(FAILED(pFactory->CreateStream(&pStreamRaw)))
+			return false;
+		TWicPtr<IWICStream> pStream(pStreamRaw);
+		if(FAILED(pStream->InitializeFromMemory(const_cast<BYTE *>(reinterpret_cast<const BYTE *>(pData)), (DWORD)DataSize)))
+			return false;
+
+		IWICBitmapDecoder *pDecoderRaw = nullptr;
+		if(FAILED(pFactory->CreateDecoderFromStream(pStream.get(), nullptr, WICDecodeMetadataCacheOnLoad, &pDecoderRaw)))
+			return false;
+		TWicPtr<IWICBitmapDecoder> pDecoder(pDecoderRaw);
+
+		IWICBitmapFrameDecode *pFrameRaw = nullptr;
+		if(FAILED(pDecoder->GetFrame(0, &pFrameRaw)))
+			return false;
+		TWicPtr<IWICBitmapFrameDecode> pFrame(pFrameRaw);
+
+		UINT Width = 0;
+		UINT Height = 0;
+		if(FAILED(pFrame->GetSize(&Width, &Height)) || Width == 0 || Height == 0 || Width > MEDIA_MAX_DIMENSION || Height > MEDIA_MAX_DIMENSION)
+			return false;
+
+		IWICFormatConverter *pConverterRaw = nullptr;
+		if(FAILED(pFactory->CreateFormatConverter(&pConverterRaw)))
+			return false;
+		TWicPtr<IWICFormatConverter> pConverter(pConverterRaw);
+		if(FAILED(pConverter->Initialize(pFrame.get(), GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom)))
+			return false;
+
+		Image.m_Width = Width;
+		Image.m_Height = Height;
+		Image.m_Format = CImageInfo::FORMAT_RGBA;
+		Image.Allocate();
+		const UINT Stride = Width * 4;
+		if(FAILED(pConverter->CopyPixels(nullptr, Stride, (UINT)Image.DataSize(), Image.m_pData)))
+		{
+			Image.Free();
+			return false;
+		}
+		return true;
+	}
+#elif defined(CONF_VIDEORECORDER)
+	bool DecodeJpegToRgba(const unsigned char *pData, size_t DataSize, CImageInfo &Image)
+	{
+		Image.Free();
+		if(!IsJpegSignature(pData, DataSize) || DataSize > (size_t)std::numeric_limits<int>::max())
+			return false;
+
+		const AVCodec *pCodec = avcodec_find_decoder(AV_CODEC_ID_MJPEG);
+		if(!pCodec)
+			return false;
+
+		AVCodecContext *pCodecCtx = avcodec_alloc_context3(pCodec);
+		AVPacket *pPacket = av_packet_alloc();
+		AVFrame *pFrame = av_frame_alloc();
+		SwsContext *pSwsCtx = nullptr;
+		bool Success = false;
+
+		do
+		{
+			if(!pCodecCtx || !pPacket || !pFrame || avcodec_open2(pCodecCtx, pCodec, nullptr) < 0)
+				break;
+			if(av_new_packet(pPacket, (int)DataSize) < 0)
+				break;
+			mem_copy(pPacket->data, pData, DataSize);
+			if(avcodec_send_packet(pCodecCtx, pPacket) < 0)
+				break;
+			int FrameResult = avcodec_receive_frame(pCodecCtx, pFrame);
+			if(FrameResult == AVERROR(EAGAIN))
+			{
+				if(avcodec_send_packet(pCodecCtx, nullptr) < 0)
+					break;
+				FrameResult = avcodec_receive_frame(pCodecCtx, pFrame);
+			}
+			if(FrameResult < 0)
+				break;
+
+			const int Width = pFrame->width;
+			const int Height = pFrame->height;
+			if(Width <= 0 || Height <= 0 || Width > MEDIA_MAX_DIMENSION || Height > MEDIA_MAX_DIMENSION || pFrame->format < 0)
+				break;
+
+			pSwsCtx = sws_getContext(Width, Height, (AVPixelFormat)pFrame->format, Width, Height, AV_PIX_FMT_RGBA, SWS_BILINEAR, nullptr, nullptr, nullptr);
+			if(!pSwsCtx)
+				break;
+
+			Image.m_Width = Width;
+			Image.m_Height = Height;
+			Image.m_Format = CImageInfo::FORMAT_RGBA;
+			Image.Allocate();
+			uint8_t *apDestination[4] = {Image.m_pData, nullptr, nullptr, nullptr};
+			int aDestinationLinesize[4] = {Width * 4, 0, 0, 0};
+			if(sws_scale(pSwsCtx, pFrame->data, pFrame->linesize, 0, Height, apDestination, aDestinationLinesize) != Height)
+				break;
+
+			Success = true;
+		} while(false);
+
+		if(!Success)
+			Image.Free();
+		if(pSwsCtx)
+			sws_freeContext(pSwsCtx);
+		if(pFrame)
+			av_frame_free(&pFrame);
+		if(pPacket)
+			av_packet_free(&pPacket);
+		if(pCodecCtx)
+			avcodec_free_context(&pCodecCtx);
+		return Success;
+	}
+
+#else
+	bool DecodeJpegToRgba(const unsigned char *pData, size_t DataSize, CImageInfo &Image)
+	{
+		(void)pData;
+		(void)DataSize;
+		Image.Free();
+		return false;
+	}
+#endif
 
 #if defined(CONF_VIDEORECORDER)
 	struct CFfmpegMemoryReader
@@ -80,7 +264,6 @@ namespace
 		pReader->m_Pos = NewPos;
 		return (int64_t)NewPos;
 	}
-
 #endif
 
 	int ClampFrameDurationMs(int DurationMs)
@@ -107,6 +290,18 @@ namespace
 		ClampImageSize((int)Image.m_Width, (int)Image.m_Height, MaxDimension, ScaledWidth, ScaledHeight);
 		if(ScaledWidth > 0 && ScaledHeight > 0 && ((size_t)ScaledWidth != Image.m_Width || (size_t)ScaledHeight != Image.m_Height))
 			ResizeImage(Image, ScaledWidth, ScaledHeight);
+	}
+
+	void StoreStaticImage(CImageInfo &Image, SMediaDecodedFrames &DecodedFrames, int MaxDimension)
+	{
+		ClampImageSize(Image, MaxDimension);
+		DecodedFrames.m_Width = (int)Image.m_Width;
+		DecodedFrames.m_Height = (int)Image.m_Height;
+		DecodedFrames.m_Animated = false;
+		DecodedFrames.m_AnimationStart = time_get();
+		SMediaRawFrame Frame;
+		Frame.m_Image = std::move(Image);
+		DecodedFrames.m_vFrames.push_back(std::move(Frame));
 	}
 }
 
@@ -246,6 +441,8 @@ namespace MediaDecoder
 			if(CImageLoader::LoadPng(Reader, pContextName, Image, PngliteIncompatible))
 				return true;
 		}
+		if(IsJpegSignature(pData, DataSize) && DecodeJpegToRgba(pData, DataSize, Image))
+			return true;
 
 		if(!pData || DataSize == 0)
 			return false;
@@ -822,7 +1019,7 @@ namespace MediaDecoder
 	{
 		DecodedFrames.Free();
 
-		if(pGraphics == nullptr || !pData || DataSize == 0)
+		if(!pData || DataSize == 0)
 			return false;
 
 		CImageInfo Image;
@@ -834,16 +1031,14 @@ namespace MediaDecoder
 			int PngliteIncompatible;
 			if(CImageLoader::LoadPng(Reader, pContextName, Image, PngliteIncompatible))
 			{
-				ClampImageSize(Image, MaxDimension);
-				DecodedFrames.m_Width = (int)Image.m_Width;
-				DecodedFrames.m_Height = (int)Image.m_Height;
-				DecodedFrames.m_Animated = false;
-				DecodedFrames.m_AnimationStart = time_get();
-				SMediaRawFrame Frame;
-				Frame.m_Image = std::move(Image);
-				DecodedFrames.m_vFrames.push_back(std::move(Frame));
+				StoreStaticImage(Image, DecodedFrames, MaxDimension);
 				return true;
 			}
+		}
+		if(IsJpegSignature(pData, DataSize) && DecodeJpegToRgba(pData, DataSize, Image))
+		{
+			StoreStaticImage(Image, DecodedFrames, MaxDimension);
+			return true;
 		}
 
 		SMediaDecodeLimits Limits;

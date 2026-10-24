@@ -19,151 +19,8 @@
 #include <game/client/projectile_data.h>
 #include <game/mapitems.h>
 
-namespace
-{
-ColorRGBA BlendColor(const ColorRGBA &Base, const ColorRGBA &Overlay, float Amount)
-{
-	return ColorRGBA(
-		mix(Base.r, Overlay.r, Amount),
-		mix(Base.g, Overlay.g, Amount),
-		mix(Base.b, Overlay.b, Amount),
-		mix(Base.a, Overlay.a, Amount));
-}
 
-bool UseCrystalLaser(int Type)
-{
-	// Legacy laser snapshots can come without a specific type (< 0).
-	// Treat them as player lasers so fancy weapons stays visible on such servers.
-	return g_Config.m_AmfFancyWeapons && (Type == LASERTYPE_RIFLE || Type == LASERTYPE_SHOTGUN || Type < 0);
-}
-
-bool UseSandLaserStyle(int Type)
-{
-	return Type == LASERTYPE_SHOTGUN;
-}
-
-struct SCrystalLaserGeometry
-{
-	float m_Len = 0.0f;
-	vec2 m_Dir = vec2(1.0f, 0.0f);
-	vec2 m_Center = vec2(0.0f, 0.0f);
-	bool m_SandStyle = false;
-};
-
-bool BuildCrystalLaserGeometry(vec2 From, vec2 Pos, float Len, int Type, SCrystalLaserGeometry &Out)
-{
-	Out.m_Len = Len;
-	if(Len <= 0.0f)
-		return false;
-
-	Out.m_Dir = normalize(Pos - From);
-	Out.m_Center = mix(From, Pos, 0.5f);
-	Out.m_SandStyle = UseSandLaserStyle(Type);
-	return true;
-}
-
-void DrawLaserShard(IGraphics *pGraphics, vec2 Center, vec2 Dir, float HalfLength, float HalfWidth)
-{
-	vec2 Side = vec2(Dir.y, -Dir.x) * HalfWidth;
-	IGraphics::CFreeformItem Freeform(
-		Center - Dir * HalfLength - Side,
-		Center - Dir * HalfLength + Side,
-		Center + Dir * HalfLength - Side,
-		Center + Dir * HalfLength + Side);
-	pGraphics->QuadsDrawFreeform(&Freeform, 1);
-}
-
-void RenderCrystalLaserBody(IGraphics *pGraphics, vec2 From, vec2 Pos, const ColorRGBA &OuterColor, const ColorRGBA &InnerColor, float WidthScale, float TicksHead, const SCrystalLaserGeometry &Geometry)
-{
-	if(Geometry.m_Len <= 0.0f)
-		return;
-
-	const vec2 Dir = Geometry.m_Dir;
-	const float Len = Geometry.m_Len;
-	const bool SandStyle = Geometry.m_SandStyle;
-	const float Pulse = 0.68f + 0.32f * std::sin(TicksHead * 0.24f);
-	const ColorRGBA StyleTint = SandStyle ? ColorRGBA(0.86f, 0.72f, 0.42f, 1.0f) : ColorRGBA(0.70f, 0.93f, 1.00f, 1.0f);
-	const ColorRGBA GlowColor = BlendColor(OuterColor, StyleTint, SandStyle ? 0.72f : 0.80f).WithAlpha(OuterColor.a * (SandStyle ? (0.24f + 0.16f * Pulse) : (0.28f + 0.18f * Pulse)));
-	const ColorRGBA OuterGlowColor = BlendColor(OuterColor, StyleTint, SandStyle ? 0.82f : 0.88f).WithAlpha(OuterColor.a * (SandStyle ? (0.14f + 0.10f * Pulse) : (0.16f + 0.12f * Pulse)));
-	const ColorRGBA CoreMixColor = SandStyle ? ColorRGBA(0.98f, 0.90f, 0.68f, 1.0f) : ColorRGBA(1.0f, 1.0f, 1.0f, 1.0f);
-	const ColorRGBA CoreColor = BlendColor(InnerColor, CoreMixColor, SandStyle ? 0.64f : 0.72f).WithAlpha(InnerColor.a * (SandStyle ? (0.24f + 0.13f * Pulse) : (0.28f + 0.16f * Pulse)));
-	const ColorRGBA FacetColor = BlendColor(InnerColor, StyleTint, SandStyle ? 0.80f : 0.86f).WithAlpha(InnerColor.a * (SandStyle ? (0.27f + 0.10f * Pulse) : (0.30f + 0.11f * Pulse)));
-	const int SegmentCount = std::clamp((int)(Len / 48.0f), 6, 14);
-
-	pGraphics->TextureClear();
-	pGraphics->BlendAdditive();
-	pGraphics->QuadsBegin();
-
-	pGraphics->SetColor(OuterGlowColor);
-	DrawLaserShard(pGraphics, Geometry.m_Center, Dir, Len * 0.5f, (11.5f + 3.5f * Pulse) * WidthScale);
-	pGraphics->SetColor(GlowColor);
-	DrawLaserShard(pGraphics, Geometry.m_Center, Dir, Len * 0.5f, (8.8f + 2.8f * Pulse) * WidthScale);
-	pGraphics->SetColor(CoreColor);
-	DrawLaserShard(pGraphics, Geometry.m_Center, Dir, Len * 0.5f, (2.2f + 0.9f * Pulse) * WidthScale);
-
-	for(int i = 0; i < SegmentCount; ++i)
-	{
-		const float T = (i + 1.0f) / (SegmentCount + 1.0f);
-		const float Wave = std::sin(TicksHead * 0.17f + T * 12.0f + Len * 0.015f);
-		const float AngleOffset = (i % 2 == 0 ? -35.0f : 35.0f) + Wave * (SandStyle ? 9.0f : 12.0f);
-		const vec2 Center = mix(From, Pos, T);
-		const vec2 ShardDir = normalize(rotate(Dir, AngleOffset));
-		const float HalfLength = (SandStyle ? (8.0f + 7.0f * absolute(Wave)) : (9.0f + 9.0f * absolute(Wave))) * WidthScale;
-		const float HalfWidth = (SandStyle ? (1.4f + 2.8f * (1.0f - T) + 0.8f * absolute(Wave)) : (1.1f + 2.4f * (1.0f - T) + 0.7f * absolute(Wave))) * WidthScale;
-		const vec2 Side = vec2(Dir.y, -Dir.x) * Wave * (SandStyle ? 2.2f : 2.8f) * WidthScale;
-
-		pGraphics->SetColor(FacetColor.WithAlpha(FacetColor.a * (0.85f + 0.25f * std::sin(TicksHead * 0.09f + i))));
-		DrawLaserShard(pGraphics, Center + Side, ShardDir, HalfLength, HalfWidth);
-		DrawLaserShard(pGraphics, Center - Side * 0.55f, normalize(rotate(Dir, -AngleOffset * 0.72f)), HalfLength * 0.72f, HalfWidth * 0.75f);
-
-		pGraphics->SetColor(CoreColor.WithAlpha(CoreColor.a * 1.35f));
-		DrawLaserShard(pGraphics, Center + Side * 0.45f, Dir, HalfLength * 0.52f, HalfWidth * 0.42f);
-	}
-
-	pGraphics->QuadsEnd();
-	pGraphics->BlendNormal();
-}
-
-void RenderCrystalLaserHead(IGraphics *pGraphics, vec2 From, vec2 Pos, const ColorRGBA &OuterColor, const ColorRGBA &InnerColor, float WidthScale, float TicksHead, const SCrystalLaserGeometry &Geometry)
-{
-	if(Geometry.m_Len <= 0.0f)
-		return;
-
-	const vec2 Dir = Geometry.m_Dir;
-	const bool SandStyle = Geometry.m_SandStyle;
-	const float Pulse = 0.72f + 0.28f * std::sin(TicksHead * 0.28f + 0.8f);
-	const ColorRGBA StyleTint = SandStyle ? ColorRGBA(0.96f, 0.82f, 0.52f, 1.0f) : ColorRGBA(0.82f, 0.97f, 1.00f, 1.0f);
-	const ColorRGBA HeadGlowColor = BlendColor(OuterColor, StyleTint, SandStyle ? 0.76f : 0.86f).WithAlpha(OuterColor.a * (SandStyle ? (0.20f + 0.13f * Pulse) : (0.24f + 0.16f * Pulse)));
-	const ColorRGBA HeadColor = BlendColor(InnerColor, StyleTint, SandStyle ? 0.78f : 0.88f).WithAlpha(InnerColor.a * (SandStyle ? (0.34f + 0.14f * Pulse) : (0.42f + 0.18f * Pulse)));
-	const ColorRGBA SparkColor = BlendColor(OuterColor, SandStyle ? ColorRGBA(0.98f, 0.92f, 0.74f, 1.0f) : ColorRGBA(1.0f, 1.0f, 1.0f, 1.0f), SandStyle ? 0.68f : 0.78f).WithAlpha(OuterColor.a * (SandStyle ? (0.22f + 0.12f * Pulse) : (0.28f + 0.16f * Pulse)));
-
-	pGraphics->TextureClear();
-	pGraphics->BlendAdditive();
-	pGraphics->QuadsBegin();
-
-	pGraphics->SetColor(HeadGlowColor);
-	DrawLaserShard(pGraphics, Pos - Dir * (2.5f * WidthScale), Dir, (10.0f + Pulse * 4.0f) * WidthScale, (4.0f + 1.3f * Pulse) * WidthScale);
-
-	pGraphics->SetColor(HeadColor);
-	for(int i = 0; i < 6; ++i)
-	{
-		const float AngleOffset = -58.0f + i * 23.0f + std::sin(TicksHead * 0.13f + i) * (SandStyle ? 3.5f : 5.0f);
-		const vec2 ShardDir = normalize(rotate(Dir, AngleOffset));
-		DrawLaserShard(pGraphics, Pos - Dir * (1.8f * WidthScale), ShardDir, (SandStyle ? (8.0f + Pulse * 3.2f) : (9.5f + Pulse * 4.5f)) * WidthScale, (SandStyle ? (2.3f + 0.9f * Pulse) : (1.9f + 0.8f * Pulse)) * WidthScale);
-	}
-
-	pGraphics->SetColor(SparkColor);
-	DrawLaserShard(pGraphics, Pos - Dir * (2.8f * WidthScale), Dir, (8.5f + 3.0f * Pulse) * WidthScale, (2.5f + 0.8f * Pulse) * WidthScale);
-	DrawLaserShard(pGraphics, Pos - Dir * (2.0f * WidthScale), vec2(-Dir.y, Dir.x), (6.0f + 1.8f * Pulse) * WidthScale, (1.4f + 0.5f * Pulse) * WidthScale);
-	DrawLaserShard(pGraphics, Pos - Dir * (1.3f * WidthScale), normalize(rotate(Dir, 90.0f)), (4.4f + 1.6f * Pulse) * WidthScale, (0.9f + 0.4f * Pulse) * WidthScale);
-
-	pGraphics->QuadsEnd();
-	pGraphics->BlendNormal();
-}
-
-} // namespace
-
-void CItems::RenderProjectile(const CProjectileData *pCurrent, int ItemId)
+void CItems::RenderProjectile(const CProjectileData *pCurrent, int ItemId, const CScreenRect &ScreenRect)
 {
 	int CurWeapon = std::clamp(pCurrent->m_Type, 0, NUM_WEAPONS - 1);
 
@@ -229,6 +86,8 @@ void CItems::RenderProjectile(const CProjectileData *pCurrent, int ItemId)
 	}
 
 	vec2 Pos = CalcPos(pCurrent->m_StartPos, pCurrent->m_StartVel, Curvature, Speed, Ct);
+	if(!ScreenRect.Inside(Pos))
+		return;
 	vec2 PrevPos = CalcPos(pCurrent->m_StartPos, pCurrent->m_StartVel, Curvature, Speed, Ct - 0.001f);
 
 	float Alpha = 1.f;
@@ -243,7 +102,8 @@ void CItems::RenderProjectile(const CProjectileData *pCurrent, int ItemId)
 	// don't check for validity of the projectile for the current weapon here, so particle effects are rendered for mod compatibility
 	if(CurWeapon == WEAPON_GRENADE)
 	{
-		GameClient()->m_Effects.SmokeTrail(Pos, Vel * -1, Alpha, 0.0f);
+		if(!GameClient()->m_WeaponVfx.RenderRocketTrail(*pCurrent, Ct, Curvature, Speed, Alpha))
+			GameClient()->m_Effects.SmokeTrail(Pos, Vel * -1, Alpha, 0.0f);
 		static float s_Time = 0.0f;
 		static float s_LastLocalTime = LocalTime();
 		s_Time += (LocalTime() - s_LastLocalTime) * GameClient()->GetAnimationPlaybackSpeed();
@@ -279,6 +139,11 @@ void CItems::RenderPickup(const CNetObj_Pickup *pPrev, const CNetObj_Pickup *pCu
 		QuadOffset = m_PickupHealthOffset;
 		Graphics()->TextureSet(GameClient()->m_GameSkin.m_SpritePickupHealth);
 	}
+	else if(pCurrent->m_Type == POWERUP_FREEZE)
+	{
+		QuadOffset = m_PickupFreezeOffset;
+		Graphics()->TextureSet(GameClient()->m_GameSkin.m_SpritePickupFreeze);
+	}
 	else if(pCurrent->m_Type == POWERUP_ARMOR)
 	{
 		QuadOffset = m_PickupArmorOffset;
@@ -303,6 +168,10 @@ void CItems::RenderPickup(const CNetObj_Pickup *pPrev, const CNetObj_Pickup *pCu
 	{
 		QuadOffset = m_aPickupWeaponArmorOffset[pCurrent->m_Type - POWERUP_ARMOR_SHOTGUN];
 		Graphics()->TextureSet(GameClient()->m_GameSkin.m_aSpritePickupWeaponArmor[pCurrent->m_Type - POWERUP_ARMOR_SHOTGUN]);
+	}
+	else
+	{
+		return;
 	}
 	Graphics()->QuadsSetRotation(0);
 	Graphics()->SetColor(1.f, 1.f, 1.f, 1.f);
@@ -471,12 +340,9 @@ void CItems::RenderLaser(const CLaserData *pCurrent, bool IsPredicted)
 
 void CItems::RenderLaser(vec2 From, vec2 Pos, ColorRGBA OuterColor, ColorRGBA InnerColor, float TicksBody, float TicksHead, int Type) const
 {
+	if(GameClient()->m_WeaponVfx.RenderWeaponLaser(From, Pos, OuterColor, InnerColor, TicksBody, TicksHead, Type))
+		return;
 	float Len = distance(Pos, From);
-	const bool CrystalLaser = UseCrystalLaser(Type);
-	float CrystalBodyScale = 1.0f;
-	float CrystalHeadScale = 1.0f;
-	SCrystalLaserGeometry CrystalGeometry;
-	const bool HasCrystalGeometry = CrystalLaser && BuildCrystalLaserGeometry(From, Pos, Len, Type, CrystalGeometry);
 
 	if(Len > 0)
 	{
@@ -501,8 +367,6 @@ void CItems::RenderLaser(vec2 From, vec2 Pos, ColorRGBA OuterColor, ColorRGBA In
 		}
 		a = std::clamp(a, 0.0f, 1.0f);
 		float Ia = 1 - a;
-		CrystalBodyScale = std::max(Ia, 0.12f);
-		CrystalHeadScale = std::max(Ia, 0.32f);
 
 		Graphics()->TextureClear();
 		Graphics()->QuadsBegin();
@@ -529,8 +393,6 @@ void CItems::RenderLaser(vec2 From, vec2 Pos, ColorRGBA OuterColor, ColorRGBA In
 
 		Graphics()->QuadsEnd();
 
-		if(HasCrystalGeometry)
-			RenderCrystalLaserBody(Graphics(), From, Pos, OuterColor, InnerColor, CrystalBodyScale, TicksHead, CrystalGeometry);
 	}
 
 	// render head
@@ -593,8 +455,6 @@ void CItems::RenderLaser(vec2 From, vec2 Pos, ColorRGBA OuterColor, ColorRGBA In
 		Graphics()->SetColor(InnerColor);
 		Graphics()->RenderQuadContainerAsSprite(m_ItemsQuadContainerIndex, m_aParticleSplatOffset[CurParticle], Pos.x, Pos.y, 20.f / 24.f, 20.f / 24.f);
 
-		if(HasCrystalGeometry)
-			RenderCrystalLaserHead(Graphics(), From, Pos, OuterColor, InnerColor, CrystalHeadScale, TicksHead, CrystalGeometry);
 	}
 }
 
@@ -618,33 +478,51 @@ void CItems::OnRender()
 	bool UsePredicted = GameClient()->Predict() && GameClient()->AntiPingGunfire();
 	auto &aSwitchers = GameClient()->Switchers();
 
+	CScreenRect ScreenRectLaser = Graphics()->GetScreen();
+	CScreenRect ScreenRectProjectile = ScreenRectLaser;
+	CScreenRect ScreenRectPickup = ScreenRectLaser;
+
+	constexpr float TileSize = 64.0f;
+	ScreenRectProjectile.Expand(TileSize);
+	ScreenRectLaser.Expand(TileSize / 2.0f);
+	ScreenRectPickup.Expand(1.75f * TileSize, 0.75f * TileSize);
+
+	auto IsLaserInside = [&](const CLaserData &LaserData) -> bool {
+		const vec2 &From = LaserData.m_From;
+		const vec2 &To = LaserData.m_To;
+		return !((From.x < ScreenRectLaser.m_TopLeft.x && To.x < ScreenRectLaser.m_TopLeft.x) || (From.x > ScreenRectLaser.m_BottomRight.x && To.x > ScreenRectLaser.m_BottomRight.x) ||
+			 (From.y < ScreenRectLaser.m_TopLeft.y && To.y < ScreenRectLaser.m_TopLeft.y) || (From.y > ScreenRectLaser.m_BottomRight.y && To.y > ScreenRectLaser.m_BottomRight.y));
+	};
+
 	if(UsePredicted)
 	{
-		CGameWorld &PrevWorld = GameClient()->m_FastPractice.Active() ? GameClient()->m_FastPractice.PracticePrevWorld() : GameClient()->m_PrevPredictedWorld;
-		for(auto *pProj = (CProjectile *)PrevWorld.FindFirst(CGameWorld::ENTTYPE_PROJECTILE); pProj; pProj = (CProjectile *)pProj->NextEntity())
+		CGameWorld &PrevPredictedWorld = GameClient()->m_FastPractice.Active() ? GameClient()->m_FastPractice.PracticePrevWorld() : GameClient()->m_FastPrevPredictedWorld;
+		for(auto *pProj = (CProjectile *)PrevPredictedWorld.FindFirst(CGameWorld::ENTTYPE_PROJECTILE); pProj; pProj = (CProjectile *)pProj->NextEntity())
 		{
 			if(!IsSuper && pProj->m_Number > 0 && pProj->m_Number < (int)aSwitchers.size() && !aSwitchers[pProj->m_Number].m_aStatus[SwitcherTeam] && (pProj->m_Explosive ? BlinkingProjEx : BlinkingProj))
 				continue;
 
 			CProjectileData Data = pProj->GetData();
-			RenderProjectile(&Data, pProj->GetId());
+			RenderProjectile(&Data, pProj->GetId(), ScreenRectProjectile);
 		}
-		for(CEntity *pEnt = PrevWorld.FindFirst(CGameWorld::ENTTYPE_LASER); pEnt; pEnt = pEnt->NextEntity())
+		for(CEntity *pEnt = PrevPredictedWorld.FindFirst(CGameWorld::ENTTYPE_LASER); pEnt; pEnt = pEnt->NextEntity())
 		{
 			auto *const pLaser = dynamic_cast<CLaser *>(pEnt);
 			if(!pLaser || pLaser->GetOwner() < 0 || !GameClient()->m_aClients[pLaser->GetOwner()].m_IsPredictedLocal)
 				continue;
 			CLaserData Data = pLaser->GetData();
+			if(!IsLaserInside(Data))
+				continue;
 			RenderLaser(&Data, true);
 		}
-		for(auto *pPickup = (CPickup *)PrevWorld.FindFirst(CGameWorld::ENTTYPE_PICKUP); pPickup; pPickup = (CPickup *)pPickup->NextEntity())
+		for(auto *pPickup = (CPickup *)PrevPredictedWorld.FindFirst(CGameWorld::ENTTYPE_PICKUP); pPickup; pPickup = (CPickup *)pPickup->NextEntity())
 		{
 			if(!IsSuper && pPickup->m_Layer == LAYER_SWITCH && pPickup->m_Number > 0 && pPickup->m_Number < (int)aSwitchers.size() && !aSwitchers[pPickup->m_Number].m_aStatus[SwitcherTeam] && BlinkingPickup)
 				continue;
 
 			if(pPickup->InDDNetTile())
 			{
-				if(auto *pPrev = (CPickup *)GameClient()->m_PrevPredictedWorld.GetEntity(pPickup->GetId(), CGameWorld::ENTTYPE_PICKUP))
+				if(auto *pPrev = (CPickup *)PrevPredictedWorld.GetEntity(pPickup->GetId(), CGameWorld::ENTTYPE_PICKUP))
 				{
 					CNetObj_Pickup Data, Prev;
 					pPickup->FillInfo(&Data);
@@ -685,11 +563,13 @@ void CItems::OnRender()
 						continue;
 				}
 			}
-			RenderProjectile(&Data, Item.m_Id);
+			RenderProjectile(&Data, Item.m_Id, ScreenRectProjectile);
 		}
 		else if(Item.m_Type == NETOBJTYPE_PICKUP || Item.m_Type == NETOBJTYPE_DDNETPICKUP)
 		{
 			CPickupData Data = ExtractPickupInfo(Item.m_Type, pData, pEntEx);
+			if(!ScreenRectPickup.Inside(Data.m_Pos))
+				continue;
 			bool Inactive = !IsSuper && Data.m_SwitchNumber > 0 && Data.m_SwitchNumber < (int)aSwitchers.size() && !aSwitchers[Data.m_SwitchNumber].m_aStatus[SwitcherTeam];
 
 			if(Inactive && BlinkingPickup)
@@ -714,6 +594,8 @@ void CItems::OnRender()
 			}
 
 			CLaserData Data = ExtractLaserInfo(Item.m_Type, pData, &GameClient()->m_GameWorld, pEntEx);
+			if(!IsLaserInside(Data))
+				continue;
 			bool Inactive = !IsSuper && Data.m_SwitchNumber > 0 && Data.m_SwitchNumber < (int)aSwitchers.size() && !aSwitchers[Data.m_SwitchNumber].m_aStatus[SwitcherTeam];
 
 			bool IsEntBlink = false;
@@ -787,6 +669,9 @@ void CItems::OnInit()
 	Graphics()->GetSpriteScale(SPRITE_PICKUP_ARMOR, ScaleX, ScaleY);
 	Graphics()->QuadsSetSubset(0, 0, 1, 1);
 	m_PickupArmorOffset = Graphics()->QuadContainerAddSprite(m_ItemsQuadContainerIndex, 64.f * ScaleX, 64.f * ScaleY);
+	Graphics()->GetSpriteScale(SPRITE_PICKUP_FREEZE, ScaleX, ScaleY);
+	Graphics()->QuadsSetSubset(0, 0, 1, 1);
+	m_PickupFreezeOffset = Graphics()->QuadContainerAddSprite(m_ItemsQuadContainerIndex, 64.f * ScaleX, 64.f * ScaleY);
 
 	for(int i = 0; i < NUM_WEAPONS; ++i)
 	{
@@ -833,6 +718,8 @@ void CItems::OnInit()
 
 void CItems::ReconstructSmokeTrail(const CProjectileData *pCurrent, int DestroyTick)
 {
+	if(pCurrent->m_Type == WEAPON_GRENADE && g_Config.m_AmfRocketGlow && g_Config.m_AmfRocketGlowPower > 0)
+		return;
 	bool LocalPlayerInGame = false;
 
 	if(GameClient()->m_Snap.m_pLocalInfo)

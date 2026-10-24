@@ -19,8 +19,6 @@ class CSnapshotDelta;
 class IConsole;
 class IStorage;
 
-// Set by the menu while a demo page or player is rendered. Backends use this
-// runtime-only state to avoid applying gameplay-only presentation effects.
 void SetDemoPresentationActive(bool Active);
 bool IsDemoPresentationActive();
 
@@ -47,7 +45,7 @@ class CDemoRecorder : public IDemoRecorder
 	void *m_pUser;
 
 	void WriteTickMarker(int Tick, bool Keyframe);
-	void Write(int Type, const void *pData, int Size);
+	bool Write(int Type, const void *pData, int Size);
 
 public:
 	CDemoRecorder(CSnapshotDelta *pSnapshotDelta, bool NoMapData = false);

@@ -13,6 +13,9 @@
 
 class CVoting : public CComponent
 {
+	friend class CTClient;
+	HudLayout::SModuleRect m_HudBounds{};
+
 	CHeap m_Heap;
 
 	static void ConCallvote(IConsole::IResult *pResult, void *pUserData);
@@ -25,7 +28,6 @@ class CVoting : public CComponent
 	int m_Voted;
 	int m_Yes, m_No, m_Pass, m_Total;
 	bool m_ReceivingOptions;
-	HudLayout::SModuleRect m_HudBounds{};
 
 	int m_NumVoteOptions;
 	CVoteOptionClient *m_pFirst;
@@ -41,8 +43,6 @@ class CVoting : public CComponent
 	void RenderBars(CUIRect Bars) const;
 
 public:
-	friend class CTClient; // TClient
-
 	CVoting();
 	int Sizeof() const override { return sizeof(*this); }
 	void OnReset() override;
@@ -50,6 +50,7 @@ public:
 	void OnMessage(int MsgType, void *pRawMsg) override;
 
 	void Render();
+	CUIRect GetHudRect(float HudWidth, float HudHeight, bool ForcePreview = false) const;
 	HudLayout::SModuleRect GetHudBounds() const { return m_HudBounds; }
 
 	void CallvoteSpectate(int ClientId, const char *pReason, bool ForceVote = false);

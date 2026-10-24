@@ -6,6 +6,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#if defined(CONF_SNAPSHOT_FORENSICS)
+#include <memory>
+#endif
 
 // CSnapshot
 
@@ -65,6 +68,8 @@ public:
 	// See also `CNetObjHandler::DebugDumpSnapshot(const CSnapshot *pSnap)`
 	// For more detailed annotations of the data.
 	void DebugDump() const;
+	// Temporary bounded diagnostics for a snapshot rejected by IsValid.
+	void DebugDumpInvalidLayout(size_t ActualSize) const;
 	bool IsValid(size_t ActualSize) const;
 
 	static const CSnapshot *EmptySnapshot() { return &ms_EmptySnapshot; }
@@ -77,6 +82,15 @@ public:
 
 	CSnapshot *AsSnapshot() { return (CSnapshot *)m_aData; }
 	const CSnapshot *AsSnapshot() const { return (const CSnapshot *)m_aData; }
+};
+
+class alignas(int32_t) CSnapshotDeltaBuffer
+{
+	// A delta always fits into twice the snapshot size.
+	static constexpr int MAX_SIZE = 2 * CSnapshot::MAX_SIZE;
+
+public:
+	unsigned char m_aData[MAX_SIZE];
 };
 
 // CSnapshotDelta
@@ -113,15 +127,40 @@ public:
 	uint64_t GetDataUpdates(int Index) const { return m_aSnapshotDataUpdates[Index]; }
 	void SetStaticsize(int ItemType, size_t Size);
 	const CData *EmptyDelta() const;
-	int CreateDelta(const CSnapshot *pFrom, const CSnapshot *pTo, void *pDstData);
-	int UnpackDelta(const CSnapshot *pFrom, CSnapshotBuffer *pTo, const void *pSrcData, int DataSize);
+	int CreateDelta(const CSnapshot *pFrom, const CSnapshot *pTo, CSnapshotDeltaBuffer *pDstData);
+	int UnpackDelta(const CSnapshot *pFrom, CSnapshotBuffer *pTo, const void *pSrcData, int DataSize, const struct CSnapshotDebugContext *pDebugContext = nullptr);
 	int DebugDumpDelta(const void *pSrcData, int DataSize);
+};
+
+// Optional context used only when a snapshot builder hits an assertion. This
+// keeps corrupt-snapshot diagnostics tied to the packet/lifecycle that built it.
+struct CSnapshotDebugContext
+{
+	const char *m_pStage = "unspecified";
+	int m_GameTick = -1;
+	int m_DeltaTick = -1;
+	int m_Connection = -1;
+	int m_Sequence = -1;
+	int m_CompressedSize = -1;
+	int m_DeltaSize = -1;
+	int m_BaseSnapshotSize = -1;
+	bool m_Sixup = false;
+	bool m_Dummy = false;
 };
 
 // CSnapshotStorage
 
 class CSnapshotStorage
 {
+public:
+	class CHolder;
+private:
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	class CForensics;
+	std::unique_ptr<CForensics> m_pForensics;
+	void DebugAdded(CHolder *pHolder);
+	void DebugFreeing(CHolder *pHolder, const char *pReason);
+#endif
 public:
 	class CHolder
 	{
@@ -142,13 +181,33 @@ public:
 	CHolder *m_pFirst;
 	CHolder *m_pLast;
 
-	CSnapshotStorage() { Init(); }
-	~CSnapshotStorage() { PurgeAll(); }
+	CSnapshotStorage();
+	~CSnapshotStorage();
 	void Init();
 	void PurgeAll();
 	void PurgeUntil(int Tick);
 	void Add(int Tick, int64_t Tagtime, size_t DataSize, const void *pData, size_t AltDataSize, const void *pAltData);
 	int Get(int Tick, int64_t *pTagtime, const CSnapshot **ppData, const CSnapshot **ppAltData) const;
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	// Observational only. Shadows are never returned by Get or used to repair snapshots.
+	void DebugSetContext(int Connection, int Sequence, int State, bool Sixup);
+	void DebugSetPacketContext(int CurrentTick, int BaseTick);
+	void DebugEnableForensicsPersistence();
+	bool DebugSetForensicsLogPath(const char *pPath);
+	static void DebugSetEntityLinkStorage(CSnapshotStorage *pStorage);
+	static bool DebugPersistEntityLinkFailure(const char *pRelation, const void *pWorld, const void *pEntity, int EntityType, int EntityId, const void *pParent, bool ParentBelongsToExpectedWorld, const void *pChild, bool ChildBelongsToExpectedWorld, const void *pInvalidLink, const void *pExpectedWorld, size_t WriteMemberOffset);
+	bool DebugPersistInvalidBase(int Tick, int DeltaTick, int Sequence, bool Sixup, bool Dummy, const CSnapshot *pBase, int BaseSize);
+	bool DebugCheck(const char *pBoundary, int Tick, int Sequence, int OnceSlot = -1);
+	uint64_t DebugAllocationGeneration(const CHolder *pHolder) const;
+	size_t DebugShadowCount() const;
+	struct CDebugMutation
+	{
+		size_t m_FirstByte, m_DifferingBytes, m_Ranges;
+		uint64_t m_Generation;
+		const char *m_pLastGood, *m_pFirstBad;
+	};
+	std::optional<CDebugMutation> DebugLastMutation() const;
+#endif
 };
 
 class CSnapshotBuilder
@@ -174,10 +233,12 @@ class CSnapshotBuilder
 	bool m_Building = false;
 	bool m_HasDroppedItem = false;
 	bool m_Sixup = false;
+	CSnapshotDebugContext m_DebugContext;
 
 public:
 	void Init(bool Sixup = false);
 	void Init7(const CSnapshot *pSnapshot);
+	void SetDebugContext(const CSnapshotDebugContext &Context) { m_DebugContext = Context; }
 
 	bool NewItem(int Type, int Id, const void *pData, int Size);
 	void *NewItemRaw(int Type, int Id, int Size);

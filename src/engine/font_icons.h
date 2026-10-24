@@ -16,6 +16,7 @@ namespace FontIcon
 	inline const char *const BACKWARD_FAST = "\uF049";
 	inline const char *const BACKWARD_STEP = "\uF048";
 	inline const char *const BAN = "\uF05E";
+	inline const char *const BELL = "\uF0F3";
 	inline const char *const BOOKMARK = "\uF02E";
 	inline const char *const BORDER_ALL = "\uF84C";
 	inline const char *const BRUSH = "\uF55D";
@@ -92,7 +93,7 @@ namespace FontIcon
 	inline const char *const VIDEO = "\uF03D";
 	inline const char *const XMARK = "\uF00D";
 
-	// TClient
+	// TClient icons retained from the current AMF presentation.
 	inline const char *const ICON_USERS = "\xEF\x83\x80";
 }
 

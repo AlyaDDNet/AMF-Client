@@ -86,7 +86,6 @@ public:
 	 * @return `true` if key was pressed down during input updates for the current frame, `false` otherwise.
 	 */
 	virtual bool KeyPress(int Key) const = 0;
-	virtual const char *KeyName(int Key) const = 0;
 	virtual int FindKeyByName(const char *pKeyName) const = 0;
 
 	// joystick
@@ -115,8 +114,6 @@ public:
 	virtual bool NativeMousePressed(int Index) const = 0;
 	virtual void MouseModeRelative() = 0;
 	virtual void MouseModeAbsolute() = 0;
-	/** Controls only the operating-system cursor. UI cursor rendering remains
-	 * the responsibility of the caller. */
 	virtual void SetSystemCursorVisible(bool Visible) = 0;
 	virtual bool MouseRelative(float *pX, float *pY) = 0;
 

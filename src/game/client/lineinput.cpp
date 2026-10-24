@@ -8,7 +8,6 @@
 #include <base/mem.h>
 #include <base/str.h>
 
-#include <engine/external/tinyexpr.h>
 #include <engine/graphics.h>
 #include <engine/keys.h>
 #include <engine/shared/config.h>
@@ -356,25 +355,27 @@ bool CLineInput::ProcessInput(const IInput::CEvent &Event)
 					{
 						if(ClipboardText[i] == '\n')
 						{
-							if(i == Begin)
+							size_t End = i;
+							if(End > 0 && ClipboardText[End - 1] == '\r')
 							{
-								Begin++;
-								continue;
+								--End;
 							}
-							std::string Line = ClipboardText.substr(Begin, i - Begin + 1);
+							std::string Line = ClipboardText.substr(Begin, End - Begin);
+							str_sanitize_cc(Line.data());
 							if(FirstLine)
 							{
-								str_sanitize_cc(Line.data());
 								SetRange(Line.c_str(), m_SelectionStart, m_SelectionEnd);
 								FirstLine = false;
-								Line = GetString();
+							}
+							else
+							{
+								Set(Line.c_str());
 							}
 							Begin = i + 1;
-							str_sanitize_cc(Line.data());
-							m_pfnClipboardLineCallback(Line.c_str());
+							m_pfnClipboardLineCallback(GetString());
 						}
 					}
-					std::string Line = ClipboardText.substr(Begin, i - Begin + 1);
+					std::string Line = ClipboardText.substr(Begin);
 					str_sanitize_cc(Line.data());
 					if(FirstLine)
 						SetRange(Line.c_str(), m_SelectionStart, m_SelectionEnd);
@@ -454,8 +455,8 @@ STextBoundingBox CLineInput::Render(const CUIRect *pRect, float FontSize, int Al
 		Cursor.m_FontSize = FontSize;
 		Cursor.m_LineWidth = LineWidth;
 		Cursor.m_ForceCursorRendering = Changed;
-		Cursor.m_HideCursorRendering = m_HideCaret;
 		Cursor.m_LineSpacing = LineSpacing;
+		Cursor.m_HideCursor = m_HideCaret;
 		Cursor.m_PressMouse.x = m_MouseSelection.m_PressMouse.x;
 		Cursor.m_ReleaseMouse.x = m_MouseSelection.m_ReleaseMouse.x;
 		Cursor.m_vColorSplits = vColorSplits;
@@ -529,8 +530,8 @@ STextBoundingBox CLineInput::Render(const CUIRect *pRect, float FontSize, int Al
 		CaretCursor.m_Flags = 0;
 		CaretCursor.m_LineWidth = LineWidth;
 		CaretCursor.m_LineSpacing = LineSpacing;
+		CaretCursor.m_HideCursor = m_HideCaret;
 		CaretCursor.m_CursorMode = TEXT_CURSOR_CURSOR_MODE_SET;
-		CaretCursor.m_HideCursorRendering = m_HideCaret;
 		CaretCursor.m_CursorCharacter = str_utf8_offset_bytes_to_chars(pDisplayStr, DisplayCursorOffset);
 		TextRender()->TextEx(&CaretCursor, pDisplayStr);
 		SetCompositionWindowPosition(CaretCursor.m_CursorRenderedPosition + vec2(0.0f, CaretCursor.m_AlignedFontSize / 2.0f), CaretCursor.m_AlignedFontSize);
@@ -578,9 +579,9 @@ void CLineInput::RenderCandidates()
 	const float Margin = 4.0f;
 	const float Height = 300.0f;
 	const float Width = Height * Graphics()->ScreenAspect();
-	const vec2 ScreenSize = vec2(Graphics()->ScreenWidth(), Graphics()->ScreenHeight());
+	const vec2 ScreenSize = Graphics()->ScreenSize();
 
-	Graphics()->MapScreen(0.0f, 0.0f, Width, Height);
+	Graphics()->MapScreenToSize(Width, Height);
 
 	// Determine longest candidate width
 	float LongestCandidateWidth = 0.0f;
@@ -638,9 +639,7 @@ void CLineInput::RenderCandidates()
 
 void CLineInput::SetCompositionWindowPosition(vec2 Anchor, float LineHeight)
 {
-	float ScreenX0, ScreenY0, ScreenX1, ScreenY1;
-	Graphics()->GetScreen(&ScreenX0, &ScreenY0, &ScreenX1, &ScreenY1);
-	const vec2 ScreenScale = vec2(Graphics()->ScreenWidth(), Graphics()->ScreenHeight()) / vec2(ScreenX1 - ScreenX0, ScreenY1 - ScreenY0);
+	const vec2 ScreenScale = Graphics()->ScreenSize() / Graphics()->GetScreen().Size();
 	ms_CompositionWindowPosition = Anchor * ScreenScale;
 	ms_CompositionLineHeight = LineHeight * ScreenScale.y;
 	Input()->SetCompositionWindowPosition(ms_CompositionWindowPosition.x, ms_CompositionWindowPosition.y, ms_CompositionLineHeight);
@@ -699,12 +698,6 @@ void CLineInputNumber::SetInteger(int Number, int Base, int HexPrefix)
 
 int CLineInputNumber::GetInteger(int Base) const
 {
-	if(Base == 10)
-	{
-		double Result = te_interp(GetString(), nullptr);
-		if(std::isfinite(Result))
-			return (int)std::round(Result);
-	}
 	return str_toint_base(GetString(), Base);
 }
 
@@ -728,12 +721,6 @@ void CLineInputNumber::SetInteger64(int64_t Number, int Base, int HexPrefix)
 
 int64_t CLineInputNumber::GetInteger64(int Base) const
 {
-	if(Base == 10)
-	{
-		double Result = te_interp(GetString(), nullptr);
-		if(std::isfinite(Result))
-			return (int64_t)std::round(Result);
-	}
 	return str_toint64_base(GetString(), Base);
 }
 
@@ -747,6 +734,5 @@ void CLineInputNumber::SetFloat(float Number)
 
 float CLineInputNumber::GetFloat() const
 {
-	// return str_tofloat(GetString());
-	return (float)te_interp(GetString(), nullptr);
+	return str_tofloat(GetString());
 }

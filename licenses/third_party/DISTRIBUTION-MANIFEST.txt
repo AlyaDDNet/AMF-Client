@@ -1,0 +1,67 @@
+AMF Client 2.0.1 Nova Edition — Windows x64 portable dependency manifest
+
+Notice paths below are relative to the portable package root. This manifest
+lists non-system DLLs present in the Windows x64 portable ZIP, plus statically
+or object-linked third-party code for which the package also carries notices.
+
+DLL / linked component                 Component / version or identity       Notice path(s)
+-------------------------------------  ------------------------------------  -----------------------------------------------
+avcodec-61.dll                         FFmpeg 7.0.1; GPL-enabled build        licenses/third_party/FFmpeg-COPYING.GPLv2.txt
+                                                                            licenses/third_party/x264-COPYING.txt
+avformat-61.dll                        FFmpeg 7.0.1; GPL-enabled build        licenses/third_party/FFmpeg-COPYING.GPLv2.txt
+                                                                            licenses/third_party/x264-COPYING.txt
+avutil-59.dll                          FFmpeg 7.0.1; GPL-enabled build        licenses/third_party/FFmpeg-COPYING.GPLv2.txt
+                                                                            licenses/third_party/x264-COPYING.txt
+swresample-5.dll                       FFmpeg 7.0.1; GPL-enabled build        licenses/third_party/FFmpeg-COPYING.GPLv2.txt
+                                                                            licenses/third_party/x264-COPYING.txt
+swscale-8.dll                          FFmpeg 7.0.1; GPL-enabled build        licenses/third_party/FFmpeg-COPYING.GPLv2.txt
+                                                                            licenses/third_party/x264-COPYING.txt
+libcurl.dll                            libcurl 8.8.0                          licenses/third_party/curl-COPYING.txt
+libfreetype.dll                        FreeType 2.13.2                        licenses/third_party/FreeType-LICENSE.TXT
+                                                                            licenses/third_party/FreeType-FTL.TXT
+                                                                            licenses/third_party/FreeType-BDF-README.txt
+                                                                            licenses/third_party/FreeType-PCF-README.txt
+                                                                            licenses/third_party/FreeType-HarfBuzz-MIT-NOTICE.txt
+libogg.dll                             libogg 1.3.5                            licenses/third_party/Xiph-Opus-COPYING.txt
+libopus.dll                            libopus 1.3.1                            licenses/third_party/Xiph-Opus-COPYING.txt
+libopusfile.dll                        opusfile 0.12                           licenses/third_party/Xiph-Opus-COPYING.txt
+libpng16-16.dll                        libpng 1.6.39                           licenses/third_party/libpng-LICENSE.txt
+libwavpack-1.dll                       WavPack 5.9.0                           licenses/third_party/WavPack-LICENSE.txt
+libwinpthread-1.dll                    MinGW-w64 winpthreads runtime           licenses/third_party/Winpthreads-COPYING.txt
+SDL2.dll                               SDL 2.32.10                            licenses/third_party/SDL-COPYING.txt
+sqlite3.dll                            SQLite 3.46.0                           licenses/third_party/SQLite-LICENSE.md
+steam_api.dll                          AMF/DDNet steam_api_stub.cpp            license.txt
+vulkan-1.dll                           Vulkan Runtime loader 1.3.216.0         licenses/third_party/VulkanRT-License.txt
+zlib1.dll                              zlib 1.2.11                             license.txt
+
+Third-party code linked into DDNet.exe (not a separately shipped DLL):
+- GLEW (repository-bundled object library): licenses/third_party/GLEW-LICENSE.txt
+- json-parser (repository-bundled object library):
+  licenses/third_party/json-parser-LICENSE.txt
+- ChaiScript (repository-bundled headers):
+  licenses/third_party/ChaiScript-LICENSE.txt
+- MD5 implementation (repository-bundled object library):
+  licenses/third_party/md5-Aladdin-NOTICE.txt
+- zlib compiled into the client: license.txt
+- C++/WinRT headers used by the Windows media integration:
+  licenses/third_party/cppwinrt-LICENSE
+
+FFmpeg/x264 corresponding-source package (distribute alongside this portable):
+AMF-Client-2.0.1-FFmpeg-x264-Corresponding-Source.zip
+It contains FFmpeg 7.0.1 source, x264 commit
+4613ac3c15fd75cebc4b9f65b7fb95e70a3acce1, the applicable upstream license
+texts, source hashes, and build configuration/materials. See
+licenses/third_party/FFmpeg-x264-BUILD-INFO.txt for the provenance and the
+limits of the available toolchain record, and
+licenses/third_party/FFmpeg-x264-SHA256SUMS.txt for source-archive hashes.
+
+Provenance: these five DLLs are byte-identical to the Windows x64 files in
+ddnet-libs commit d5f0cd9194936d1ab5bd19952645b8dffe9ae06c. Their embedded
+configuration reports FFmpeg 7.0.1, --enable-gpl, and --enable-libx264. The
+matching FFmpeg release source is n7.0.1 (commit
+af25a4bfd2503caf3ee485b27b99b620302f5718). The x264 commit is reconstructed
+from the dated x264-master source acquisition recorded by DDNet's dependency
+build script and the upstream master history at the DLL build timestamp; it
+is not embedded as a revision string in the DLLs. Bit-for-bit reproducibility
+is not claimed because the original compiler/toolchain patch versions were
+not recorded.

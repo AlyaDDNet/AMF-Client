@@ -2,8 +2,10 @@
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 
 #include "sounds.h"
+#include <engine/client/sound_pack_policy.h>
 
 #include <base/mem.h>
+#include <base/str.h>
 #include <base/time.h>
 
 #include <engine/engine.h>
@@ -18,29 +20,6 @@
 #include <game/client/gameclient.h>
 #include <game/localization.h>
 
-namespace
-{
-void NormalizeSoundPack(IStorage *pStorage)
-{
-	if(g_Config.m_SndPack[0] == '\0' || str_comp(g_Config.m_SndPack, "default") == 0)
-	{
-		str_copy(g_Config.m_SndPack, "default");
-		return;
-	}
-
-	// A representative mandatory gameplay sample is enough to distinguish a
-	// usable pack from a stale or deleted selection before the asynchronous
-	// loader starts. The loader still falls back per-file for an incomplete pack.
-	char aPath[IO_MAX_PATH_LENGTH];
-	str_format(aPath, sizeof(aPath), "assets/audio/%s/wp_gun_fire-01.wv", g_Config.m_SndPack);
-	if(pStorage->FileExists(aPath, IStorage::TYPE_ALL))
-		return;
-	str_format(aPath, sizeof(aPath), "audio/%s/wp_gun_fire-01.wv", g_Config.m_SndPack);
-	if(!pStorage->FileExists(aPath, IStorage::TYPE_ALL))
-		str_copy(g_Config.m_SndPack, "default");
-}
-}
-
 CSoundLoading::CSoundLoading(CGameClient *pGameClient, bool Render) :
 	m_pGameClient(pGameClient),
 	m_Render(Render)
@@ -50,6 +29,21 @@ CSoundLoading::CSoundLoading(CGameClient *pGameClient, bool Render) :
 
 void CSoundLoading::Run()
 {
+	{
+		std::lock_guard<std::mutex> Lock(m_Mutex);
+		if(State() == IJob::STATE_ABORTED)
+			return;
+		m_Running = true;
+	}
+
+	const auto Finish = [this]() {
+		{
+			std::lock_guard<std::mutex> Lock(m_Mutex);
+			m_Running = false;
+		}
+		m_Condition.notify_all();
+	};
+
 	for(int s = 0; s < g_pData->m_NumSounds; s++)
 	{
 		const char *pLoadingCaption = Localize("Loading DDNet Client");
@@ -58,7 +52,10 @@ void CSoundLoading::Run()
 		for(int i = 0; i < g_pData->m_aSounds[s].m_NumSounds; i++)
 		{
 			if(State() == IJob::STATE_ABORTED)
+			{
+				Finish();
 				return;
+			}
 
 			int Id = m_pGameClient->Sound()->LoadWV(g_pData->m_aSounds[s].m_aSounds[i].m_pFilename);
 			g_pData->m_aSounds[s].m_aSounds[i].m_Id = Id;
@@ -70,6 +67,15 @@ void CSoundLoading::Run()
 		if(m_Render)
 			m_pGameClient->m_Menus.RenderLoading(pLoadingCaption, pLoadingContent, 1);
 	}
+	Finish();
+}
+
+void CSoundLoading::AbortAndWait()
+{
+	std::unique_lock<std::mutex> Lock(m_Mutex);
+	if(State() != IJob::STATE_DONE)
+		IJob::Abort();
+	m_Condition.wait(Lock, [this] { return !m_Running; });
 }
 
 void CSounds::UpdateChannels()
@@ -128,7 +134,6 @@ int CSounds::GetSampleId(int SetId)
 
 void CSounds::OnInit()
 {
-	NormalizeSoundPack(Storage());
 	UpdateChannels();
 	ClearQueue();
 
@@ -164,7 +169,14 @@ void CSounds::OnStateChange(int NewState, int OldState)
 
 void CSounds::Clear()
 {
-	NormalizeSoundPack(Storage());
+	// DDNet 20.1 can report an abort before a running job has actually stopped.
+	// Wait for its final sample write before unloading shared sound data.
+	if(m_WaitForSoundJob && m_pSoundJob)
+	{
+		m_pSoundJob->AbortAndWait();
+		m_WaitForSoundJob = false;
+	}
+
 	Sound()->StopAll();
 	ClearQueue();
 

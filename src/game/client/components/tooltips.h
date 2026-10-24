@@ -4,10 +4,20 @@
 #include <game/client/component.h>
 #include <game/client/ui_rect.h>
 
+#include <base/color.h>
+
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <string>
 #include <unordered_map>
+#include <vector>
+
+struct STooltipColoredLine
+{
+	std::string m_Text;
+	ColorRGBA m_Color;
+};
 
 struct CTooltip
 {
@@ -19,6 +29,9 @@ struct CTooltip
 	float m_FadeTime = 0.75f;
 	CUIRect m_AnchorRect{};
 	bool m_HasAnchor = false;
+	std::vector<STooltipColoredLine> m_vColoredLines;
+	bool m_UseColoredLines = false;
+	float m_FontSize = 14.0f;
 };
 
 /**
@@ -56,11 +69,10 @@ public:
 	 * @param WidthHint The maximum width of the tooltip, or -1.0f for unlimited.
 	 */
 	void DoToolTip(const void *pId, const CUIRect *pNearRect, const char *pText, float WidthHint = -1.0f);
+	void DoColoredToolTip(const void *pId, const CUIRect *pNearRect, const std::vector<STooltipColoredLine> &vLines, float FontSize = 10.0f);
 
 	void OnReset() override;
 	void OnRender() override;
-
-	// TClient
 	void SetFadeTime(const void *pId, float Time);
 };
 

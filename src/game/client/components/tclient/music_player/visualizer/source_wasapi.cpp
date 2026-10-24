@@ -3,12 +3,49 @@
 
 #include "analyzer.h"
 #include "smoother.h"
+#include "source_priority.h"
 
+#include <base/detect.h>
 #include <base/math.h>
 
-#include <cstdint>
+#include <algorithm>
+
+template<typename T>
+constexpr T minimum(T a, T b)
+{
+	return (std::min)(a, b);
+}
+
+template<typename T>
+constexpr T maximum(T a, T b)
+{
+	return (std::max)(a, b);
+}
+
+template<typename T>
+constexpr T minimum(T a, T b, T c)
+{
+	return (std::min)(a, (std::min)(b, c));
+}
+
+template<typename T>
+constexpr T maximum(T a, T b, T c)
+{
+	return (std::max)(a, (std::max)(b, c));
+}
+
+#include <base/dbg.h>
+#include <base/str.h>
+#include <base/time.h>
+
+#include <atomic>
+#include <cctype>
 #include <chrono>
+#include <condition_variable>
+#include <cstdint>
+#include <cstring>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -20,13 +57,47 @@
 #define NOBITMAP
 #endif
 #define IStorage BCVisualizerIStorage
+#include <windows.h>
 #include <audioclient.h>
+#include <audioclientactivationparams.h>
+#include <audiopolicy.h>
+#include <endpointvolume.h>
 #include <ksmedia.h>
 #include <mmdeviceapi.h>
+#include <mmreg.h>
+#include <propsys.h>
+#include <tlhelp32.h>
 #undef IStorage
 #if defined(BC_VISUALIZER_DEFINED_NOBITMAP)
 #undef BC_VISUALIZER_DEFINED_NOBITMAP
 #undef NOBITMAP
+#endif
+
+#if !defined(VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK)
+#define VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK L"VAD\\Process_Loopback"
+enum PROCESS_LOOPBACK_MODE
+{
+	PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE = 0,
+	PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE = 1,
+};
+struct AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS
+{
+	DWORD TargetProcessId;
+	PROCESS_LOOPBACK_MODE ProcessLoopbackMode;
+};
+enum AUDIOCLIENT_ACTIVATION_TYPE
+{
+	AUDIOCLIENT_ACTIVATION_TYPE_DEFAULT = 0,
+	AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK = 1,
+};
+struct AUDIOCLIENT_ACTIVATION_PARAMS
+{
+	AUDIOCLIENT_ACTIVATION_TYPE ActivationType;
+	union
+	{
+		AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS ProcessLoopbackParams;
+	};
+};
 #endif
 #else
 #define BC_VISUALIZER_HAS_WASAPI 0
@@ -38,10 +109,130 @@ namespace BestClientVisualizer
 namespace
 {
 	constexpr int WASAPI_ANALYZE_FRAMES = 1024;
+	constexpr float AUDIBLE_SESSION_PEAK_THRESHOLD = 0.00025f;
+	constexpr auto AUDIBLE_SESSION_GRACE = std::chrono::milliseconds(1200);
+	constexpr auto SESSION_SCAN_INTERVAL = std::chrono::milliseconds(450);
+	constexpr auto CAPTURE_INIT_COOLDOWN = std::chrono::milliseconds(1250);
 
 #if BC_VISUALIZER_HAS_WASAPI
+class CProcessLoopbackActivationHandler final : public IActivateAudioInterfaceCompletionHandler, public IAgileObject
+{
+public:
+	explicit CProcessLoopbackActivationHandler(HANDLE ShutdownEvent) :
+		m_ShutdownEvent(ShutdownEvent)
+	{
+		m_Event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+	}
+
+	~CProcessLoopbackActivationHandler()
+	{
+		if(m_Event != nullptr)
+			CloseHandle(m_Event);
+	}
+
+	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID Riid, void **ppvObject) override
+	{
+		if(ppvObject == nullptr)
+			return E_POINTER;
+		*ppvObject = nullptr;
+		if(IsEqualIID(Riid, __uuidof(IUnknown)) || IsEqualIID(Riid, __uuidof(IActivateAudioInterfaceCompletionHandler)))
+		{
+			*ppvObject = static_cast<IActivateAudioInterfaceCompletionHandler *>(this);
+			AddRef();
+			return S_OK;
+		}
+		if(IsEqualIID(Riid, __uuidof(IAgileObject)))
+		{
+			*ppvObject = static_cast<IAgileObject *>(this);
+			AddRef();
+			return S_OK;
+		}
+		return E_NOINTERFACE;
+	}
+
+	ULONG STDMETHODCALLTYPE AddRef() override
+	{
+		return ++m_RefCount;
+	}
+
+	ULONG STDMETHODCALLTYPE Release() override
+	{
+		const ULONG RefCount = --m_RefCount;
+		if(RefCount == 0)
+			delete this;
+		return RefCount;
+	}
+
+	HRESULT STDMETHODCALLTYPE ActivateCompleted(IActivateAudioInterfaceAsyncOperation *pOperation) override
+	{
+		if(pOperation == nullptr)
+		{
+			m_ActivateHr = E_POINTER;
+		}
+		else
+		{
+			IUnknown *pActivatedInterface = nullptr;
+			m_ActivateHr = pOperation->GetActivateResult(&m_ActivateResultHr, &pActivatedInterface);
+			if(SUCCEEDED(m_ActivateHr))
+			{
+				m_ActivateHr = m_ActivateResultHr;
+				m_ActivatedInterface.attach(pActivatedInterface);
+			}
+			else if(pActivatedInterface != nullptr)
+			{
+				pActivatedInterface->Release();
+			}
+		}
+
+		if(m_Event != nullptr)
+			SetEvent(m_Event);
+		return S_OK;
+	}
+
+	HRESULT WaitForCompletion()
+	{
+		if(m_Event == nullptr)
+			return HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE);
+		HANDLE aWaitHandles[2] = {m_Event, nullptr};
+		DWORD NumWaitHandles = 1;
+		if(m_ShutdownEvent != nullptr)
+		{
+			aWaitHandles[1] = m_ShutdownEvent;
+			NumWaitHandles = 2;
+		}
+		const DWORD WaitResult = WaitForMultipleObjects(NumWaitHandles, aWaitHandles, FALSE, 1000);
+		if(WaitResult != WAIT_OBJECT_0)
+		{
+			if(NumWaitHandles == 2 && WaitResult == WAIT_OBJECT_0 + 1)
+				return HRESULT_FROM_WIN32(ERROR_CANCELLED);
+			return WaitResult == WAIT_TIMEOUT ? HRESULT_FROM_WIN32(ERROR_TIMEOUT) : HRESULT_FROM_WIN32(GetLastError());
+		}
+		return m_ActivateHr;
+	}
+
+	IUnknown *ActivatedInterface() const
+	{
+		return m_ActivatedInterface.get();
+	}
+
+private:
+	std::atomic<ULONG> m_RefCount{1};
+	HANDLE m_Event = nullptr;
+	HANDLE m_ShutdownEvent = nullptr;
+	HRESULT m_ActivateHr = E_PENDING;
+	HRESULT m_ActivateResultHr = E_PENDING;
+	winrt::com_ptr<IUnknown> m_ActivatedInterface;
+};
+
 class CWasapiVisualizerSource final : public IVisualizerSource
 {
+	enum class ECaptureMode
+	{
+		NONE,
+		PROCESS,
+		DEVICE,
+	};
+
 	struct SWaveFormatInfo
 	{
 		WAVEFORMATEX *m_pFormat = nullptr;
@@ -52,20 +243,241 @@ class CWasapiVisualizerSource final : public IVisualizerSource
 		bool m_Float = false;
 	};
 
+	struct SProcessSnapshotInfo
+	{
+		DWORD m_ParentPid = 0;
+		std::string m_NameLower;
+	};
+
 	std::thread m_WorkerThread;
 	std::mutex m_Mutex;
+	std::condition_variable m_Cv;
+	HANDLE m_ShutdownEvent = nullptr;
 	bool m_Shutdown = false;
 	SVisualizerFrame m_LatestFrame;
 	SVisualizerConfig m_Config;
+	SVisualizerPlaybackHint m_Hint;
 	int64_t m_ConfigRevision = 0;
+
+	bool IsShutdown()
+	{
+		std::lock_guard<std::mutex> Lock(m_Mutex);
+		return m_Shutdown;
+	}
+
+	bool WaitForShutdown(std::chrono::milliseconds Timeout)
+	{
+		std::unique_lock<std::mutex> Lock(m_Mutex);
+		return m_Cv.wait_for(Lock, Timeout, [this]() { return m_Shutdown; });
+	}
+
+	static std::string ToLowerAscii(std::string Str)
+	{
+		for(char &Ch : Str)
+			Ch = (char)std::tolower((unsigned char)Ch);
+		return Str;
+	}
+
+	static std::string ProcessBaseNameLower(DWORD Pid)
+	{
+		if(Pid == 0)
+			return {};
+
+		HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, Pid);
+		if(hProcess == nullptr)
+			return {};
+
+		char aPath[1024];
+		DWORD PathSize = sizeof(aPath);
+		std::string Result;
+		if(QueryFullProcessImageNameA(hProcess, 0, aPath, &PathSize))
+		{
+			const char *pBase1 = std::strrchr(aPath, '\\');
+			const char *pBase2 = std::strrchr(aPath, '/');
+			const char *pBase = pBase1 != nullptr ? pBase1 : pBase2;
+			Result = pBase != nullptr ? pBase + 1 : aPath;
+			Result = ToLowerAscii(Result);
+		}
+		CloseHandle(hProcess);
+		return Result;
+	}
+
+	static SProcessSnapshotInfo ProcessSnapshotInfo(DWORD Pid)
+	{
+		SProcessSnapshotInfo Result;
+		if(Pid == 0)
+			return Result;
+
+		HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+		if(hSnapshot == INVALID_HANDLE_VALUE)
+			return Result;
+
+		PROCESSENTRY32 Entry{};
+		Entry.dwSize = sizeof(Entry);
+		if(Process32First(hSnapshot, &Entry))
+		{
+			do
+			{
+				if(Entry.th32ProcessID == Pid)
+				{
+					Result.m_ParentPid = Entry.th32ParentProcessID;
+					Result.m_NameLower = ProcessBaseNameLower(Pid);
+					break;
+				}
+			} while(Process32Next(hSnapshot, &Entry));
+		}
+
+		CloseHandle(hSnapshot);
+		return Result;
+	}
+
+	static bool ShouldUseParentForProcessLoopback(const std::string &ChildNameLower, const std::string &ParentNameLower)
+	{
+		if(ChildNameLower.empty() || ParentNameLower.empty())
+			return false;
+		if(ChildNameLower == ParentNameLower)
+			return true;
+		if(ChildNameLower == "chrome_pwa_launcher.exe" && ParentNameLower == "chrome.exe")
+			return true;
+		if(ChildNameLower == "msedge_proxy.exe" && ParentNameLower == "msedge.exe")
+			return true;
+		if(ChildNameLower == "spotifywebhelper.exe" && ParentNameLower == "spotify.exe")
+			return true;
+		return false;
+	}
+
+	static DWORD ResolveProcessLoopbackRootPid(DWORD Pid)
+	{
+		DWORD RootPid = Pid;
+		SProcessSnapshotInfo Current = ProcessSnapshotInfo(Pid);
+		for(int Depth = 0; Depth < 16 && Current.m_ParentPid != 0; ++Depth)
+		{
+			SProcessSnapshotInfo Parent = ProcessSnapshotInfo(Current.m_ParentPid);
+			if(!ShouldUseParentForProcessLoopback(Current.m_NameLower, Parent.m_NameLower))
+				break;
+			RootPid = Current.m_ParentPid;
+			Current = std::move(Parent);
+		}
+		return RootPid;
+	}
+
+	static bool IsBlockedAudioProcess(const std::string &ProcessNameLower)
+	{
+		if(ProcessNameLower.empty())
+			return true;
+
+		static constexpr const char *s_apBlockedProcesses[] = {
+			"discord.exe",
+			"discordcanary.exe",
+			"discordptb.exe",
+			"ddnet.exe",
+			"bestclient.exe",
+			"tclient.exe",
+			"steam.exe",
+			"steamservice.exe",
+			"steamwebhelper.exe",
+			"teeworlds.exe",
+		};
+		for(const char *pBlocked : s_apBlockedProcesses)
+		{
+			if(ProcessNameLower == pBlocked)
+				return true;
+		}
+		return false;
+	}
+
+	static bool IsAllowedMusicAudioProcess(const std::string &ProcessNameLower)
+	{
+		if(IsBlockedAudioProcess(ProcessNameLower))
+			return false;
+
+		static constexpr const char *s_apAllowedProcesses[] = {
+			"aimp.exe",
+			"audiomack.exe",
+			"apple music preview.exe",
+			"applemusic.exe",
+			"applemusicpreview.exe",
+			"apple music.exe",
+			"arc.exe",
+			"brave.exe",
+			"browser.exe",
+			"chrome.exe",
+			"chrome_pwa_launcher.exe",
+			"chromium.exe",
+			"cider.exe",
+			"clementine.exe",
+			"deezer.exe",
+			"dopamine.exe",
+			"firefox.exe",
+			"foobar2000.exe",
+			"floorp.exe",
+			"itunes.exe",
+			"librewolf.exe",
+			"materialgram.exe",
+			"mediamonkey.exe",
+			"mpc-be.exe",
+			"mpc-hc.exe",
+			"mpv.exe",
+			"mts music.exe",
+			"mtsmusic.exe",
+			"msedge.exe",
+			"msedge_proxy.exe",
+			"music.ui.exe",
+			"musicbee.exe",
+			"nuclear.exe",
+			"opera.exe",
+			"opera_gx.exe",
+			"potplayermini.exe",
+			"potplayermini64.exe",
+			"qobuz.exe",
+			"qobuzdesktop.exe",
+			"quodlibet.exe",
+			"sberzvuk.exe",
+			"soundcloud.exe",
+			"spotify.exe",
+			"spotifywebhelper.exe",
+			"strawberry.exe",
+			"tidal.exe",
+			"tdesktop.exe",
+			"telegram.exe",
+			"vivaldi.exe",
+			"vlc.exe",
+			"vk music.exe",
+			"vkmusic.exe",
+			"vkmp.exe",
+			"vkmpconsole.exe",
+			"waterfox.exe",
+			"winamp.exe",
+			"wmplayer.exe",
+			"yamusic.exe",
+			"yandex music.exe",
+			"yandexmusicapp.exe",
+			"yandexmusic.exe",
+			"youtube music desktop app.exe",
+			"youtube music.exe",
+			"youtube-music.exe",
+			"ytmusic.exe",
+			"youtubemusic.exe",
+			"ytmdesktop.exe",
+			"zvooq.exe",
+			"zvuk.exe",
+			"zen.exe",
+		};
+		for(const char *pAllowed : s_apAllowedProcesses)
+		{
+			if(ProcessNameLower == pAllowed)
+				return true;
+		}
+		return false;
+	}
 
 	static bool ExtractWaveFormatInfo(const WAVEFORMATEX *pFormat, SWaveFormatInfo &Out)
 	{
 		if(!pFormat || pFormat->nChannels == 0 || pFormat->wBitsPerSample == 0)
 			return false;
 		Out.m_pFormat = const_cast<WAVEFORMATEX *>(pFormat);
-		Out.m_Channels = std::max<int>(1, pFormat->nChannels);
-		Out.m_BlockAlign = std::max<int>(pFormat->nBlockAlign, pFormat->nChannels);
+		Out.m_Channels = maximum<int>(1, pFormat->nChannels);
+		Out.m_BlockAlign = maximum<int>(pFormat->nBlockAlign, pFormat->nChannels);
 		Out.m_ContainerBitsPerSample = pFormat->wBitsPerSample;
 		Out.m_BitsPerSample = pFormat->wBitsPerSample;
 		Out.m_Float = pFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT;
@@ -83,9 +495,6 @@ class CWasapiVisualizerSource final : public IVisualizerSource
 		if(!pData || FrameCount == 0 || Format.m_Channels <= 0)
 			return 0;
 		const int Channels = Format.m_Channels;
-		// WASAPI loopback often exposes the full speaker layout (5.1/7.1).
-		// Averaging every channel makes regular stereo music look much quieter on Windows,
-		// because the rear/center/LFE channels are frequently silent or near-silent.
 		const int MixedChannels = Channels > 2 ? 2 : Channels;
 		vOut.resize(FrameCount);
 
@@ -115,7 +524,7 @@ class CWasapiVisualizerSource final : public IVisualizerSource
 		}
 		if(!Format.m_Float && Format.m_BitsPerSample == 24)
 		{
-			const int BytesPerSample = std::max(1, Format.m_BlockAlign / Channels);
+			const int BytesPerSample = maximum(1, Format.m_BlockAlign / Channels);
 			const uint8_t *pSamples = reinterpret_cast<const uint8_t *>(pData);
 			for(UINT32 Frame = 0; Frame < FrameCount; ++Frame)
 			{
@@ -174,7 +583,7 @@ class CWasapiVisualizerSource final : public IVisualizerSource
 	void WorkerMain()
 	{
 		const HRESULT CoInitResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-		if(FAILED(CoInitResult))
+		if(FAILED(CoInitResult) && CoInitResult != RPC_E_CHANGED_MODE)
 		{
 			StoreBackendState(EVisualizerBackendStatus::UNAVAILABLE);
 			return;
@@ -199,8 +608,15 @@ class CWasapiVisualizerSource final : public IVisualizerSource
 		int ConsecutiveFailures = 0;
 		bool LatchedSignal = false;
 		bool ValidatedLive = false;
+		ECaptureMode CaptureMode = ECaptureMode::NONE;
+		DWORD CaptureTargetPid = 0;
+		DWORD TargetPidCache = 0;
+		bool HasAllowedSessionCache = false;
 		auto LastPacketAt = std::chrono::steady_clock::now();
 		auto LastSyntheticSilenceAt = LastPacketAt;
+		auto LastAudioSessionScan = std::chrono::steady_clock::time_point{};
+		auto LastAudibleSessionTime = std::chrono::steady_clock::time_point{};
+		auto NextInitTry = std::chrono::steady_clock::time_point{};
 
 		auto Cleanup = [&]() {
 			if(pAudioClient)
@@ -215,6 +631,8 @@ class CWasapiVisualizerSource final : public IVisualizerSource
 				pFormat = nullptr;
 			}
 			FormatInfo = SWaveFormatInfo();
+			CaptureMode = ECaptureMode::NONE;
+			CaptureTargetPid = 0;
 			ValidatedReads = 0;
 			ActiveSignalReads = 0;
 			SilentReads = 0;
@@ -238,7 +656,7 @@ class CWasapiVisualizerSource final : public IVisualizerSource
 			if(RawFrame.m_HasRealtimeSignal)
 			{
 				ValidatedReads++;
-				ActiveSignalReads = std::min(ActiveSignalReads + 1, 32);
+				ActiveSignalReads = minimum(ActiveSignalReads + 1, 32);
 				SilentReads = 0;
 			}
 			else
@@ -262,59 +680,298 @@ class CWasapiVisualizerSource final : public IVisualizerSource
 			StoreFrame(SmoothedFrame);
 		};
 
-		auto EnsureCapture = [&]() -> bool {
-			if(pCaptureClient && pAudioClient)
-				return true;
-			Cleanup();
-			if(FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(pEnumerator.put()))))
+		auto QueryTargetAudioProcessId = [&]() -> DWORD {
+			std::string HintServiceId;
 			{
-				++ConsecutiveFailures;
-				StoreBackendState(ConsecutiveFailures >= 6 ? EVisualizerBackendStatus::UNAVAILABLE : EVisualizerBackendStatus::CONNECTING);
-				return false;
+				std::lock_guard<std::mutex> Lock(m_Mutex);
+				HintServiceId = m_Hint.m_ServiceId;
 			}
-			if(FAILED(pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, pDevice.put())))
+
+			winrt::com_ptr<IMMDeviceEnumerator> Enumerator;
+			if(FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(Enumerator.put()))))
+				return 0;
+
+			winrt::com_ptr<IMMDevice> Device;
+			if(FAILED(Enumerator->GetDefaultAudioEndpoint(eRender, eMultimedia, Device.put())) &&
+				FAILED(Enumerator->GetDefaultAudioEndpoint(eRender, eConsole, Device.put())))
 			{
-				++ConsecutiveFailures;
-				StoreBackendState(ConsecutiveFailures >= 6 ? EVisualizerBackendStatus::UNAVAILABLE : EVisualizerBackendStatus::CONNECTING);
+				return 0;
+			}
+
+			winrt::com_ptr<IAudioSessionManager2> SessionManager;
+			if(FAILED(Device->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr, SessionManager.put_void())))
+				return 0;
+
+			winrt::com_ptr<IAudioSessionEnumerator> SessionEnum;
+			if(FAILED(SessionManager->GetSessionEnumerator(SessionEnum.put())) || !SessionEnum)
+				return 0;
+
+			int SessionCount = 0;
+			if(FAILED(SessionEnum->GetCount(&SessionCount)) || SessionCount <= 0)
+				return 0;
+
+			const DWORD SelfPid = GetCurrentProcessId();
+			DWORD BestPid = 0;
+			DWORD BestHintPid = 0;
+			DWORD MeterlessPid = 0;
+			float BestPeak = 0.0f;
+			float BestHintPeak = 0.0f;
+			for(int i = 0; i < SessionCount; ++i)
+			{
+				winrt::com_ptr<IAudioSessionControl> SessionCtrl;
+				if(FAILED(SessionEnum->GetSession(i, SessionCtrl.put())) || !SessionCtrl)
+					continue;
+
+				AudioSessionState SessionState = AudioSessionStateInactive;
+				if(FAILED(SessionCtrl->GetState(&SessionState)) || SessionState != AudioSessionStateActive)
+					continue;
+
+				winrt::com_ptr<IAudioSessionControl2> SessionCtrl2;
+				if(FAILED(SessionCtrl->QueryInterface(__uuidof(IAudioSessionControl2), SessionCtrl2.put_void())) || !SessionCtrl2)
+					continue;
+
+				DWORD Pid = 0;
+				if(FAILED(SessionCtrl2->GetProcessId(&Pid)) || Pid == 0 || Pid == SelfPid)
+					continue;
+
+				const std::string ProcessNameLower = ProcessBaseNameLower(Pid);
+				if(!IsAllowedMusicAudioProcess(ProcessNameLower))
+					continue;
+				const DWORD TargetPid = ResolveProcessLoopbackRootPid(Pid);
+				if(TargetPid == 0 || TargetPid == SelfPid || IsBlockedAudioProcess(ProcessBaseNameLower(TargetPid)))
+					continue;
+
+				winrt::com_ptr<ISimpleAudioVolume> SessionVolume;
+				if(FAILED(SessionCtrl->QueryInterface(__uuidof(ISimpleAudioVolume), SessionVolume.put_void())) || !SessionVolume)
+					continue;
+
+				BOOL Muted = FALSE;
+				float Volume = 0.0f;
+				if(FAILED(SessionVolume->GetMute(&Muted)) || FAILED(SessionVolume->GetMasterVolume(&Volume)))
+					continue;
+				if(Muted || Volume <= 0.001f)
+					continue;
+
+				const bool HintMatch = HintMatchesPlaybackSource(HintServiceId, ProcessNameLower, ProcessBaseNameLower(TargetPid));
+
+				winrt::com_ptr<IAudioMeterInformation> Meter;
+				if(FAILED(SessionCtrl->QueryInterface(__uuidof(IAudioMeterInformation), Meter.put_void())) || !Meter)
+				{
+					if(MeterlessPid == 0 || HintMatch)
+						MeterlessPid = TargetPid;
+					continue;
+				}
+
+				float Peak = 0.0f;
+				if(SUCCEEDED(Meter->GetPeakValue(&Peak)) && Peak > AUDIBLE_SESSION_PEAK_THRESHOLD)
+				{
+					if(Peak > BestPeak)
+					{
+						BestPid = TargetPid;
+						BestPeak = Peak;
+					}
+					if(HintMatch && Peak > BestHintPeak)
+					{
+						BestHintPid = TargetPid;
+						BestHintPeak = Peak;
+					}
+				}
+			}
+
+			if(BestHintPid != 0)
+				BestPid = BestHintPid;
+
+			const auto Now = std::chrono::steady_clock::now();
+			if(BestPid != 0)
+			{
+				LastAudibleSessionTime = Now;
+				return BestPid;
+			}
+
+			if(CaptureTargetPid != 0 && Now - LastAudibleSessionTime < AUDIBLE_SESSION_GRACE)
+				return CaptureTargetPid;
+
+			if(CaptureTargetPid == 0 && MeterlessPid != 0)
+			{
+				LastAudibleSessionTime = Now;
+				return MeterlessPid;
+			}
+
+			return 0;
+		};
+
+		auto ResolveTargetPid = [&](const std::chrono::steady_clock::time_point &Now) -> DWORD {
+			if(Now - LastAudioSessionScan < SESSION_SCAN_INTERVAL)
+				return HasAllowedSessionCache ? TargetPidCache : 0;
+
+			LastAudioSessionScan = Now;
+			TargetPidCache = QueryTargetAudioProcessId();
+			HasAllowedSessionCache = TargetPidCache != 0;
+			return TargetPidCache;
+		};
+
+		auto SetProcessLoopbackPcm16Format = [&](int DesiredSampleRate) -> bool {
+			if(pFormat)
+			{
+				CoTaskMemFree(pFormat);
+				pFormat = nullptr;
+			}
+
+			auto *pNewFormat = static_cast<WAVEFORMATEX *>(CoTaskMemAlloc(sizeof(WAVEFORMATEX)));
+			if(!pNewFormat)
+				return false;
+
+			std::memset(pNewFormat, 0, sizeof(*pNewFormat));
+			pNewFormat->wFormatTag = WAVE_FORMAT_PCM;
+			pNewFormat->nChannels = 2;
+			pNewFormat->nSamplesPerSec = (DWORD)DesiredSampleRate;
+			pNewFormat->wBitsPerSample = 16;
+			pNewFormat->nBlockAlign = (WORD)(pNewFormat->nChannels * pNewFormat->wBitsPerSample / 8);
+			pNewFormat->nAvgBytesPerSec = pNewFormat->nSamplesPerSec * pNewFormat->nBlockAlign;
+			pNewFormat->cbSize = 0;
+			pFormat = pNewFormat;
+			return ExtractWaveFormatInfo(pFormat, FormatInfo);
+		};
+
+		auto ActivateProcessLoopbackAudioClient = [&](DWORD TargetProcessId) -> bool {
+			AUDIOCLIENT_ACTIVATION_PARAMS ActivationParams{};
+			ActivationParams.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
+			ActivationParams.ProcessLoopbackParams.TargetProcessId = TargetProcessId;
+			ActivationParams.ProcessLoopbackParams.ProcessLoopbackMode = PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE;
+
+			PROPVARIANT ActivationParamsVariant;
+			PropVariantInit(&ActivationParamsVariant);
+			ActivationParamsVariant.vt = VT_BLOB;
+			ActivationParamsVariant.blob.cbSize = sizeof(ActivationParams);
+			ActivationParamsVariant.blob.pBlobData = reinterpret_cast<BYTE *>(&ActivationParams);
+
+			// ActivateAudioInterfaceAsync retains the completion handler. Keep our
+			// own COM reference on the heap so a timeout cannot leave the OS with a
+			// callback pointing into this worker's stack.
+			winrt::com_ptr<CProcessLoopbackActivationHandler> CompletionHandler;
+			CompletionHandler.attach(new CProcessLoopbackActivationHandler(m_ShutdownEvent));
+			winrt::com_ptr<IActivateAudioInterfaceAsyncOperation> ActivationOperation;
+			HRESULT Hr = ActivateAudioInterfaceAsync(VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, __uuidof(IAudioClient), &ActivationParamsVariant, CompletionHandler.get(), ActivationOperation.put());
+			if(FAILED(Hr))
+				return false;
+
+			Hr = CompletionHandler.get()->WaitForCompletion();
+			if(FAILED(Hr))
+				return false;
+
+			IUnknown *pActivatedInterface = CompletionHandler.get()->ActivatedInterface();
+			if(pActivatedInterface == nullptr)
+				return false;
+
+			return SUCCEEDED(pActivatedInterface->QueryInterface(__uuidof(IAudioClient), pAudioClient.put_void()));
+		};
+
+		auto TryStartProcessCapture = [&](DWORD TargetProcessId) -> bool {
+			if(TargetProcessId == 0)
+				return false;
+			if(!ActivateProcessLoopbackAudioClient(TargetProcessId))
+				return false;
+
+			const int aSampleRates[] = {44100, 48000};
+			bool Initialized = false;
+			for(const int Rate : aSampleRates)
+			{
+				if(!SetProcessLoopbackPcm16Format(Rate))
+					return false;
+				if(SUCCEEDED(pAudioClient->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK, 0, 0, pFormat, nullptr)))
+				{
+					Initialized = true;
+					break;
+				}
+			}
+			if(!Initialized)
+				return false;
+
+			if(FAILED(pAudioClient->GetService(IID_PPV_ARGS(pCaptureClient.put()))))
+				return false;
+			if(FAILED(pAudioClient->Start()))
+				return false;
+
+			SampleRate = maximum<int>(1, (int)pFormat->nSamplesPerSec);
+			CaptureMode = ECaptureMode::PROCESS;
+			CaptureTargetPid = TargetProcessId;
+			return true;
+		};
+
+		auto TryStartDeviceCapture = [&]() -> bool {
+			if(FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(pEnumerator.put()))))
+				return false;
+			if(FAILED(pEnumerator->GetDefaultAudioEndpoint(eRender, eMultimedia, pDevice.put())) &&
+				FAILED(pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, pDevice.put())))
+			{
 				return false;
 			}
 			if(FAILED(pDevice->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, reinterpret_cast<void **>(pAudioClient.put()))))
-			{
-				++ConsecutiveFailures;
-				StoreBackendState(ConsecutiveFailures >= 6 ? EVisualizerBackendStatus::UNAVAILABLE : EVisualizerBackendStatus::CONNECTING);
 				return false;
-			}
 			if(FAILED(pAudioClient->GetMixFormat(&pFormat)))
-			{
-				++ConsecutiveFailures;
-				StoreBackendState(ConsecutiveFailures >= 6 ? EVisualizerBackendStatus::UNAVAILABLE : EVisualizerBackendStatus::CONNECTING);
 				return false;
-			}
 			if(!ExtractWaveFormatInfo(pFormat, FormatInfo))
-			{
-				++ConsecutiveFailures;
-				StoreBackendState(ConsecutiveFailures >= 6 ? EVisualizerBackendStatus::UNAVAILABLE : EVisualizerBackendStatus::CONNECTING);
 				return false;
-			}
-			SampleRate = std::max<int>(1, pFormat->nSamplesPerSec);
+			SampleRate = maximum<int>(1, pFormat->nSamplesPerSec);
 			if(FAILED(pAudioClient->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK, 0, 0, pFormat, nullptr)))
-			{
-				++ConsecutiveFailures;
-				StoreBackendState(ConsecutiveFailures >= 6 ? EVisualizerBackendStatus::UNAVAILABLE : EVisualizerBackendStatus::CONNECTING);
 				return false;
-			}
 			if(FAILED(pAudioClient->GetService(IID_PPV_ARGS(pCaptureClient.put()))))
-			{
-				++ConsecutiveFailures;
-				StoreBackendState(ConsecutiveFailures >= 6 ? EVisualizerBackendStatus::UNAVAILABLE : EVisualizerBackendStatus::CONNECTING);
 				return false;
-			}
 			if(FAILED(pAudioClient->Start()))
+				return false;
+
+			CaptureMode = ECaptureMode::DEVICE;
+			CaptureTargetPid = 0;
+			return true;
+		};
+
+		auto EnsureCapture = [&](const std::chrono::steady_clock::time_point &Now) -> bool {
+			const DWORD TargetPid = ResolveTargetPid(Now);
+			const bool WantProcess = TargetPid != 0;
+
+			if(pCaptureClient && pAudioClient)
 			{
+				if(CaptureMode == ECaptureMode::PROCESS && WantProcess && CaptureTargetPid == TargetPid)
+					return true;
+				if(CaptureMode == ECaptureMode::DEVICE && !WantProcess)
+					return true;
+				if(CaptureMode == ECaptureMode::DEVICE && WantProcess && Now < NextInitTry)
+					return true;
+			}
+
+			if(Now < NextInitTry && !(pCaptureClient && pAudioClient))
+				return false;
+			NextInitTry = Now + CAPTURE_INIT_COOLDOWN;
+
+			const ECaptureMode PreviousMode = CaptureMode;
+			Cleanup();
+
+			bool Started = false;
+			if(WantProcess)
+				Started = TryStartProcessCapture(TargetPid);
+			if(!Started && IsShutdown())
+				return false;
+			if(!Started)
+				Started = TryStartDeviceCapture();
+
+			if(!Started)
+			{
+				Cleanup();
 				++ConsecutiveFailures;
 				StoreBackendState(ConsecutiveFailures >= 6 ? EVisualizerBackendStatus::UNAVAILABLE : EVisualizerBackendStatus::CONNECTING);
 				return false;
 			}
+
+			if(PreviousMode != CaptureMode || WantProcess)
+			{
+				ValidatedReads = 0;
+				ActiveSignalReads = 0;
+				SilentReads = 0;
+				PendingAnalyzeFrames = 0;
+				LatchedSignal = false;
+				ValidatedLive = false;
+			}
+
 			SVisualizerConfig ConfigSnapshot;
 			{
 				std::lock_guard<std::mutex> Lock(m_Mutex);
@@ -322,8 +979,8 @@ class CWasapiVisualizerSource final : public IVisualizerSource
 			}
 			ConsecutiveFailures = 0;
 			ApplyConfig(ConfigSnapshot);
-			LastPacketAt = std::chrono::steady_clock::now();
-			LastSyntheticSilenceAt = LastPacketAt;
+			LastPacketAt = Now;
+			LastSyntheticSilenceAt = Now;
 			StoreBackendState(EVisualizerBackendStatus::CONNECTING);
 			return true;
 		};
@@ -343,9 +1000,10 @@ class CWasapiVisualizerSource final : public IVisualizerSource
 				}
 			}
 
-			if(!EnsureCapture())
+			const auto Now = std::chrono::steady_clock::now();
+			if(!EnsureCapture(Now))
 			{
-				std::this_thread::sleep_for(std::chrono::milliseconds(250));
+				WaitForShutdown(std::chrono::milliseconds(250));
 				continue;
 			}
 
@@ -354,7 +1012,7 @@ class CWasapiVisualizerSource final : public IVisualizerSource
 			{
 				Cleanup();
 				StoreBackendState(EVisualizerBackendStatus::CONNECTING);
-				std::this_thread::sleep_for(std::chrono::milliseconds(80));
+				WaitForShutdown(std::chrono::milliseconds(80));
 				continue;
 			}
 
@@ -400,23 +1058,23 @@ class CWasapiVisualizerSource final : public IVisualizerSource
 
 			if(!HadPacket)
 			{
-				const auto Now = std::chrono::steady_clock::now();
-				const bool CaptureIdle = Now - LastPacketAt >= std::chrono::milliseconds(20);
-				const bool SilenceStepDue = Now - LastSyntheticSilenceAt >= std::chrono::milliseconds(8);
+				const auto IdleNow = std::chrono::steady_clock::now();
+				const bool CaptureIdle = IdleNow - LastPacketAt >= std::chrono::milliseconds(20);
+				const bool SilenceStepDue = IdleNow - LastSyntheticSilenceAt >= std::chrono::milliseconds(8);
 				if(CaptureIdle && SilenceStepDue)
 				{
 					const int SilenceFrames = std::clamp(SampleRate / 100, 128, 1024);
 					vIdleSilenceBuffer.assign(SilenceFrames, 0.0f);
 					Analyzer.PushMonoSamples(vIdleSilenceBuffer.data(), SilenceFrames);
 					PendingAnalyzeFrames += SilenceFrames;
-					LastSyntheticSilenceAt = Now;
+					LastSyntheticSilenceAt = IdleNow;
 					while(PendingAnalyzeFrames >= WASAPI_ANALYZE_FRAMES)
 					{
 						StoreAnalyzerFrame();
 						PendingAnalyzeFrames -= WASAPI_ANALYZE_FRAMES;
 					}
 				}
-				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+				WaitForShutdown(std::chrono::milliseconds(8));
 				continue;
 			}
 
@@ -426,17 +1084,26 @@ class CWasapiVisualizerSource final : public IVisualizerSource
 				StoreAnalyzerFrame();
 				PendingAnalyzeFrames -= WASAPI_ANALYZE_FRAMES;
 			}
-			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
 
 		Cleanup();
-		CoUninitialize();
+		if(CoInitResult == S_OK)
+			CoUninitialize();
 	}
 
 public:
 	CWasapiVisualizerSource()
 	{
 		m_Config = SVisualizerConfig();
+		m_ShutdownEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+		if(m_ShutdownEvent == nullptr)
+		{
+			m_Shutdown = true;
+			StoreBackendState(EVisualizerBackendStatus::UNAVAILABLE);
+			return;
+		}
+		// The Windows Media Loopback activation wait can now be interrupted by
+		// feature disable instead of holding the update thread through its timeout.
 		m_WorkerThread = std::thread([this]() { WorkerMain(); });
 	}
 
@@ -446,13 +1113,19 @@ public:
 			std::lock_guard<std::mutex> Lock(m_Mutex);
 			m_Shutdown = true;
 		}
+		if(m_ShutdownEvent != nullptr)
+			SetEvent(m_ShutdownEvent);
+		m_Cv.notify_all();
 		if(m_WorkerThread.joinable())
 			m_WorkerThread.join();
+		if(m_ShutdownEvent != nullptr)
+			CloseHandle(m_ShutdownEvent);
 	}
 
 	void SetPlaybackHint(const SVisualizerPlaybackHint &Hint) override
 	{
-		(void)Hint;
+		std::lock_guard<std::mutex> Lock(m_Mutex);
+		m_Hint = Hint;
 	}
 
 	void SetConfig(const SVisualizerConfig &Config) override

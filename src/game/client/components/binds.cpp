@@ -1,18 +1,21 @@
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #include "binds.h"
+#include "bind_migrations.h"
 
 #include <base/dbg.h>
 #include <base/log.h>
 #include <base/mem.h>
 #include <base/str.h>
 
+#include <engine/client/keyboard.h>
 #include <engine/config.h>
 #include <engine/console.h>
 #include <engine/shared/config.h>
 
 #include <game/client/components/chat.h>
 #include <game/client/components/console.h>
+#include <game/client/components/tclient/amf_features/run_statistics_hold.h>
 #include <game/client/gameclient.h>
 
 static constexpr LOG_COLOR BIND_PRINT_COLOR{255, 255, 204};
@@ -299,7 +302,7 @@ void CBinds::SetDefaults()
 	Bind(KEY_T, "+show_chat; chat all");
 	Bind(KEY_Y, "+show_chat; chat team");
 	Bind(KEY_U, "+show_chat");
-	Bind(KEY_I, "+show_chat; chat all /c ");
+	Bind(AMF_RUN_STATISTICS_DEFAULT_KEY, AMF_RUN_STATISTICS_BIND_COMMAND);
 
 	Bind(KEY_F3, "vote yes");
 	Bind(KEY_F4, "vote no");
@@ -472,7 +475,7 @@ void CBinds::GetKeyBindName(int Key, int ModifierMask, char *pBuf, size_t BufSiz
 			str_append(pBuf, "+", BufSize);
 		}
 	}
-	str_append(pBuf, Input()->KeyName(Key), BufSize);
+	str_append(pBuf, KeyName(Key), BufSize);
 }
 
 char *CBinds::GetKeyBindCommand(int ModifierCombination, int Key) const
@@ -547,5 +550,7 @@ void CBinds::SetDDRaceBinds(bool FreeOnly)
 		Bind(KEY_LALT, "toggle_scoreboard_cursor", FreeOnly);
 	}
 
-	g_Config.m_ClDDRaceBindsSet = 2;
+	if(BindMigrations::ShouldAssignJumpBind(g_Config.m_ClDDRaceBindsSet, FreeOnly))
+		Bind(KEY_W, "+jump", FreeOnly);
+	g_Config.m_ClDDRaceBindsSet = 3;
 }

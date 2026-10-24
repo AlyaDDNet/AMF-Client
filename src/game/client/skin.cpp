@@ -129,6 +129,8 @@ bool CSkin::operator==(const CSkin &Other) const
 CSkin::CSkin(const char *pName)
 {
 	str_copy(m_aName, pName);
+	m_OriginalBodyColor = ColorRGBA(1.0f, 1.0f, 1.0f, 1.0f);
+	m_OriginalFeetColor = ColorRGBA(1.0f, 1.0f, 1.0f, 1.0f);
 }
 
 // has to be kept in sync with m_aSkinNameRestrictions

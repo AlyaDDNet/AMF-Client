@@ -86,6 +86,11 @@ CServerBrowser::~CServerBrowser()
 	m_pPingCache = nullptr;
 }
 
+void CServerBrowser::Shutdown()
+{
+	m_pHttp->Shutdown();
+}
+
 void CServerBrowser::SetBaseInfo(class CNetClient *pClient, const char *pNetVersion)
 {
 	m_pNetClient = pClient;
@@ -340,8 +345,7 @@ void CServerBrowser::SetAmfClientCount(const NETADDR &Addr, int Count)
 	if(Existing != m_AmfClientCountsByAddr.end() && Existing->second == ClampedCount)
 		return;
 	m_AmfClientCountsByAddr[Addr] = ClampedCount;
-	CServerEntry *pEntry = Find(Addr);
-	if(pEntry != nullptr)
+	if(CServerEntry *pEntry = Find(Addr))
 		pEntry->m_Info.m_AmfClientCount = ClampedCount;
 	m_NeedResort = true;
 }
@@ -373,7 +377,7 @@ void CServerBrowser::ClearAmfClientPlayerNames()
 
 bool CServerBrowser::IsAmfClientPlayer(const CServerInfo &Server, const char *pPlayerName) const
 {
-	if(!pPlayerName || !pPlayerName[0])
+	if(pPlayerName == nullptr || pPlayerName[0] == '\0')
 		return false;
 	for(int AddressIndex = 0; AddressIndex < Server.m_NumAddresses; ++AddressIndex)
 	{
@@ -553,9 +557,8 @@ void CServerBrowser::Filter()
 			{
 				Filtered = true;
 				// match against player country
-				for(int ClientIndex = 0; ClientIndex < Info.m_NumReceivedClients; ++ClientIndex)
+				for(const auto &Client : Info.m_vClients)
 				{
-					const auto &Client = Info.m_aClients[ClientIndex];
 					if(Client.m_Country == g_Config.m_BrFilterCountryIndex)
 					{
 						Filtered = false;
@@ -595,9 +598,8 @@ void CServerBrowser::Filter()
 					}
 
 					// match against players
-					for(int ClientIndex = 0; ClientIndex < Info.m_NumReceivedClients; ++ClientIndex)
+					for(const auto &Client : Info.m_vClients)
 					{
-						const auto &Client = Info.m_aClients[ClientIndex];
 						if(MatchesFn(Client.m_aName, aFilterStrTrimmed) ||
 							MatchesFn(Client.m_aClan, aFilterStrTrimmed))
 						{
@@ -815,6 +817,7 @@ void CServerBrowser::SetInfo(CServerEntry *pEntry, const CServerInfo &Info) cons
 {
 	const CServerInfo TmpInfo = pEntry->m_Info;
 	pEntry->m_Info = Info;
+	pEntry->m_Info.m_NumReceivedClients = static_cast<int>(pEntry->m_Info.m_vClients.size());
 	pEntry->m_Info.m_AmfClientCount = TmpInfo.m_AmfClientCount;
 	for(int AddressIndex = 0; AddressIndex < TmpInfo.m_NumAddresses; ++AddressIndex)
 	{
@@ -892,7 +895,7 @@ void CServerBrowser::SetInfo(CServerEntry *pEntry, const CServerInfo &Info) cons
 		}
 	};
 
-	std::sort(pEntry->m_Info.m_aClients, pEntry->m_Info.m_aClients + pEntry->m_Info.m_NumReceivedClients, CPlayerScoreNameLess(pEntry->m_Info.m_ClientScoreKind));
+	std::sort(pEntry->m_Info.m_vClients.begin(), pEntry->m_Info.m_vClients.end(), CPlayerScoreNameLess(pEntry->m_Info.m_ClientScoreKind));
 
 	pEntry->m_GotInfo = 1;
 }
@@ -936,8 +939,7 @@ void CServerBrowser::SetLatency(NETADDR Addr, int Latency)
 CServerBrowser::CServerEntry *CServerBrowser::Add(const NETADDR *pAddrs, int NumAddrs)
 {
 	// create new pEntry
-	CServerEntry *pEntry = m_ServerlistHeap.Allocate<CServerEntry>();
-	*pEntry = {};
+	CServerEntry *pEntry = &m_ServerlistStorage.emplace_back();
 
 	// set the info
 	mem_copy(pEntry->m_Info.m_aAddresses, pAddrs, NumAddrs * sizeof(pAddrs[0]));
@@ -1170,11 +1172,7 @@ void CServerBrowser::Refresh(int Type, bool Force)
 	else
 	{
 		m_pHttp->Refresh();
-		if(!m_PingCacheLoaded)
-		{
-			m_pPingCache->Load();
-			m_PingCacheLoaded = true;
-		}
+		m_pPingCache->Load();
 		m_RefreshingHttp = true;
 
 		if(ServerListTypeChanged && m_pHttp->NumServers() > 0)
@@ -1364,7 +1362,7 @@ void CServerBrowser::CleanUp()
 	// clear out everything
 	m_vSortedServerlist.clear();
 	m_vpServerlist.clear();
-	m_ServerlistHeap.Reset();
+	m_ServerlistStorage.clear();
 	m_NumSortedPlayers = 0;
 	m_ByAddr.clear();
 	m_pFirstReqServer = nullptr;
@@ -1651,19 +1649,21 @@ void CServerBrowser::LoadDDNetServers()
 	m_vCommunities.clear();
 	m_CommunityServersByAddr.clear();
 
-	// TClient
-	std::vector<json_value *> vCommunities;
-	if(m_pDDNetInfo)
+	if(!m_pDDNetInfo)
 	{
-		const json_value &Communities = (*m_pDDNetInfo)["communities"];
-		if(Communities.type == json_array)
-		{
-			vCommunities.insert(
-				vCommunities.end(),
-				Communities.u.array.values,
-				Communities.u.array.values + Communities.u.array.length);
-		}
+		return;
 	}
+
+	const json_value &Communities = (*m_pDDNetInfo)["communities"];
+	if(Communities.type != json_array)
+	{
+		return;
+	}
+
+	std::vector<json_value *> vCommunities;
+	vCommunities.reserve(Communities.u.array.length);
+	for(unsigned CommunityIndex = 0; CommunityIndex < Communities.u.array.length; ++CommunityIndex)
+		vCommunities.push_back(const_cast<json_value *>(&Communities[CommunityIndex]));
 	if(m_CustomCommunitiesFunction)
 		m_CustomCommunitiesFunction(vCommunities);
 
@@ -1777,9 +1777,8 @@ void CServerBrowser::UpdateServerFilteredPlayers(CServerInfo *pInfo) const
 	pInfo->m_NumFilteredPlayers = g_Config.m_BrFilterSpectators ? pInfo->m_NumPlayers : pInfo->m_NumClients;
 	if(g_Config.m_BrFilterConnectingPlayers)
 	{
-		for(int ClientIndex = 0; ClientIndex < pInfo->m_NumReceivedClients; ++ClientIndex)
+		for(const auto &Client : pInfo->m_vClients)
 		{
-			const auto &Client = pInfo->m_aClients[ClientIndex];
 			if((!g_Config.m_BrFilterSpectators || Client.m_Player) && str_comp(Client.m_aName, "(connecting)") == 0 && Client.m_aClan[0] == '\0')
 				pInfo->m_NumFilteredPlayers--;
 		}
@@ -1790,9 +1789,8 @@ void CServerBrowser::UpdateServerFriends(CServerInfo *pInfo) const
 {
 	pInfo->m_FriendState = IFriends::FRIEND_NO;
 	pInfo->m_FriendNum = 0;
-	for(int ClientIndex = 0; ClientIndex < pInfo->m_NumReceivedClients; ++ClientIndex)
+	for(auto &Client : pInfo->m_vClients)
 	{
-		auto &Client = pInfo->m_aClients[ClientIndex];
 		Client.m_FriendState = m_pFriends->GetFriendState(Client.m_aName, Client.m_aClan);
 		pInfo->m_FriendState = std::max(pInfo->m_FriendState, Client.m_FriendState);
 		if(Client.m_FriendState != IFriends::FRIEND_NO)
@@ -1845,10 +1843,7 @@ int CServerBrowser::DetermineOwnLocation() const
 		return m_OwnLocation;
 	}
 
-	// Keep the last resolved automatic location as a safe fallback when a
-	// manually configured value cannot be parsed. Returning an uninitialized
-	// location here made estimated ping depend on stack contents.
-	int OwnLocation = m_OwnLocation;
+	int OwnLocation;
 	if(CServerInfo::ParseLocation(&OwnLocation, g_Config.m_BrLocation))
 	{
 		log_error("serverbrowser", "Cannot parse br_location: '%s'", g_Config.m_BrLocation);

@@ -4,9 +4,8 @@
 
 #include <base/dbg.h>
 #include <base/log.h>
+#include <base/math.h>
 #include <base/mem.h>
-
-#include <engine/gfx/image_manipulation.h>
 
 #include <engine/gfx/image_manipulation.h>
 #include <engine/graphics.h>
@@ -51,7 +50,7 @@ void CMapImages::OnInit()
 
 void CMapImages::OnConsoleInit()
 {
-	Console()->Register("tune_zone_color", "?s[preset]", CFGFLAG_CLIENT, ConTuneZoneColor, this, "Set tune-zone color: default, blue, red, green or purple");
+	Console()->Register("tune_zone_color", "?s[preset]", CFGFLAG_CLIENT, ConTuneZoneColor, this, "Set tune-zone color: standard, red, green, purple, yellow, white or black");
 }
 
 void CMapImages::Unload()
@@ -304,15 +303,20 @@ IGraphics::CTextureHandle CMapImages::GetEntities(EMapImageEntityLayerType Entit
 			BuildImageInfo.m_Width = ImgInfo.m_Width;
 			BuildImageInfo.m_Height = ImgInfo.m_Height;
 			BuildImageInfo.m_Format = ImgInfo.m_Format;
-			BuildImageInfo.m_pData = static_cast<uint8_t *>(malloc(BuildImageInfo.DataSize())); // Allocate an already transparent image.
+			BuildImageInfo.Allocate(); // allocate already transparent image
 
-			const bool UseRawBlue = TuneZoneColor::UsesRawBlue();
+			// Grayscale the source tile only when the custom color map is active.
 			const size_t CopyWidth = ImgInfo.m_Width / 16;
 			const size_t CopyHeight = ImgInfo.m_Height / 16;
 			const size_t TuneTileX = static_cast<size_t>(TILE_TUNE % 16) * CopyWidth;
 			const size_t TuneTileY = static_cast<size_t>(TILE_TUNE / 16) * CopyHeight;
-			if(!UseRawBlue)
+
+			const bool CustomTuneZoneColors = g_Config.m_AmfTuneZoneColors != 0;
+			if(CustomTuneZoneColors)
+			{
 				ConvertToGrayscaleRect(ImgInfo, TuneTileX, TuneTileY, CopyWidth, CopyHeight);
+				ColorizeWithPresetRect(ImgInfo, TuneZoneColor::ColorForIndex(1), TuneTileX, TuneTileY, CopyWidth, CopyHeight);
+			}
 
 			// build game layer
 			for(int LayerType = 0; LayerType < MAP_IMAGE_ENTITY_LAYER_TYPE_COUNT; ++LayerType)
@@ -343,25 +347,20 @@ IGraphics::CTextureHandle CMapImages::GetEntities(EMapImageEntityLayerType Entit
 
 			BuildImageInfo.Free();
 
-			// The raw Blue preset uses the normal entity texture exactly as Best Client
-			// 2.1 did. Custom presets receive their uniform recolored texture array.
-			if(Graphics()->HasTextureArraysSupport() && !UseRawBlue)
+			// build tune map from the tune tile
+			if(Graphics()->HasTextureArraysSupport() && CustomTuneZoneColors)
 			{
 				CImageInfo TuneMapInfo;
 				TuneMapInfo.m_Width = ImgInfo.m_Width;
 				TuneMapInfo.m_Height = ImgInfo.m_Height;
 				TuneMapInfo.m_Format = ImgInfo.m_Format;
-				TuneMapInfo.m_pData = static_cast<uint8_t *>(malloc(TuneMapInfo.DataSize()));
-				mem_zero(TuneMapInfo.m_pData, TuneMapInfo.DataSize());
+				TuneMapInfo.AllocateFillZero();
 
 				for(int TileIndex = 1; TileIndex < 256; ++TileIndex)
 				{
-					const size_t StartX = CopyWidth * (TileIndex % 16);
-					const size_t StartY = CopyHeight * (TileIndex / 16);
+					size_t StartX = CopyWidth * (TileIndex % 16);
+					size_t StartY = CopyHeight * (TileIndex / 16);
 					TuneMapInfo.CopyRectFrom(ImgInfo, TuneTileX, TuneTileY, CopyWidth, CopyHeight, StartX, StartY);
-					const ColorRGBA Color = TuneZoneColor::CurrentCustom();
-					const ColorHSLA ColorHsla = color_cast<ColorHSLA>(Color);
-					ColorizeWithHueRect(TuneMapInfo, ColorHsla.h, ColorHsla.s, StartX, StartY, CopyWidth, CopyHeight);
 				}
 				m_TuneColorMapTexture = Graphics()->LoadTextureRawMove(TuneMapInfo, TextureLoadFlag);
 				m_TuneColorsIsLoaded = true;
@@ -387,17 +386,20 @@ IGraphics::CTextureHandle CMapImages::GetSpeedupArrow()
 
 IGraphics::CTextureHandle CMapImages::GetTuneColors()
 {
-	if(Graphics()->HasTextureArraysSupport())
+	if(Graphics()->HasTextureArraysSupport() && g_Config.m_AmfTuneZoneColors)
 	{
 		if(!m_TuneColorsIsLoaded)
 		{
-			// Loading entities also builds the tune color map.
+			// load entities, this also loads the tune map
 			GetEntities(EMapImageEntityLayerType::MAP_IMAGE_ENTITY_LAYER_TYPE_ALL_EXCEPT_SWITCH);
 			dbg_assert(m_TuneColorsIsLoaded, "Entities did not load the tune color map");
 		}
 		return m_TuneColorMapTexture;
 	}
-	return GetEntities(MAP_IMAGE_ENTITY_LAYER_TYPE_ALL_EXCEPT_SWITCH);
+	else
+	{
+		return GetEntities(MAP_IMAGE_ENTITY_LAYER_TYPE_ALL_EXCEPT_SWITCH);
+	}
 }
 
 IGraphics::CTextureHandle CMapImages::GetOverlayBottom()
@@ -455,6 +457,13 @@ void CMapImages::SetTuneZoneColorPreset(int Preset)
 	ReloadEntities();
 }
 
+void CMapImages::SetTuneZoneColorsEnabled(int Enabled)
+{
+	Enabled = Enabled != 0;
+	g_Config.m_AmfTuneZoneColors = Enabled;
+	ReloadEntities();
+}
+
 void CMapImages::ConTuneZoneColor(IConsole::IResult *pResult, void *pUserData)
 {
 	CMapImages *pThis = static_cast<CMapImages *>(pUserData);
@@ -468,7 +477,7 @@ void CMapImages::ConTuneZoneColor(IConsole::IResult *pResult, void *pUserData)
 
 	const char *pPreset = pResult->GetString(0);
 	int Preset = -1;
-	if(str_comp_nocase(pPreset, "default") == 0 || str_comp_nocase(pPreset, "blue") == 0)
+	if(str_comp_nocase(pPreset, "default") == 0 || str_comp_nocase(pPreset, "standard") == 0 || str_comp_nocase(pPreset, "blue") == 0)
 		Preset = TuneZoneColor::PRESET_BLUE;
 	else if(str_comp_nocase(pPreset, "red") == 0)
 		Preset = TuneZoneColor::PRESET_RED;
@@ -476,9 +485,15 @@ void CMapImages::ConTuneZoneColor(IConsole::IResult *pResult, void *pUserData)
 		Preset = TuneZoneColor::PRESET_GREEN;
 	else if(str_comp_nocase(pPreset, "purple") == 0)
 		Preset = TuneZoneColor::PRESET_PURPLE;
+	else if(str_comp_nocase(pPreset, "yellow") == 0)
+		Preset = TuneZoneColor::PRESET_YELLOW;
+	else if(str_comp_nocase(pPreset, "white") == 0)
+		Preset = TuneZoneColor::PRESET_WHITE;
+	else if(str_comp_nocase(pPreset, "black") == 0)
+		Preset = TuneZoneColor::PRESET_BLACK;
 	else
 	{
-		pThis->Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "tune_zone_color", "Usage: tune_zone_color <default|blue|red|green|purple>");
+		pThis->Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, "tune_zone_color", "Usage: tune_zone_color <standard|red|green|purple|yellow|white|black>");
 		return;
 	}
 

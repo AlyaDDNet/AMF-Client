@@ -21,7 +21,7 @@ private:
 	{
 		if(Client()->State() == IClient::STATE_ONLINE || Client()->State() == IClient::STATE_DEMOPLAYBACK)
 		{
-			Client()->GetServerInfo(&m_ServerInfoCache);
+			m_ServerInfoCache = Client()->ServerInfo();
 			return &m_ServerInfoCache;
 		}
 		else if(GameClient()->m_ConnectServerInfo)
@@ -125,7 +125,7 @@ private:
 				return nullptr;
 			float w = 100.0f, h = 100.0;
 			float x = 50.0f, y = 50.0f;
-			const CLayers *pLayers = GameClient()->m_MapLayersForeground.m_pLayers;
+			const CLayers *pLayers = GameClient()->m_MapLayersForeground.GetLayers();
 			const CMapItemLayerTilemap *pLayer = pLayers->GameLayer();
 			if(pLayer)
 			{

@@ -561,7 +561,7 @@ namespace AssetOrganizer
 		return It != gs_aLibraries[AssetType].m_Items.end() && It->second.m_Favorite;
 	}
 
-	void SetFavorite(int AssetType, const char *pAssetId, bool Favorite)
+	void SetFavorite(int AssetType, const char *pAssetId, bool Favorite, bool Persist)
 	{
 		if(!IsValidAssetType(AssetType) || pAssetId == nullptr || pAssetId[0] == '\0')
 			return;
@@ -572,7 +572,8 @@ namespace AssetOrganizer
 			return;
 		Item.m_Favorite = Favorite;
 		InvalidateItemCountCache(Library);
-		Save();
+		if(Persist)
+			Save();
 	}
 
 	bool CreateFolder(int AssetType, const char *pName, std::string *pCreatedId)

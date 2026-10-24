@@ -10,7 +10,8 @@
 
 #include <cstdint>
 #include <memory>
-#include <string> // TClient
+#include <string>
+#include <vector>
 
 enum
 {
@@ -149,10 +150,9 @@ public:
 	int m_SelectionEnd = 0;
 
 	ETextCursorCursorMode m_CursorMode = TEXT_CURSOR_CURSOR_MODE_NONE;
+	// Keep cursor positioning/selection active while suppressing only the visual caret.
+	bool m_HideCursor = false;
 	bool m_ForceCursorRendering = false;
-	// Keep cursor-position calculation while allowing a caller to render a
-	// replacement caret (used by the optional AMF chat caret animation).
-	bool m_HideCursorRendering = false;
 	// note this is the decoded character offset
 	int m_CursorCharacter = -1;
 	vec2 m_CursorRenderedPosition = vec2(-1.0f, -1.0f);
@@ -198,8 +198,8 @@ class ITextRender : public IInterface
 {
 	MACRO_INTERFACE("textrender")
 public:
-	virtual std::vector<std::string> *GetCustomFaces() = 0; // TClient
-	virtual void SetCustomFace(const char *pFace) = 0; // TClient
+	virtual std::vector<std::string> *GetCustomFaces() = 0;
+	virtual void SetCustomFace(const char *pFace) = 0;
 
 	virtual bool LoadFonts() = 0;
 	virtual void SetFontPreset(EFontPreset FontPreset) = 0;

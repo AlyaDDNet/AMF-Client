@@ -10,8 +10,8 @@
 
 namespace
 {
-constexpr int BASE_MARGIN = 90;
-constexpr int MAX_MARGIN = 3000;
+constexpr int BASE_MARGIN = 9;
+constexpr int MAX_MARGIN = 300;
 constexpr float CHECK_INTERVAL_SECONDS = 0.5f;
 constexpr float PING_SMOOTH_FACTOR_RISE = 0.45f;
 constexpr float PING_SMOOTH_FACTOR_FALL = 0.20f;
@@ -21,18 +21,19 @@ constexpr int HIGH_PING_ENTER_MS = 50;
 constexpr int HIGH_PING_EXIT_MS = 42;
 constexpr float JITTER_ENTER_MS = 4.0f;
 constexpr float JITTER_EXIT_MS = 2.0f;
-constexpr int MARGIN_DEADZONE = 10;
-constexpr int MARGIN_STEP_DOWN = 50;
+constexpr int MARGIN_DEADZONE = 0; // Whole-millisecond targets do not need a fractional deadzone.
+constexpr int MARGIN_STEP_DOWN = 1; // Preserve the gradual reduction in canonical integer-ms steps.
 
 float MarginFromPing(float Ping)
 {
-	// Returns margin in 0.1 ms units, matching the Best Client algorithm.
-	return std::max((float)BASE_MARGIN, Ping * 2.5f);
+	// Keep the runtime target in the same whole-millisecond units as DDNet.
+	return std::max((float)BASE_MARGIN, Ping * 0.25f);
 }
 }
 
 void CAmfAutoMargin::ResetState()
 {
+	m_RuntimeMargin = -1;
 	m_CheckTimer = 0.0f;
 	m_LatestPing = -1.0f;
 	m_IntervalPingSum = 0.0f;
@@ -47,12 +48,16 @@ void CAmfAutoMargin::ResetState()
 void CAmfAutoMargin::OnReset()
 {
 	ResetState();
+	Client()->SetAutoPredictionMargin(-1);
 }
 
 void CAmfAutoMargin::OnStateChange(int NewState, int OldState)
 {
 	if(NewState != OldState)
+	{
 		ResetState();
+		Client()->SetAutoPredictionMargin(-1);
+	}
 }
 
 void CAmfAutoMargin::OnNewSnapshot()
@@ -60,6 +65,7 @@ void CAmfAutoMargin::OnNewSnapshot()
 	if(Client()->State() != IClient::STATE_ONLINE || !GameClient()->m_Snap.m_pLocalInfo)
 	{
 		ResetState();
+		Client()->SetAutoPredictionMargin(-1);
 		return;
 	}
 
@@ -93,13 +99,9 @@ void CAmfAutoMargin::OnUpdate()
 
 	if(!AutoMarginEnabled)
 	{
-		if(m_WasEnabled)
-		{
-			if(m_SavedMargin >= 0)
-				g_Config.m_ClPredictionMargin = m_SavedMargin;
-			m_WasEnabled = false;
-			m_SavedMargin = -1;
-		}
+		m_WasEnabled = false;
+		m_RuntimeMargin = -1;
+		Client()->SetAutoPredictionMargin(-1);
 
 		const int CurrentManualMargin = std::clamp(g_Config.m_ClPredictionMargin, 1, MAX_MARGIN);
 		if(CurrentManualMargin != m_LastManualMargin)
@@ -119,15 +121,18 @@ void CAmfAutoMargin::OnUpdate()
 		// Treat that changed canonical value as the new manual margin.
 		if(CurrentConfiguredMargin != m_LastManualMargin)
 			g_Config.m_AmfAutoMarginManualValue = CurrentConfiguredMargin;
-		m_SavedMargin = g_Config.m_AmfAutoMarginManualValue > 0 ?
-			std::clamp(g_Config.m_AmfAutoMarginManualValue, 1, MAX_MARGIN) :
-			CurrentConfiguredMargin;
 		m_WasEnabled = true;
+	}
+	if(g_Config.m_ClPredictionMargin != m_LastManualMargin)
+	{
+		m_LastManualMargin = std::clamp(g_Config.m_ClPredictionMargin, 1, MAX_MARGIN);
+		g_Config.m_AmfAutoMarginManualValue = m_LastManualMargin;
 	}
 
 	if(Client()->State() != IClient::STATE_ONLINE || !GameClient()->m_Snap.m_pLocalInfo)
 	{
 		ResetState();
+		Client()->SetAutoPredictionMargin(-1);
 		return;
 	}
 
@@ -176,14 +181,18 @@ void CAmfAutoMargin::OnUpdate()
 	if(m_HighPing)
 	{
 		const float StableMargin = MarginFromPing(EffectivePing);
-		const float JitterMargin = std::max(m_SmoothedJitter * 9.0f, IntervalJitter * 3.5f);
+		const float JitterMargin = std::max(m_SmoothedJitter * 0.9f, IntervalJitter * 0.35f);
 		TargetMargin = std::clamp((int)std::round(StableMargin + JitterMargin), BASE_MARGIN, MAX_MARGIN);
 	}
 
-	int CurrentMargin = std::clamp(g_Config.m_ClPredictionMargin, BASE_MARGIN, MAX_MARGIN);
+	int CurrentMargin = m_RuntimeMargin >= 0 ? m_RuntimeMargin : BASE_MARGIN;
 	const int MarginDelta = TargetMargin - CurrentMargin;
 	if(std::abs(MarginDelta) <= MARGIN_DEADZONE)
+	{
+		m_RuntimeMargin = CurrentMargin;
+		Client()->SetAutoPredictionMargin(CurrentMargin);
 		return;
+	}
 
 	if(MarginDelta > 0)
 		CurrentMargin = TargetMargin;
@@ -191,6 +200,6 @@ void CAmfAutoMargin::OnUpdate()
 		CurrentMargin -= std::min(-MarginDelta, MARGIN_STEP_DOWN);
 
 	CurrentMargin = std::clamp(CurrentMargin, BASE_MARGIN, MAX_MARGIN);
-	if(g_Config.m_ClPredictionMargin != CurrentMargin)
-		g_Config.m_ClPredictionMargin = CurrentMargin;
+	m_RuntimeMargin = CurrentMargin;
+	Client()->SetAutoPredictionMargin(CurrentMargin);
 }

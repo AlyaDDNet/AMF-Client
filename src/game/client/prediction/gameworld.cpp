@@ -17,8 +17,14 @@
 #include <game/client/laser_data.h>
 #include <game/client/pickup_data.h>
 #include <game/client/projectile_data.h>
+#include <game/collision.h>
 #include <game/mapbugs.h>
 #include <game/mapitems.h>
+
+#if defined(CONF_SNAPSHOT_FORENSICS)
+#include <base/dbg.h>
+#include <engine/shared/snapshot.h>
+#endif
 
 #include <algorithm>
 #include <utility>
@@ -28,10 +34,8 @@
 //////////////////////////////////////////////////
 CGameWorld::CGameWorld()
 {
-	for(auto &pFirstEntityType : m_apFirstEntityTypes)
-		pFirstEntityType = nullptr;
-	for(auto &pCharacter : m_apCharacters)
-		pCharacter = nullptr;
+	std::fill(std::begin(m_apFirstEntityTypes), std::end(m_apFirstEntityTypes), nullptr);
+	std::fill(std::begin(m_apCharacters), std::end(m_apCharacters), nullptr);
 	m_pCollision = nullptr;
 	m_GameTick = 0;
 	m_pParent = nullptr;
@@ -159,6 +163,28 @@ void CGameWorld::RemoveEntity(CEntity *pEnt)
 	pEnt->m_pNextTypeEntity = nullptr;
 	pEnt->m_pPrevTypeEntity = nullptr;
 
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	const bool ParentBelongsToExpectedWorld = pEnt->m_pParent && m_pParent && m_pParent->DebugContainsEntity(pEnt->m_pParent);
+	const bool ChildBelongsToExpectedWorld = pEnt->m_pChild && m_pChild && m_pChild->DebugContainsEntity(pEnt->m_pChild);
+	auto AssertInvalidRelationship = [&](const char *pRelation, const void *pInvalidLink, const CGameWorld *pExpectedWorld, size_t WriteMemberOffset) {
+		const bool Persisted = CSnapshotStorage::DebugPersistEntityLinkFailure(pRelation, this, pEnt, pEnt->m_ObjType, pEnt->GetId(),
+			pEnt->m_pParent, ParentBelongsToExpectedWorld, pEnt->m_pChild, ChildBelongsToExpectedWorld,
+			pInvalidLink, pExpectedWorld, WriteMemberOffset);
+		dbg_assert_failed("Invalid CGameWorld entity relationship before unlink: relation=%s world=%p entity=%p type=%d id=%d persisted=%d",
+			pRelation, this, pEnt, pEnt->m_ObjType, pEnt->GetId(), Persisted);
+	};
+	if(pEnt->m_pParent && !ParentBelongsToExpectedWorld)
+	{
+		const size_t ChildMemberOffset = reinterpret_cast<uintptr_t>(&pEnt->m_pChild) - reinterpret_cast<uintptr_t>(pEnt);
+		AssertInvalidRelationship("parent->m_pChild", pEnt->m_pParent, m_pParent, ChildMemberOffset);
+	}
+	if(pEnt->m_pChild && !ChildBelongsToExpectedWorld)
+	{
+		const size_t ParentMemberOffset = reinterpret_cast<uintptr_t>(&pEnt->m_pParent) - reinterpret_cast<uintptr_t>(pEnt);
+		AssertInvalidRelationship("child->m_pParent", pEnt->m_pChild, m_pChild, ParentMemberOffset);
+	}
+#endif
+
 	if(pEnt->m_pParent)
 	{
 		if(m_IsValidCopy && m_pParent && m_pParent->m_pChild == this)
@@ -172,6 +198,19 @@ void CGameWorld::RemoveEntity(CEntity *pEnt)
 		pEnt->m_pChild = nullptr;
 	}
 }
+
+#if defined(CONF_SNAPSHOT_FORENSICS)
+bool CGameWorld::DebugContainsEntity(const CEntity *pEntity) const
+{
+	if(!pEntity)
+		return false;
+	for(CEntity *pFirst : m_apFirstEntityTypes)
+		for(CEntity *pCurrent = pFirst; pCurrent; pCurrent = pCurrent->m_pNextTypeEntity)
+			if(pCurrent == pEntity)
+				return true;
+	return false;
+}
+#endif
 
 void CGameWorld::RemoveCharacter(CCharacter *pChar)
 {
@@ -369,21 +408,26 @@ void CGameWorld::CreateExplosion(vec2 Pos, int Owner, int Weapon, bool NoDamage,
 			ForceDir = normalize(Diff);
 		l = 1 - std::clamp((l - InnerRadius) / (Radius - InnerRadius), 0.0f, 1.0f);
 		float Strength;
-		if(Owner == -1 || !GetCharacterById(Owner))
+		CCharacter *pOwnerChar = GetCharacterById(Owner);
+		if(Owner == -1 || !pOwnerChar)
 			Strength = GlobalTuning()->m_ExplosionStrength;
 		else
-			Strength = GetCharacterById(Owner)->GetTuning(GetCharacterById(Owner)->GetOverriddenTuneZone())->m_ExplosionStrength;
+			Strength = pOwnerChar->GetTuning(pOwnerChar->GetOverriddenTuneZone())->m_ExplosionStrength;
 
 		float Dmg = Strength * l;
 		if((int)Dmg)
-			if((GetCharacterById(Owner) ? !GetCharacterById(Owner)->GrenadeHitDisabled() : g_Config.m_SvHit || NoDamage) || Owner == pChar->GetCid())
+			if((pOwnerChar ? !pOwnerChar->GrenadeHitDisabled() : g_Config.m_SvHit || NoDamage) || Owner == pChar->GetCid())
 			{
 				if(Owner != -1 && !pChar->CanCollide(Owner))
 					continue;
 				if(Owner == -1 && ActivatedTeam != -1 && pChar->Team() != ActivatedTeam)
 					continue;
 				pChar->TakeDamage(ForceDir * Dmg * 2, (int)Dmg, Owner, Weapon);
-				if(GetCharacterById(Owner) ? GetCharacterById(Owner)->GrenadeHitDisabled() : !g_Config.m_SvHit || NoDamage)
+				if(pOwnerChar)
+				{
+					pOwnerChar->AntiPingInterference(pChar->GetCid());
+				}
+				if(pOwnerChar ? pOwnerChar->GrenadeHitDisabled() : !g_Config.m_SvHit || NoDamage)
 					break;
 			}
 	}
@@ -510,10 +554,17 @@ void CGameWorld::NetObjAdd(int ObjId, int ObjType, const void *pObjData, const C
 		CEntity *pEnt = new CPickup(NetPickup);
 		InsertEntity(pEnt, true);
 	}
-	else if((ObjType == NETOBJTYPE_LASER || ObjType == NETOBJTYPE_DDNETLASER) && m_WorldConfig.m_PredictWeapons)
+	else if(ObjType == NETOBJTYPE_LASER || ObjType == NETOBJTYPE_DDNETLASER)
 	{
 		CLaserData Data = ExtractLaserInfo(ObjType, pObjData, this, pDataEx);
 		if(!IsLocalTeam(Data.m_Owner) || !Data.m_Predict)
+		{
+			return;
+		}
+
+		// Doors are static world geometry that only ever adds move restrictions to tiles,
+		// so they follow the tile physics config rather than the weapon prediction config.
+		if(!(Data.m_Type == LASERTYPE_DOOR ? m_WorldConfig.m_PredictTiles : m_WorldConfig.m_PredictWeapons))
 		{
 			return;
 		}
@@ -576,7 +627,6 @@ void CGameWorld::NetObjAdd(int ObjId, int ObjType, const void *pObjData, const C
 				return;
 			}
 			CDoor *pEnt = new CDoor(NetDoor);
-			pEnt->ResetCollision();
 			InsertEntity(pEnt);
 		}
 		else if(Data.m_Type == LASERTYPE_PLASMA)
@@ -593,6 +643,29 @@ void CGameWorld::NetObjAdd(int ObjId, int ObjType, const void *pObjData, const C
 			InsertEntity(pEnt);
 		}
 	}
+}
+
+void CGameWorld::ResetDoorCollision()
+{
+	// Doors add their move restrictions to the collision grid shared by the whole client
+	// rather than keeping them on the entity, so the grid is rebuilt after every snapshot:
+	// a destroyed door clears its entire span, including tiles another door still occupies.
+	// Doors are applied in map order, the order the server creates them in, so intersecting
+	// doors resolve to the same tile on both sides. Two doors originating on the same tile
+	// share a map index; the server creates the game/front-layer door before the switch-layer
+	// one, so the switch door (m_Number > 0) stamps the shared origin tile last and wins.
+	std::vector<CDoor *> vpDoors;
+	for(CEntity *pEnt = FindFirst(ENTTYPE_DOOR); pEnt; pEnt = pEnt->TypeNext())
+		vpDoors.push_back(static_cast<CDoor *>(pEnt));
+	std::stable_sort(vpDoors.begin(), vpDoors.end(), [this](const CDoor *pLeft, const CDoor *pRight) {
+		const int LeftIndex = Collision()->GetPureMapIndex(pLeft->m_Pos);
+		const int RightIndex = Collision()->GetPureMapIndex(pRight->m_Pos);
+		if(LeftIndex != RightIndex)
+			return LeftIndex < RightIndex;
+		return (pLeft->m_Number > 0) < (pRight->m_Number > 0);
+	});
+	for(CDoor *pDoor : vpDoors)
+		pDoor->ResetCollision();
 }
 
 void CGameWorld::NetObjEnd()
@@ -612,6 +685,7 @@ void CGameWorld::NetObjEnd()
 						pHookedChar->m_MarkedForDestroy = false;
 					}
 	RemoveEntities();
+	ResetDoorCollision();
 
 	// Update character IDs and pointers
 	for(int i = 0; i < MAX_CLIENTS; i++)
@@ -644,6 +718,8 @@ void CGameWorld::CopyWorldClean(CGameWorld *pFrom)
 	m_Teams = pFrom->m_Teams;
 	m_Core.m_vSwitchers = pFrom->m_Core.m_vSwitchers;
 	m_PredictedEvents = pFrom->m_PredictedEvents;
+	m_pPracticeTileOverrideUser = pFrom->m_pPracticeTileOverrideUser;
+	m_pPracticeTileOverrideCallback = pFrom->m_pPracticeTileOverrideCallback;
 	Clear();
 	for(int i = 0; i < MAX_CLIENTS; i++)
 	{
@@ -683,9 +759,31 @@ void CGameWorld::CopyWorld(CGameWorld *pFrom)
 	if(pFrom == this || !pFrom)
 		return;
 	m_IsValidCopy = false;
+	// Remove the old entity copies while their parent world still describes
+	// the links they were created with.
+	Clear();
+	if(m_pParent && m_pParent->m_pChild == this)
+		m_pParent->m_pChild = nullptr;
+
+	// A world can track only one child copy. Keep an invalidated previous child
+	// usable as a world snapshot, but sever its entity bookkeeping links before
+	// the source entities are linked to this new copy. Otherwise the old child
+	// can later unlink through stale parent pointers or clear the new child's
+	// backlink.
+	CGameWorld *pPreviousChild = pFrom->m_pChild;
+	if(pPreviousChild && pPreviousChild != this)
+	{
+		pPreviousChild->m_IsValidCopy = false;
+		for(auto *pFirstEntityType : pFrom->m_apFirstEntityTypes)
+			for(CEntity *pEnt = pFirstEntityType; pEnt; pEnt = pEnt->m_pNextTypeEntity)
+				pEnt->m_pChild = nullptr;
+		for(auto *pFirstEntityType : pPreviousChild->m_apFirstEntityTypes)
+			for(CEntity *pEnt = pFirstEntityType; pEnt; pEnt = pEnt->m_pNextTypeEntity)
+				pEnt->m_pParent = nullptr;
+		pPreviousChild->m_pParent = nullptr;
+	}
+
 	m_pParent = pFrom;
-	if(m_pParent->m_pChild && m_pParent->m_pChild != this)
-		m_pParent->m_pChild->m_IsValidCopy = false;
 	pFrom->m_pChild = this;
 
 	m_GameTick = pFrom->m_GameTick;
@@ -696,8 +794,8 @@ void CGameWorld::CopyWorld(CGameWorld *pFrom)
 	m_Teams = pFrom->m_Teams;
 	m_Core.m_vSwitchers = pFrom->m_Core.m_vSwitchers;
 	m_PredictedEvents = pFrom->m_PredictedEvents;
-	// delete the previous entities
-	Clear();
+	m_pPracticeTileOverrideUser = pFrom->m_pPracticeTileOverrideUser;
+	m_pPracticeTileOverrideCallback = pFrom->m_pPracticeTileOverrideCallback;
 	for(int i = 0; i < MAX_CLIENTS; i++)
 	{
 		m_apCharacters[i] = nullptr;
@@ -857,7 +955,7 @@ bool CGameWorld::CheckPredictedEventHandled(const CPredictedEvent &CheckEvent)
 		m_PredictedEvents.begin(),
 		m_PredictedEvents.end(),
 		[CheckEvent](const CPredictedEvent &Event) {
-			return Event.m_Handled == true && Event.m_EventId == CheckEvent.m_EventId &&
+			return Event.m_EventId == CheckEvent.m_EventId &&
 			       Event.m_Pos == CheckEvent.m_Pos && Event.m_Tick <= CheckEvent.m_Tick && Event.m_ExtraInfo == CheckEvent.m_ExtraInfo;
 		});
 
@@ -866,9 +964,13 @@ bool CGameWorld::CheckPredictedEventHandled(const CPredictedEvent &CheckEvent)
 		return false;
 	}
 
-	// remove the event after it has been confirmed played
+	// A snapshot event can arrive after prediction created the matching event,
+	// but before CGameClient::HandlePredictedEvents plays it. Consume that pending event too:
+	// the authoritative snapshot will play it, so leaving it queued would play
+	// the same sound again on the next prediction pass.
+	const bool WasAlreadyPlayed = It->m_Handled;
 	m_PredictedEvents.erase(It);
-	return true;
+	return WasAlreadyPlayed;
 }
 
 void CGameWorld::CreatePredictedSound(vec2 Pos, int SoundId, int Id)

@@ -182,17 +182,71 @@ typedef std::function<bool(uint32_t &Width, uint32_t &Height, CImageInfo::EImage
 
 struct CDataSprite;
 
+class CScreenRect
+{
+public:
+	CScreenRect(float Left, float Top, float Width, float Height) :
+		m_TopLeft(Left, Top), m_BottomRight(Left + Width, Top + Height) {}
+
+	CScreenRect(const vec2 &TopLeft, const vec2 &BottomRight) :
+		m_TopLeft(TopLeft), m_BottomRight(BottomRight) {}
+
+	CScreenRect Move(const vec2 &Position) const
+	{
+		CScreenRect Rect(*this);
+		Rect.m_TopLeft += Position;
+		Rect.m_BottomRight += Position;
+		return Rect;
+	}
+
+	constexpr vec2 Size() const
+	{
+		return m_BottomRight - m_TopLeft;
+	}
+
+	constexpr float Width() const
+	{
+		return m_BottomRight.x - m_TopLeft.x;
+	}
+
+	constexpr float Height() const
+	{
+		return m_BottomRight.y - m_TopLeft.y;
+	}
+
+	constexpr bool Inside(const vec2 &Position) const
+	{
+		return !(!in_range(Position.x, m_TopLeft.x, m_BottomRight.x) || !in_range(Position.y, m_TopLeft.y, m_BottomRight.y));
+	}
+
+	void Expand(float Width, float Height)
+	{
+		m_TopLeft.x -= Width;
+		m_BottomRight.x += Width;
+		m_TopLeft.y -= Height;
+		m_BottomRight.y += Height;
+	}
+
+	void Expand(float Size)
+	{
+		Expand(Size, Size);
+	}
+
+	vec2 m_TopLeft;
+	vec2 m_BottomRight;
+};
+
 class IGraphics : public IInterface
 {
 	MACRO_INTERFACE("graphics")
 protected:
 	int m_ScreenWidth;
 	int m_ScreenHeight;
+	int m_ViewportX = 0;
+	int m_DrawableWidth;
+	int m_DrawableHeight;
 	int m_ScreenRefreshRate;
 	float m_ScreenHiDPIScale;
-	// Optional logical aspect ratio used by the Best Client/AMF visual
-	// setting. The physical framebuffer and viewport remain unchanged; callers
-	// can temporarily disable the override while drawing window-space HUD.
 	float m_ScreenAspectOverride = 0.0f;
 	bool m_ScreenAspectOverrideEnabled = true;
 	ivec2 m_DesktopSize;
@@ -224,10 +278,21 @@ public:
 
 	int ScreenWidth() const { return m_ScreenWidth; }
 	int ScreenHeight() const { return m_ScreenHeight; }
+	vec2 ScreenSize() const { return vec2(m_ScreenWidth, m_ScreenHeight); }
 	float ScreenAspect() const { return m_ScreenAspectOverrideEnabled && m_ScreenAspectOverride > 0.0f ? m_ScreenAspectOverride : (float)ScreenWidth() / (float)ScreenHeight(); }
 	float ScreenHiDPIScale() const { return m_ScreenHiDPIScale; }
 	int WindowWidth() const { return m_ScreenWidth / m_ScreenHiDPIScale; }
 	int WindowHeight() const { return m_ScreenHeight / m_ScreenHiDPIScale; }
+
+	// Size of the whole drawable area, in the same units as ScreenWidth()/ScreenHeight().
+	// The rendered image is clamped to an aspect ratio of at most 5:4 and excludes the
+	// area covered by the cutout of the display, so it can be smaller than that area.
+	// The rest of the drawable area is not rendered to.
+	vec2 DrawableSize() const { return vec2(m_DrawableWidth, m_DrawableHeight); }
+
+	// Distance of the rendered image from the left edge of the drawable area, in the
+	// same units as ScreenWidth(). The image is always aligned to the top edge.
+	int ViewportX() const { return m_ViewportX; }
 
 	virtual void WarnPngliteIncompatibleImages(bool Warn) = 0;
 	virtual void SetWindowParams(int FullscreenMode, bool IsBorderless) = 0;
@@ -262,15 +327,34 @@ public:
 	virtual void ClipEnable(int x, int y, int w, int h) = 0;
 	virtual void ClipDisable() = 0;
 
-	virtual void MapScreen(float TopLeftX, float TopLeftY, float BottomRightX, float BottomRightY) = 0;
+	virtual void MapScreen(const CScreenRect &ScreenRect) = 0;
+	void MapScreen(float Left, float Top, float Right, float Bottom) { MapScreen(CScreenRect(vec2(Left, Top), vec2(Right, Bottom))); }
 
 	// helper functions
 	void CalcScreenParams(float Aspect, float Zoom, float *pWidth, float *pHeight) const;
+	CScreenRect MapScreenToWorld(float CenterX, float CenterY, float ParallaxX, float ParallaxY,
+		float ParallaxZoom, float OffsetX, float OffsetY, float Aspect, float Zoom) const;
 	void MapScreenToWorld(float CenterX, float CenterY, float ParallaxX, float ParallaxY,
-		float ParallaxZoom, float OffsetX, float OffsetY, float Aspect, float Zoom, float *pPoints) const;
+		float ParallaxZoom, float OffsetX, float OffsetY, float Aspect, float Zoom, float *pPoints) const
+	{
+		const CScreenRect ScreenRect = MapScreenToWorld(CenterX, CenterY, ParallaxX, ParallaxY, ParallaxZoom, OffsetX, OffsetY, Aspect, Zoom);
+		pPoints[0] = ScreenRect.m_TopLeft.x;
+		pPoints[1] = ScreenRect.m_TopLeft.y;
+		pPoints[2] = ScreenRect.m_BottomRight.x;
+		pPoints[3] = ScreenRect.m_BottomRight.y;
+	}
 	void MapScreenToInterface(float CenterX, float CenterY, float Zoom = 1.0f);
+	void MapScreenToSize(float Width, float Height);
 
-	virtual void GetScreen(float *pTopLeftX, float *pTopLeftY, float *pBottomRightX, float *pBottomRightY) const = 0;
+	virtual CScreenRect GetScreen() const = 0;
+	void GetScreen(float *pLeft, float *pTop, float *pRight, float *pBottom) const
+	{
+		const CScreenRect ScreenRect = GetScreen();
+		*pLeft = ScreenRect.m_TopLeft.x;
+		*pTop = ScreenRect.m_TopLeft.y;
+		*pRight = ScreenRect.m_BottomRight.x;
+		*pBottom = ScreenRect.m_BottomRight.y;
+	}
 
 	// TODO: These should perhaps not be virtuals
 	virtual void BlendNone() = 0;
@@ -278,8 +362,7 @@ public:
 	virtual void BlendAdditive() = 0;
 	virtual void WrapNormal() = 0;
 	virtual void WrapClamp() = 0;
-	// Marks the following draw calls as foreground elements that must not be
-	// accumulated in AMF Motion Blur history (for example software cursors).
+
 	virtual uint64_t TextureMemoryUsage() const = 0;
 	virtual uint64_t BufferMemoryUsage() const = 0;
 	virtual uint64_t StreamedMemoryUsage() const = 0;
@@ -305,7 +388,7 @@ public:
 	virtual bool UnloadTextTextures(CTextureHandle &TextTexture, CTextureHandle &TextOutlineTexture) = 0;
 	virtual bool UpdateTextTexture(CTextureHandle TextureId, int x, int y, size_t Width, size_t Height, uint8_t *pData, bool IsMovedPointer) = 0;
 
-	virtual CTextureHandle LoadSpriteTexture(const CImageInfo &FromImageInfo, const struct CDataSprite *pSprite) = 0;
+	virtual CTextureHandle LoadSpriteTexture(const CImageInfo &FromImageInfo, const std::optional<CImageInfo> &FallbackImageInfo, const struct CDataSprite *pSprite) = 0;
 
 	virtual bool IsImageSubFullyTransparent(const CImageInfo &FromImageInfo, int x, int y, int w, int h) = 0;
 	virtual bool IsSpriteTextureFullyTransparent(const CImageInfo &FromImageInfo, const struct CDataSprite *pSprite) = 0;
@@ -485,21 +568,13 @@ public:
 	virtual void DrawRect4(float x, float y, float w, float h, ColorRGBA ColorTopLeft, ColorRGBA ColorTopRight, ColorRGBA ColorBottomLeft, ColorRGBA ColorBottomRight, int Corners, float Rounding) = 0;
 	virtual void DrawCircle(float CenterX, float CenterY, float Radius, int Segments) = 0;
 
-	struct CColorVertex
-	{
-		int m_Index;
-		float m_R, m_G, m_B, m_A;
-		CColorVertex() = default;
-		CColorVertex(int i, float r, float g, float b, float a) :
-			m_Index(i), m_R(r), m_G(g), m_B(b), m_A(a) {}
-		CColorVertex(int i, ColorRGBA Color) :
-			m_Index(i), m_R(Color.r), m_G(Color.g), m_B(Color.b), m_A(Color.a) {}
-	};
-	virtual void SetColorVertex(const CColorVertex *pArray, size_t Num) = 0;
+	/**
+	 * @deprecated Use @link SetColor(ColorRGBA) @endlink instead of this function (avoid primitive obsession code smell).
+	 */
 	virtual void SetColor(float r, float g, float b, float a) = 0;
 	virtual void SetColor(ColorRGBA Color) = 0;
+	virtual void SetColor2(ColorRGBA First, ColorRGBA Second) = 0;
 	virtual void SetColor4(ColorRGBA TopLeft, ColorRGBA TopRight, ColorRGBA BottomLeft, ColorRGBA BottomRight) = 0;
-	virtual void ChangeColorOfCurrentQuadVertices(float r, float g, float b, float a) = 0;
 	virtual void ChangeColorOfQuadVertices(size_t QuadOffset, unsigned char r, unsigned char g, unsigned char b, unsigned char a) = 0;
 
 	/**
@@ -511,13 +586,7 @@ public:
 	 * The pointer must be valid until the next swap operation.
 	 */
 	virtual void ReadPixel(ivec2 Position, ColorRGBA *pColor) = 0;
-	/**
-	 * Captures the currently rendered frame into main memory.
-	 *
-	 * This is intended for rare one-shot UI effects. The returned image owns its
-	 * pixel data and must be freed by the caller.
-	 */
-	bool CaptureScreen(CImageInfo &Image) { (void)Image; return false; }
+	virtual bool CaptureScreen(CImageInfo &Image) { (void)Image; return false; }
 	virtual void TakeScreenshot(const char *pFilename) = 0;
 	virtual void TakeCustomScreenshot(const char *pFilename) = 0;
 	virtual int GetVideoModes(CVideoMode *pModes, int MaxModes, int Screen) = 0;
@@ -616,11 +685,7 @@ public:
 	virtual std::optional<int> ShowMessageBox(const CMessageBox &MessageBox) = 0;
 
 	virtual bool IsBackendInitialized() = 0;
-	virtual void SetForcedAspect(bool Force, bool ApplyCustomAspect = true)
-	{
-		(void)Force;
-		(void)ApplyCustomAspect;
-	}
+	virtual void SetForcedAspect(bool Force, bool ApplyCustomAspect = true) { (void)Force; (void)ApplyCustomAspect; }
 	virtual void SetScreenAspectOverrideEnabled(bool Enabled) { (void)Enabled; }
 
 protected:
@@ -630,7 +695,6 @@ protected:
 		Tex.m_Id = Index;
 		return Tex;
 	}
-
 };
 
 class IEngineGraphics : public IGraphics

@@ -19,6 +19,8 @@ public:
 	static int TimeFromStr(const char *pStr); // x minute(s) x.xxx second(s)
 	static int TimeFromFinishMessage(const char *pStr, char *pNameBuf, int NameBufSize); // xxx finished in: x minute(s) x.xxx second(s)
 
+	// AMF's START observation is participant-specific for flag-start maps.
+	bool IsStart(int ClientId, vec2 Prev, vec2 Pos) const;
 	bool IsStart(vec2 Prev, vec2 Pos) const;
 };
 

@@ -27,6 +27,16 @@ struct CNicknameGradientSource
 };
 
 bool NicknamesEnabled();
+inline ColorRGBA ResolveNameplateNicknameBaseColor(
+	const ColorRGBA &NameplateColor,
+	const ColorRGBA &DefaultTextColor,
+	bool GradientEnabled,
+	int NicknameSource)
+{
+	if(GradientEnabled && NicknameSource == 0)
+		return DefaultTextColor.WithAlpha(NameplateColor.a);
+	return NameplateColor;
+}
 void GetNicknameColors(const CNicknameGradientSource &Source, const ColorRGBA &BaseColor, ColorRGBA &Left, ColorRGBA &Right);
 void GetNicknameColors(int ClientId, CGameClient *pGameClient, const ColorRGBA &BaseColor, ColorRGBA &Left, ColorRGBA &Right);
 void AppendNicknameColorSplits(CTextCursor &Cursor, const char *pText, const CNicknameGradientSource &Source, const ColorRGBA &BaseColor);

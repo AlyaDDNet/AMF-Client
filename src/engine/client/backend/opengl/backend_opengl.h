@@ -13,6 +13,7 @@
 #include <base/dbg.h>
 
 #include <engine/client/backend/backend_base.h>
+#include <engine/client/backend_sdl.h>
 #include <engine/client/graphics_defines.h>
 
 class CGLSLTWProgram;
@@ -51,8 +52,14 @@ protected:
 	std::vector<CTexture> m_vTextures;
 	std::atomic<uint64_t> *m_pTextureMemoryUsage;
 
+	// Position of the viewport within the drawable area, with the bottom left origin
+	// that OpenGL uses. The rendered image is aligned to the top left, so this is not
+	// the origin of the drawable area when the viewport is clamped.
+	int m_ViewportX = 0;
+	int m_ViewportY = 0;
 	uint32_t m_CanvasWidth = 0;
 	uint32_t m_CanvasHeight = 0;
+	bool m_HasDisplayCutout = false;
 
 	TWGLint m_MaxTexSize;
 
@@ -96,6 +103,7 @@ protected:
 	virtual void Cmd_Clear(const CCommandBuffer::SCommand_Clear *pCommand);
 	virtual void Cmd_Render(const CCommandBuffer::SCommand_Render *pCommand);
 	virtual void Cmd_RenderTex3D(const CCommandBuffer::SCommand_RenderTex3D *pCommand) { dbg_assert_failed("Call of unsupported Cmd_RenderTex3D"); }
+	virtual void Cmd_BeforeSwap() {}
 	virtual void Cmd_ReadPixel(const CCommandBuffer::SCommand_TrySwapAndReadPixel *pCommand);
 	virtual void Cmd_Screenshot(const CCommandBuffer::SCommand_TrySwapAndScreenshot *pCommand);
 

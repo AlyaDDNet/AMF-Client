@@ -41,6 +41,11 @@
 #include <utility>
 #include <vector>
 
+// Set on render worker threads so that memory-allocation recovery (which drives
+// the frame loop and issues queue submit/present) is only ever attempted on the
+// main render thread. See AllocateVulkanMemory().
+static thread_local bool s_ThreadIsRenderWorker = false;
+
 #ifndef VK_API_VERSION_MAJOR
 #define VK_API_VERSION_MAJOR VK_VERSION_MAJOR
 #define VK_API_VERSION_MINOR VK_VERSION_MINOR
@@ -1001,6 +1006,7 @@ private:
 
 	uint32_t m_LastPresentedSwapChainImageIndex;
 	bool m_FrameBlendEnabledLastFrame = false;
+	int64_t m_FrameBlendLastTime = 0;
 
 	std::vector<SBufferObjectFrame> m_vBufferObjects;
 
@@ -1016,6 +1022,14 @@ private:
 
 #ifdef VK_EXT_debug_utils
 	VkDebugUtilsMessengerEXT m_DebugMessenger;
+#endif
+
+#ifdef VK_EXT_device_fault
+	// Optional VK_EXT_device_fault support. When the driver exposes the extension
+	// we enable it so that a VK_ERROR_DEVICE_LOST can be followed up with detailed
+	// fault information (faulting GPU addresses and vendor specific fault codes).
+	bool m_DeviceFaultAvailable = false;
+	PFN_vkGetDeviceFaultInfoEXT m_pfnGetDeviceFaultInfoEXT = nullptr;
 #endif
 
 	VkDescriptorSetLayout m_StandardTexturedDescriptorSetLayout;
@@ -1064,7 +1078,7 @@ private:
 	uint32_t m_CanvasWidth;
 	uint32_t m_CanvasHeight;
 
-	SDL_Window *m_pWindow = nullptr;
+	SDL_Window *m_pWindow;
 
 	std::array<float, 4> m_aClearColor = {0, 0, 0, 0};
 
@@ -1170,6 +1184,63 @@ protected:
 		m_Warning.m_WarningType = WarningType;
 	}
 
+#ifdef VK_EXT_device_fault
+	static const char *DeviceFaultAddressTypeName(VkDeviceFaultAddressTypeEXT Type)
+	{
+		switch(Type)
+		{
+		case VK_DEVICE_FAULT_ADDRESS_TYPE_NONE_EXT: return "none";
+		case VK_DEVICE_FAULT_ADDRESS_TYPE_READ_INVALID_EXT: return "read_invalid";
+		case VK_DEVICE_FAULT_ADDRESS_TYPE_WRITE_INVALID_EXT: return "write_invalid";
+		case VK_DEVICE_FAULT_ADDRESS_TYPE_EXECUTE_INVALID_EXT: return "execute_invalid";
+		case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_UNKNOWN_EXT: return "instruction_pointer_unknown";
+		case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_INVALID_EXT: return "instruction_pointer_invalid";
+		case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_FAULT_EXT: return "instruction_pointer_fault";
+		default: return "unknown";
+		}
+	}
+
+	// Queries and logs VK_EXT_device_fault information. Safe to call unconditionally:
+	// it is a no-op unless the extension was enabled at device creation.
+	void LogDeviceFaultInfo()
+	{
+		if(!m_DeviceFaultAvailable || m_pfnGetDeviceFaultInfoEXT == nullptr)
+			return;
+
+		VkDeviceFaultCountsEXT FaultCounts = {};
+		FaultCounts.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_COUNTS_EXT;
+		if(m_pfnGetDeviceFaultInfoEXT(m_VKDevice, &FaultCounts, nullptr) != VK_SUCCESS)
+			return;
+
+		std::vector<VkDeviceFaultAddressInfoEXT> vAddressInfos(FaultCounts.addressInfoCount);
+		std::vector<VkDeviceFaultVendorInfoEXT> vVendorInfos(FaultCounts.vendorInfoCount);
+
+		VkDeviceFaultInfoEXT FaultInfo = {};
+		FaultInfo.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_INFO_EXT;
+		FaultInfo.pAddressInfos = vAddressInfos.data();
+		FaultInfo.pVendorInfos = vVendorInfos.data();
+		// We do not request the (potentially large) vendor binary crash dump here.
+		// pVendorBinaryData stays null, so the size passed to the driver must be zero.
+		FaultCounts.vendorBinarySize = 0;
+		if(m_pfnGetDeviceFaultInfoEXT(m_VKDevice, &FaultCounts, &FaultInfo) != VK_SUCCESS)
+			return;
+
+		log_error("gfx/vulkan", "Device fault info (VK_EXT_device_fault): %s", FaultInfo.description);
+		for(uint32_t i = 0; i < FaultCounts.addressInfoCount; ++i)
+		{
+			const VkDeviceFaultAddressInfoEXT &Info = vAddressInfos[i];
+			log_error("gfx/vulkan", "  address fault: type=%s reportedAddress=0x%" PRIx64 " precision=0x%" PRIx64,
+				DeviceFaultAddressTypeName(Info.addressType), (uint64_t)Info.reportedAddress, (uint64_t)Info.addressPrecision);
+		}
+		for(uint32_t i = 0; i < FaultCounts.vendorInfoCount; ++i)
+		{
+			const VkDeviceFaultVendorInfoEXT &Info = vVendorInfos[i];
+			log_error("gfx/vulkan", "  vendor fault: %s code=0x%" PRIx64 " data=0x%" PRIx64,
+				Info.description, (uint64_t)Info.vendorFaultCode, (uint64_t)Info.vendorFaultData);
+		}
+	}
+#endif
+
 	const char *CheckVulkanCriticalError(VkResult CallResult)
 	{
 		const char *pCriticalError = nullptr;
@@ -1186,6 +1257,11 @@ protected:
 		case VK_ERROR_DEVICE_LOST:
 			pCriticalError = "Device lost.";
 			log_error("gfx/vulkan", "%s", pCriticalError);
+#ifdef VK_EXT_device_fault
+			LogDeviceFaultInfo();
+#else
+			log_error("gfx/vulkan", "Detailed fault info unavailable: built without VK_EXT_device_fault support (Vulkan headers too old).");
+#endif
 			break;
 		case VK_ERROR_OUT_OF_DATE_KHR:
 		{
@@ -1567,7 +1643,16 @@ protected:
 		if(Res != VK_SUCCESS)
 		{
 			log_warn("gfx/vulkan", "Memory allocation failed, trying to recover.");
-			if(Res == VK_ERROR_OUT_OF_HOST_MEMORY || Res == VK_ERROR_OUT_OF_DEVICE_MEMORY)
+			// The recovery below advances the frame loop (vkDeviceWaitIdle +
+			// NextFrame -> WaitFrame -> FinishRenderThreads -> queue submit/present)
+			// to free delayed-cleanup resources and retry. That is only valid on
+			// the main render thread. On a render worker thread it would wait on
+			// the worker executing it (and re-lock that worker's own mutex),
+			// deadlocking the renderer, and issue queue operations concurrently
+			// with the main thread (-> VK_ERROR_DEVICE_LOST). From a worker we
+			// therefore fail cleanly; the failing allocation's caller reports an
+			// out-of-memory error and the main thread handles it.
+			if((Res == VK_ERROR_OUT_OF_HOST_MEMORY || Res == VK_ERROR_OUT_OF_DEVICE_MEMORY) && !s_ThreadIsRenderWorker)
 			{
 				// aggressively try to get more memory
 				vkDeviceWaitIdle(m_VKDevice);
@@ -2534,6 +2619,8 @@ protected:
 
 		if(Tex.m_RescaleCount > 0)
 		{
+			const size_t OldWidth = Width;
+			const size_t OldHeight = Height;
 			for(uint32_t i = 0; i < Tex.m_RescaleCount; ++i)
 			{
 				Width >>= 1;
@@ -2543,7 +2630,7 @@ protected:
 				YOff /= 2;
 			}
 
-			uint8_t *pTmpData = ResizeImage(pData, Width, Height, Width, Height, VulkanFormatToPixelSize(Format));
+			uint8_t *pTmpData = ResizeImage(pData, OldWidth, OldHeight, Width, Height, VulkanFormatToPixelSize(Format));
 			free(pData);
 			pData = pTmpData;
 		}
@@ -2590,6 +2677,8 @@ protected:
 		uint32_t RescaleCount = 0;
 		if((size_t)Width > m_MaxTextureSize || (size_t)Height > m_MaxTextureSize)
 		{
+			const size_t OldWidth = Width;
+			const size_t OldHeight = Height;
 			do
 			{
 				Width >>= 1;
@@ -2597,7 +2686,7 @@ protected:
 				++RescaleCount;
 			} while((size_t)Width > m_MaxTextureSize || (size_t)Height > m_MaxTextureSize);
 
-			uint8_t *pTmpData = ResizeImage(pData, Width, Height, Width, Height, PixelSize);
+			uint8_t *pTmpData = ResizeImage(pData, OldWidth, OldHeight, Width, Height, PixelSize);
 			free(pData);
 			pData = pTmpData;
 		}
@@ -3543,6 +3632,11 @@ public:
 	{
 		std::set<std::string> OurExt;
 		OurExt.emplace(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+#ifdef VK_EXT_device_fault
+		// Only used when actually supported by the device (see device creation);
+		// enables detailed diagnostics after a VK_ERROR_DEVICE_LOST.
+		OurExt.emplace(VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
+#endif
 		return OurExt;
 	}
 
@@ -3950,6 +4044,33 @@ public:
 			}
 		}
 
+#ifdef VK_EXT_device_fault
+		bool DeviceFaultRequested = false;
+		for(const char *pDevExt : vDevPropCNames)
+		{
+			if(str_comp(pDevExt, VK_EXT_DEVICE_FAULT_EXTENSION_NAME) == 0)
+			{
+				DeviceFaultRequested = true;
+				break;
+			}
+		}
+
+		VkPhysicalDeviceFaultFeaturesEXT FaultFeatures = {};
+		FaultFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT;
+		if(DeviceFaultRequested)
+		{
+			auto pfnGetPhysicalDeviceFeatures2 = (PFN_vkGetPhysicalDeviceFeatures2)vkGetInstanceProcAddr(m_VKInstance, "vkGetPhysicalDeviceFeatures2");
+			if(pfnGetPhysicalDeviceFeatures2 != nullptr)
+			{
+				// The extension's core deviceFault feature must be enabled explicitly.
+				VkPhysicalDeviceFeatures2 PhysFeatures2 = {};
+				PhysFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+				PhysFeatures2.pNext = &FaultFeatures;
+				pfnGetPhysicalDeviceFeatures2(m_VKGPU, &PhysFeatures2);
+			}
+		}
+#endif
+
 		VkDeviceQueueCreateInfo VKQueueCreateInfo;
 		VKQueueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
 		VKQueueCreateInfo.queueFamilyIndex = m_VKGraphicsQueueIndex;
@@ -3970,11 +4091,33 @@ public:
 		VKCreateInfo.pNext = nullptr;
 		VKCreateInfo.pEnabledFeatures = nullptr;
 		VKCreateInfo.flags = 0;
+
+#ifdef VK_EXT_device_fault
+		if(DeviceFaultRequested && FaultFeatures.deviceFault)
+		{
+			FaultFeatures.pNext = nullptr;
+			// We never read the vendor binary crash dump, so do not opt into generating it.
+			FaultFeatures.deviceFaultVendorBinary = VK_FALSE;
+			VKCreateInfo.pNext = &FaultFeatures;
+		}
+#endif
+
 		if(vkCreateDevice(m_VKGPU, &VKCreateInfo, nullptr, &m_VKDevice) != VK_SUCCESS)
 		{
 			SetError(EGfxErrorType::GFX_ERROR_TYPE_INIT, "Logical device could not be created.");
 			return false;
 		}
+
+#ifdef VK_EXT_device_fault
+		if(DeviceFaultRequested && FaultFeatures.deviceFault)
+		{
+			m_pfnGetDeviceFaultInfoEXT = (PFN_vkGetDeviceFaultInfoEXT)vkGetDeviceProcAddr(m_VKDevice, "vkGetDeviceFaultInfoEXT");
+			m_DeviceFaultAvailable = m_pfnGetDeviceFaultInfoEXT != nullptr;
+			if(m_DeviceFaultAvailable)
+				log_debug("gfx/vulkan", "VK_EXT_device_fault enabled; detailed fault info will be logged on device loss.");
+		}
+#endif
+
 		return true;
 	}
 
@@ -4078,7 +4221,7 @@ public:
 		VkExtent2D AutoViewportExtent = RetSize;
 		bool UsesForcedViewport = false;
 		// keep this in sync with graphics_threaded AdjustViewport's check
-		if(AutoViewportExtent.height > 4 * AutoViewportExtent.width / 5 && g_GraphicsForcedAspect)
+		if(AutoViewportExtent.height > 4 * AutoViewportExtent.width / 5)
 		{
 			AutoViewportExtent.height = 4 * AutoViewportExtent.width / 5;
 			UsesForcedViewport = true;
@@ -4405,6 +4548,7 @@ public:
 	{
 		for(auto &FrameBlendImage : m_vFrameBlendImages)
 			FrameBlendImage.m_Valid = false;
+		m_FrameBlendLastTime = 0;
 	}
 
 	[[nodiscard]] bool CreateFrameBlendDescriptorSet(SFrameBlendImage &FrameBlendImage)
@@ -4475,6 +4619,7 @@ public:
 		}
 		m_vFrameBlendImages.clear();
 		m_FrameBlendEnabledLastFrame = false;
+		m_FrameBlendLastTime = 0;
 	}
 
 	void DestroyMultiSamplerImageAttachments()
@@ -5868,15 +6013,14 @@ public:
 			UniformBufferDescrPool.m_DefaultAllocSize = 512;
 		}
 
-		bool Ret = AllocateDescriptorPool(m_StandardTextureDescrPool, CCommandBuffer::MAX_TEXTURES);
-		Ret |= AllocateDescriptorPool(m_TextTextureDescrPool, 8);
-
+		bool Success = true;
+		Success &= AllocateDescriptorPool(m_StandardTextureDescrPool, CCommandBuffer::MAX_TEXTURES);
+		Success &= AllocateDescriptorPool(m_TextTextureDescrPool, 8);
 		for(auto &UniformBufferDescrPool : m_vUniformBufferDescrPools)
 		{
-			Ret |= AllocateDescriptorPool(UniformBufferDescrPool, 64);
+			Success &= AllocateDescriptorPool(UniformBufferDescrPool, 64);
 		}
-
-		return Ret;
+		return Success;
 	}
 
 	void DestroyDescriptorPools()
@@ -6994,8 +7138,20 @@ public:
 		if(TotalBlendStrength <= 0.0f)
 			return true;
 		constexpr float MaxBlendAlphaPerPass = 0.85f;
-		int BlendPassCount = std::max(1, (int)std::ceil(TotalBlendStrength / MaxBlendAlphaPerPass));
-		float BlendAlphaPerPass = TotalBlendStrength / (float)BlendPassCount;
+		const int RefPassCount = std::max(1, (int)std::ceil(TotalBlendStrength / MaxBlendAlphaPerPass));
+		const float RefAlphaPerPass = TotalBlendStrength / (float)RefPassCount;
+		const float RefAlpha60 = std::clamp(1.0f - std::pow(1.0f - RefAlphaPerPass, (float)RefPassCount), 0.0f, 0.999f);
+		const int64_t Now = time_get();
+		float FrameTime = 1.0f / 60.0f;
+		if(m_FrameBlendLastTime != 0)
+			FrameTime = (Now - m_FrameBlendLastTime) / (float)time_freq();
+		m_FrameBlendLastTime = Now;
+		FrameTime = std::clamp(FrameTime, 0.001f, 0.1f);
+		const float EffectiveAlpha = std::pow(RefAlpha60, FrameTime * 60.0f);
+		if(EffectiveAlpha <= 0.0f)
+			return true;
+		const int BlendPassCount = std::max(1, (int)std::ceil(std::log(1.0f - EffectiveAlpha) / std::log(1.0f - MaxBlendAlphaPerPass)));
+		const float BlendAlphaPerPass = 1.0f - std::pow(1.0f - EffectiveAlpha, 1.0f / (float)BlendPassCount);
 
 		const bool UseSecondaryCommandBuffer = m_ThreadCount > 1;
 		VkCommandBuffer CommandBuffer = MainCommandBuffer;
@@ -7225,11 +7381,9 @@ public:
 			{
 				m_HasDynamicViewport = true;
 
-				// convert viewport from OGL to vulkan
-				int32_t ViewportY = (int32_t)Viewport.height - ((int32_t)pCommand->m_Y + (int32_t)pCommand->m_Height);
-				uint32_t ViewportH = (int32_t)pCommand->m_Height;
-				m_DynamicViewportOffset = {(int32_t)pCommand->m_X, ViewportY};
-				m_DynamicViewportSize = {(uint32_t)pCommand->m_Width, ViewportH};
+				// The viewport rectangle and Vulkan both use a top left origin.
+				m_DynamicViewportOffset = {(int32_t)pCommand->m_X, (int32_t)pCommand->m_Y};
+				m_DynamicViewportSize = {(uint32_t)pCommand->m_Width, (uint32_t)pCommand->m_Height};
 			}
 			else
 			{
@@ -7965,6 +8119,7 @@ public:
 
 	void RunThread(size_t ThreadIndex)
 	{
+		s_ThreadIsRenderWorker = true;
 		auto *pThread = m_vpRenderThreads[ThreadIndex].get();
 		std::unique_lock<std::mutex> Lock(pThread->m_Mutex);
 		pThread->m_Started = true;

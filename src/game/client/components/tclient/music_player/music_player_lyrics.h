@@ -13,7 +13,7 @@
 
 class CUi;
 class IHttp;
-class CHttpRequest;
+class IHttpRequest;
 class ITextRender;
 struct STextColorSplit;
 
@@ -58,11 +58,15 @@ public:
 	void Render(ITextRender *pTextRender, CUi *pUi, const CUIRect &Area, float FontSize, float Delta, float CountdownCenterX);
 
 private:
-	// Display index: -99 = none, -20/-19 = not-found then title, -3/-2/-1 = countdown 3/2/1, >=0 = lyric line.
+	// Display index: -99 = none, negative values = fallback/countdown, >=0 = lyric line.
 	static constexpr int LINE_NONE = -99;
+	static constexpr int FALLBACK_NO_CONNECTION = -22;
+	static constexpr int FALLBACK_ELLIPSIS = -21;
 	static constexpr int FALLBACK_NOT_FOUND = -20;
 	static constexpr int FALLBACK_TITLE = -19;
+	static constexpr int FALLBACK_NO_MEDIA = -18;
 	static constexpr int64_t NOT_FOUND_HOLD_MS = 5000;
+	static constexpr int64_t OFFLINE_HOLD_MS = 5000;
 
 	struct SCacheEntry
 	{
@@ -81,7 +85,14 @@ private:
 	static bool ParseLrcTimestamp(const char *pText, int64_t &OutMs, const char **ppEnd);
 	static void MergeConsecutiveIdenticalLines(std::vector<SLine> &vLines);
 	static bool IsCountdownIndex(int Index) { return Index >= -3 && Index <= -1; }
-	static bool IsFallbackIndex(int Index) { return Index == FALLBACK_NOT_FOUND || Index == FALLBACK_TITLE; }
+	static bool IsFallbackIndex(int Index)
+	{
+		return Index == FALLBACK_NO_CONNECTION || Index == FALLBACK_ELLIPSIS || Index == FALLBACK_NOT_FOUND || Index == FALLBACK_TITLE || Index == FALLBACK_NO_MEDIA;
+	}
+	static bool IsMutedFallback(int Index)
+	{
+		return Index == FALLBACK_NO_CONNECTION || Index == FALLBACK_ELLIPSIS || Index == FALLBACK_NOT_FOUND;
+	}
 	static int CountdownDigit(int Index) { return -Index; }
 	const char *FallbackText(int Index) const;
 	int ResolveDisplayLineIndex() const;
@@ -102,10 +113,11 @@ private:
 	std::string m_TrackTitle;
 	EDisplayState m_DisplayState = EDisplayState::Idle;
 	std::vector<SLine> m_vLines;
-	std::shared_ptr<CHttpRequest> m_pRequest;
+	std::shared_ptr<IHttpRequest> m_pRequest;
 	std::unordered_map<std::string, SCacheEntry> m_Cache;
 	int64_t m_OfflineRetryAt = 0;
 	float m_NotFoundDisplayMs = 0.0f;
+	float m_OfflineDisplayMs = 0.0f;
 	float m_TitleMarqueeOffset = 0.0f;
 
 	// Independent monotonic playback clock (media snapshots can jump backward).

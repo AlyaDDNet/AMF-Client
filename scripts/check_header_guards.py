@@ -7,6 +7,7 @@ os.chdir(os.path.dirname(__file__) + "/..")
 PATH = "src/"
 EXCEPTIONS = [
 	"src/base/unicode/confusables.h",
+	"src/base/unicode/confusables_data.h",
 	"src/base/unicode/tolower.h",
 	"src/base/unicode/tolower_data.h",
 	"src/tools/config_common.h",
@@ -34,7 +35,7 @@ def check_file(filename):
 		if line == "// This file can be included several times.":
 			# file does not need header/footer
 			return False
-		if line.startswith("//") or line.startswith("/*") or line.startswith("*/") or line.startswith("\t") or line == "":
+		if line.startswith(("//", "/*", "*/", "\t")) or line == "":
 			continue
 		if line.startswith("#ifndef"):
 			if line != header_guard_line1:

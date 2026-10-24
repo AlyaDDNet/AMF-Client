@@ -2,6 +2,7 @@
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #ifndef GAME_CLIENT_COMPONENTS_SKINS_H
 #define GAME_CLIENT_COMPONENTS_SKINS_H
+
 #include <base/lock.h>
 
 #include <engine/shared/config.h>
@@ -18,10 +19,12 @@
 #include <unordered_map>
 #include <utility>
 
-class CHttpRequest;
+class IHttpRequest;
 
 class CSkins : public CComponent
 {
+friend class CSkinProfiles;
+
 private:
 	/**
 	 * The data of a skin that can be loaded in a separate thread.
@@ -291,7 +294,7 @@ private:
 
 	private:
 		CLock m_Lock;
-		std::shared_ptr<CHttpRequest> m_pGetRequest GUARDED_BY(m_Lock);
+		std::shared_ptr<IHttpRequest> m_pGetRequest GUARDED_BY(m_Lock);
 	};
 
 	std::unordered_map<std::string_view, std::unique_ptr<CSkinContainer>> m_Skins;
@@ -323,7 +326,5 @@ private:
 	static void ConfigSaveCallback(IConfigManager *pConfigManager, void *pUserData);
 	void OnConfigSave(IConfigManager *pConfigManager);
 	static void ConchainRefreshSkinList(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
-
-	friend class CSkinProfiles;
 };
 #endif

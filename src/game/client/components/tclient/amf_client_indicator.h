@@ -21,6 +21,7 @@ public:
 	IGraphics::CTextureHandle Texture() const { return m_Texture; }
 	bool CanRender(int ClientId) const;
 	bool CanRenderInWorld(int ClientId) const;
+	bool GetPlayerVersionLabel(int ClientId, char *pVersion, int VersionSize) const;
 	bool LayoutName(const CUIRect &Available, int ClientId, float FontSize, float NameWidth, CUIRect &NameRect, CUIRect &IconRect, bool ForceRight = false) const;
 	void RenderIcon(const CUIRect &Rect, float Alpha = 1.0f) const;
 

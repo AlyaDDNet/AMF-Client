@@ -18,6 +18,7 @@
 #include <memory>
 
 class CAnimState;
+class CGameClient;
 class CSpeedupTile;
 class CSwitchTile;
 class CTeleTile;
@@ -235,8 +236,7 @@ public:
 	class IGraphics *Graphics() const { return m_pGraphics; }
 	class ITextRender *TextRender() const { return m_pTextRender; }
 	class CGameClient *GameClient() const { return m_pGameClient; }
-
-	bool m_LocalTeeRender = false; // TClient
+	bool m_LocalTeeRender = false;
 
 	void Init(class IGraphics *pGraphics, class ITextRender *pTextRender, class CGameClient *pGameClient);
 

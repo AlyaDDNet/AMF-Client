@@ -20,7 +20,6 @@ static constexpr const char *DEFAULT_SAVED_RCON_USER = "local-server";
 #define AUTOEXEC_FILE "autoexec.cfg"
 #define AUTOEXEC_CLIENT_FILE "autoexec_client.cfg"
 #define AUTOEXEC_SERVER_FILE "autoexec_server.cfg"
-#define MAX_CALLBACKS 64;
 
 /**
  * Stores the current values of all client, server and game config variables.
@@ -51,16 +50,18 @@ public:
 		Default: Def\n \
 		Description: Desc */ \
 	char m_##Name[Len]; // Flawfinder: ignore
-#define SET_CONFIG_DOMAIN(ConfigDomain) ;
+#define SET_CONFIG_DOMAIN(ConfigDomain)
 #include "config_includes.h"
+#undef SET_CONFIG_DOMAIN
 #undef MACRO_CONFIG_INT
 #undef MACRO_CONFIG_COL
 #undef MACRO_CONFIG_STR
-#undef SET_CONFIG_DOMAIN
 };
 
 extern CConfig g_Config;
 
+// AMF/TClient input and moving-tile mode values are persisted in the existing
+// configuration variables. Keep these numeric values stable across migration.
 enum
 {
 	AMF_INPUTS_OFF = 0,
@@ -70,16 +71,10 @@ enum
 	AMF_INPUTS_DELTA = 4,
 	AMF_INPUTS_F = 5,
 	AMF_INPUTS_CLOUD = 6,
-	// Keep newly added modes after the original persistent values. The menu
-	// supplies its own display order, so existing configs retain their mode.
 	AMF_INPUTS_SAIKO_PLUS = 7,
 	AMF_INPUTS_MEOW = 8,
-	// Appended so all existing persistent input-mode ids remain unchanged.
-	AMF_INPUTS_CLOUD_OLD = 9,
 };
 
-// Moving tiles display modes. Keep this an extensible mode value instead of
-// maintaining a second independent enable flag for the legacy T Client path.
 enum
 {
 	AMF_MOVING_TILES_OFF = 0,
@@ -100,8 +95,7 @@ namespace DefaultConfig
 #define MACRO_CONFIG_STR(Name, ScriptName, Len, Def, Flags, Desc) \
 	/** Default value of the string config variable 'ScriptName' (see CConfig::m_##Name). */ \
 	static constexpr const char *const Name = Def;
-// #include "config_variables.h"
-#define SET_CONFIG_DOMAIN(CONFIGDOMAIN) ; // TClient
+#define SET_CONFIG_DOMAIN(ConfigDomain)
 #include "config_includes.h"
 #undef SET_CONFIG_DOMAIN
 #undef MACRO_CONFIG_INT
@@ -139,7 +133,7 @@ enum
 
 struct SConfigVariable
 {
-	ConfigDomain m_ConfigDomain;
+	ConfigDomain m_ConfigDomain = ConfigDomain::DDNET;
 	enum EVariableType
 	{
 		VAR_INT,
@@ -293,7 +287,7 @@ class CConfigManager : public IConfigManager
 
 	std::vector<SConfigVariable *> m_vpAllVariables;
 	std::vector<SConfigVariable *> m_vpGameVariables;
-	std::vector<const char *> m_vpUnknownCommands; // TODO: per config domain
+	std::vector<const char *> m_vpUnknownCommands;
 	CHeap m_ConfigHeap;
 
 	static void Con_Reset(IConsole::IResult *pResult, void *pUserData);
@@ -311,7 +305,6 @@ public:
 	bool Save() override;
 	bool SaveDomain(ConfigDomain ConfigDomain) override;
 	unsigned long long DomainHash(ConfigDomain ConfigDomain) const override;
-
 	CConfig *Values() override { return &g_Config; }
 
 	void RegisterCallback(SAVECALLBACKFUNC pfnFunc, void *pUserData, ConfigDomain ConfigDomain = ConfigDomain::DDNET) override;

@@ -2,6 +2,23 @@ Teeworlds Copyright (C) 2007-2014 Magnus Auvinen
 DDRace    Copyright (C) 2010-2011 Shereef Marzouk
 DDNet     Copyright (C)           Dennis Felsing
 
+AMF IMPACT / RUN STATISTICS LICENSE EXCEPTION
+Notwithstanding the general permission below, that permission does not apply
+to the Covered Material defined in the accompanying AMF-Impact-LICENSE.txt.
+The Covered Material is licensed under that file, to the extent the
+identified rights holder controls the relevant rights. In
+src/game/client/components/tclient/menus_tclient.cpp, this exception applies
+only to the original AMF-authored expression within these two function
+definitions, not to the rest of the file:
+
+  CMenus::RenderAmfRunStatisticsQuickOverlay
+  CMenus::RenderAmfRunStatistics
+
+Nothing in this exception grants or changes rights in upstream or third-party
+material. All other repository content remains under its otherwise applicable
+license. This exception does not purport to revoke permissions validly
+granted to recipients before the exception applied to their copy.
+
 This software is provided 'as-is', without any express or implied
 warranty.  In no event will the authors be held liable for any damages
 arising from the use of this software.
@@ -48,13 +65,6 @@ GlowSansJ-Compressed-Book.otf:
 Developer: Celestial Phineas
 
 Glow Sans fonts are released under SIL Open Font License 1.1.
-
-NotoEmoji-Regular.ttf:
-----------------------
-
-Copyright 2013 Google LLC
-
-Noto Emoji is licensed under the SIL Open Font License, Version 1.1.
 
 SourceHanSans.ttc:
 ------------------

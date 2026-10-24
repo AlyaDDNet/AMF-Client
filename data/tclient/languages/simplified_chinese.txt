@@ -956,7 +956,50 @@ ticks
 == ticks
 
 Fast Input others
-== Fast Input others
+== 快速输入（其他玩家）
 
 Sub-Tick aiming
-== Sub-Tick aiming
+== 子帧瞄准
+
+Colored frozen tee skins
+== 被冻结的皮肤使用自定义颜色（未设置默认灰黑色）
+
+Render weapons as the gun sprite
+== 将武器渲染为枪械图标
+
+None
+== 无
+
+Own
+== 自己
+
+Red
+== 红
+
+Blue
+== 蓝
+
+Show moving tiles in entities
+== 在实体层中显示动态图块
+
+Fast Input (reduced visual delay)
+== 快速输入（减少视觉延迟）
+
+Optimistic prediction in stable direction
+== 在稳定方向下启用积极预测
+
+Remember instability for longer
+== 延长网络波动判断时间
+
+Execute before connect
+== 连接前执行
+
+Execute on join
+== 加入时执行
+
+Run a console command before connect
+== 连接前运行控制台命令
+
+Run a console command on join
+== 加入时运行控制台命令
+

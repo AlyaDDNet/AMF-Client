@@ -20,11 +20,23 @@
 #include <game/client/animstate.h>
 #include <game/client/components/countryflags.h>
 #include <game/client/gameclient.h>
+#include <game/client/components/tclient/amf_presence_policy.h>
 #include <game/client/ui.h>
 #include <game/client/ui_listbox.h>
 #include <game/localization.h>
 
 static constexpr ColorRGBA HIGHLIGHTED_TEXT_COLOR = ColorRGBA(0.4f, 0.4f, 1.0f, 1.0f);
+
+static void RenderCenteredAmfPresenceTabIcon(CGameClient *pGameClient, CUIRect Rect)
+{
+	const float Size = std::max(0.0f, std::min(Rect.w, Rect.h) - 6.0f);
+	CUIRect Icon = Rect;
+	Icon.x += (Rect.w - Size) / 2.0f;
+	Icon.y += (Rect.h - Size) / 2.0f;
+	Icon.w = Size;
+	Icon.h = Size;
+	pGameClient->m_AmfClientIndicator.RenderIcon(Icon, 0.95f);
+}
 
 static ColorRGBA PlayerBackgroundColor(bool Friend, bool Clan, bool Afk, bool InSelectedServer, bool Inside)
 {
@@ -130,18 +142,18 @@ void CMenus::RenderServerbrowserServerList(CUIRect View, bool &WasListboxItemAct
 		{COL_NAME, IServerBrowser::SORT_NAME, Localizable("Name"), 0, 50.0f, {0}},
 		{COL_GAMETYPE, IServerBrowser::SORT_GAMETYPE, Localizable("Type"), 1, 50.0f, {0}},
 		{COL_MAP, IServerBrowser::SORT_MAP, Localizable("Map"), 1, 120.0f + (Headers.w - 480) / 8, {0}},
-		{COL_FRIENDS, IServerBrowser::SORT_NUMFRIENDS, "", 1, 22.0f, {0}},
 		{COL_AMF_CLIENT, IServerBrowser::SORT_NUMAMFCLIENTS, "", 1, 26.0f, {0}},
-		{COL_PLAYERS, IServerBrowser::SORT_NUMPLAYERS, Localizable("Players"), 1, 56.0f, {0}},
+		{COL_FRIENDS, IServerBrowser::SORT_NUMFRIENDS, "", 1, ClickableIconSpace, {0}},
+		{COL_PLAYERS, IServerBrowser::SORT_NUMPLAYERS, Localizable("Players"), 1, 60.0f, {0}},
 		{-1, -1, "", 1, 4.0f, {0}},
 		{COL_PING, IServerBrowser::SORT_PING, Localizable("Ping"), 1, 40.0f, {0}},
 	};
 	for(auto &Col : s_aCols)
 	{
 		if(Col.m_Id == COL_AMF_CLIENT)
-			Col.m_Width = g_Config.m_AmfClientIndicator ? 26.0f : 0.0f;
+			Col.m_Width = g_Config.m_AmfClientIndicator ? 38.0f : 0.0f;
 		else if(Col.m_Id == COL_PLAYERS)
-			Col.m_Width = g_Config.m_AmfClientIndicator ? 56.0f : 82.0f;
+			Col.m_Width = g_Config.m_AmfClientIndicator ? 48.0f : 82.0f;
 	}
 
 	const int NumCols = std::size(s_aCols);
@@ -250,14 +262,14 @@ void CMenus::RenderServerbrowserServerList(CUIRect View, bool &WasListboxItemAct
 				static CButtonContainer s_StartLocalServerButton;
 				if(DoButton_Menu(&s_StartLocalServerButton, Localize("Start and connect to local server"), 0, &Button))
 				{
-					if(GameClient()->m_LocalServer.IsServerRunning())
+					const bool WasRunning = GameClient()->m_LocalServer.IsServerRunning();
+					if(WasRunning)
 					{
 						RefreshBrowserTab(true);
-						Connect("localhost");
 					}
-					else if(GameClient()->m_LocalServer.RunServer({}))
+					if(WasRunning || GameClient()->m_LocalServer.RunServer({}))
 					{
-						Connect("localhost");
+						GameClient()->m_LocalServer.Connect();
 					}
 				}
 			}
@@ -448,43 +460,37 @@ void CMenus::RenderServerbrowserServerList(CUIRect View, bool &WasListboxItemAct
 			{
 				if(pItem->m_FriendState != IFriends::FRIEND_NO)
 				{
-					constexpr float FriendIconWidth = 13.0f;
-					CUIRect FriendIcon = {
-						Button.x + (Button.w - FriendIconWidth) / 2.0f,
-						Button.y,
-						FriendIconWidth,
-						Button.h};
-					RenderBrowserIcons(*pUiElement->Rect(UI_ELEM_FRIEND_ICON), &FriendIcon, ColorRGBA(0.94f, 0.4f, 0.4f, 1.0f), TextRender()->DefaultTextOutlineColor(), FontIcon::HEART, TEXTALIGN_MC);
+					RenderBrowserIcons(*pUiElement->Rect(UI_ELEM_FRIEND_ICON), &Button, ColorRGBA(0.94f, 0.4f, 0.4f, 1.0f), TextRender()->DefaultTextOutlineColor(), FontIcon::HEART, TEXTALIGN_MC);
 
 					if(pItem->m_FriendNum > 1)
 					{
 						str_format(aTemp, sizeof(aTemp), "%d", pItem->m_FriendNum);
 						TextRender()->TextColor(0.94f, 0.8f, 0.8f, 1.0f);
-						Ui()->DoLabel(&FriendIcon, aTemp, 9.0f, TEXTALIGN_MC);
+						Ui()->DoLabel(&Button, aTemp, 9.0f, TEXTALIGN_MC);
 						TextRender()->TextColor(TextRender()->DefaultTextColor());
 					}
 				}
 			}
 			else if(Id == COL_AMF_CLIENT)
 			{
-				if(g_Config.m_AmfClientIndicator && pItem->m_AmfClientCount > 0)
+				if(g_Config.m_AmfClientIndicator)
 				{
-					constexpr float CatSlotWidth = 16.0f;
-					const CUIRect CatSlot = {
-						Button.x + (Button.w - CatSlotWidth) / 2.0f,
-						Button.y,
-						CatSlotWidth,
-						Button.h};
-					CUIRect CatRect;
-					CatSlot.Margin(2.0f, &CatRect);
-					GameClient()->m_AmfClientIndicator.RenderIcon(CatRect);
-					if(pItem->m_AmfClientCount > 1)
+					char aAmfCount[16];
+					const float CountFontSize = 9.0f;
+					str_format(aAmfCount, sizeof(aAmfCount), "%d", pItem->m_AmfClientCount);
+					const float CountWidth = TextRender()->TextWidth(CountFontSize, aAmfCount, -1);
+					const AmfPresence::SBrowserBadgeLayout Layout = AmfPresence::BrowserBadgeLayout(Button.w, CountWidth, pItem->m_AmfClientCount);
+					if(Layout.m_ShowIcon)
 					{
-						char aCount[8];
-						str_format(aCount, sizeof(aCount), "%d", pItem->m_AmfClientCount);
-						TextRender()->TextColor(1.0f, 0.9f, 0.55f, 1.0f);
-						Ui()->DoLabel(&CatRect, aCount, 9.0f, TEXTALIGN_MC);
-						TextRender()->TextColor(TextRender()->DefaultTextColor());
+						const CUIRect CatRect = {Button.x + Layout.m_IconX, Button.y + 2.0f, AmfPresence::BROWSER_BADGE_ICON_WIDTH, Button.h - 4.0f};
+						GameClient()->m_AmfClientIndicator.RenderIcon(CatRect);
+					}
+					if(Layout.m_ShowCount)
+					{
+						const CUIRect CountRect = {Button.x + Layout.m_CountX, Button.y, Layout.m_CountWidth, Button.h};
+						SLabelProperties CountProps;
+						CountProps.SetColor(AmfPresence::BROWSER_BADGE_COUNT_COLOR);
+						Ui()->DoLabel(&CountRect, aAmfCount, CountFontSize, TEXTALIGN_MC, CountProps);
 					}
 				}
 			}
@@ -650,29 +656,6 @@ void CMenus::RenderServerbrowserStatusBox(CUIRect StatusBox, bool WasListboxItem
 		Ui()->DoLabel(&PlayersOnline, aBuf, 12.0f, TEXTALIGN_MR);
 	}
 
-	// status box
-	{
-		CUIRect ServersOnline, PlayersOnline;
-		ServersPlayersOnline.HSplitMid(&PlayersOnline, &ServersOnline);
-
-		char aBuf[128];
-		if(ServerBrowser()->NumServers() != 1)
-			str_format(aBuf, sizeof(aBuf), Localize("%d of %d servers"), ServerBrowser()->NumSortedServers(), ServerBrowser()->NumServers());
-		else
-			str_format(aBuf, sizeof(aBuf), Localize("%d of %d server"), ServerBrowser()->NumSortedServers(), ServerBrowser()->NumServers());
-		Ui()->DoLabel(&ServersOnline, aBuf, 12.0f, TEXTALIGN_MR);
-
-		int NumPlayers = 0;
-		for(int i = 0; i < ServerBrowser()->NumSortedServers(); i++)
-			NumPlayers += ServerBrowser()->SortedGet(i)->m_NumFilteredPlayers;
-
-		if(NumPlayers != 1)
-			str_format(aBuf, sizeof(aBuf), Localize("%d players"), NumPlayers);
-		else
-			str_format(aBuf, sizeof(aBuf), Localize("%d player"), NumPlayers);
-		Ui()->DoLabel(&PlayersOnline, aBuf, 12.0f, TEXTALIGN_MR);
-	}
-
 	// address info
 	{
 		CUIRect ServerAddrLabel, ServerAddrEditBox;
@@ -733,6 +716,8 @@ void CMenus::Connect(const char *pAddress)
 {
 	if(Client()->State() == IClient::STATE_ONLINE && GameClient()->CurrentRaceTime() / 60 >= g_Config.m_ClConfirmDisconnectTime && g_Config.m_ClConfirmDisconnectTime >= 0)
 	{
+		// The popup is only rendered while the menus are active
+		SetActive(true);
 		str_copy(m_aNextServer, pAddress);
 		PopupConfirm(Localize("Disconnect"), Localize("Are you sure that you want to disconnect and switch to a different server?"), Localize("Yes"), Localize("No"), &CMenus::PopupConfirmSwitchServer);
 	}
@@ -757,14 +742,6 @@ void CMenus::RenderServerbrowserFilters(CUIRect View)
 	CUIRect Button, ResetButton;
 	View.HSplitBottom(RowHeight, &View, &ResetButton);
 	View.HSplitBottom(3.0f, &View, nullptr);
-	if(g_Config.m_AmfClientIndicator)
-	{
-		View.HSplitTop(RowHeight, &Button, &View);
-		char aOnlineLabel[64];
-		str_format(aOnlineLabel, sizeof(aOnlineLabel), TCLocalize("AMF Client online: %d", "AMF Client"), GameClient()->m_AmfPresenceResolver.BrowserActiveUserCount());
-		Ui()->DoLabel(&Button, aOnlineLabel, FontSize, TEXTALIGN_ML);
-		View.HSplitTop(3.0f, nullptr, &View);
-	}
 
 	View.HSplitTop(RowHeight, &Button, &View);
 	if(DoButton_CheckBox(&g_Config.m_BrFilterEmpty, Localize("Has people playing"), g_Config.m_BrFilterEmpty, &Button))
@@ -783,7 +760,7 @@ void CMenus::RenderServerbrowserFilters(CUIRect View)
 		g_Config.m_BrFilterFriends ^= 1;
 
 	View.HSplitTop(RowHeight, &Button, &View);
-	if(DoButton_CheckBox(&g_Config.m_AmfBrowserFilter, TCLocalize("Show AMF Client users only", "AMF Client"), g_Config.m_AmfBrowserFilter, &Button))
+	if(DoButton_CheckBox(&g_Config.m_AmfBrowserFilter, TCLocalize("AMF Client Only", "AMF Client"), g_Config.m_AmfBrowserFilter, &Button))
 	{
 		g_Config.m_AmfBrowserFilter ^= 1;
 		Client()->ServerBrowserUpdate();
@@ -935,7 +912,7 @@ void CMenus::ResetServerbrowserFilters()
 	g_Config.m_BrFilterGametypeStrict = 0;
 	g_Config.m_BrFilterConnectingPlayers = 1;
 	g_Config.m_BrFilterServerAddress[0] = '\0';
-	g_Config.m_BrFilterLogin = false; // TClient
+	g_Config.m_BrFilterLogin = false;
 
 	if(g_Config.m_UiPage != PAGE_LAN)
 	{
@@ -1369,11 +1346,11 @@ void CMenus::RenderServerbrowserInfoScoreboard(CUIRect View, const CServerInfo *
 	s_ListBox.DoAutoSpacing(2.0f);
 	s_ListBox.SetScrollbarWidth(16.0f);
 	s_ListBox.SetScrollbarMargin(5.0f);
-	s_ListBox.DoStart(25.0f, pSelectedServer->m_NumReceivedClients, 1, 3, -1, &View, false, IGraphics::CORNER_NONE, true);
+	s_ListBox.DoStart(25.0f, (int)pSelectedServer->m_vClients.size(), 1, 3, -1, &View, false, IGraphics::CORNER_NONE, true);
 
-	for(int i = 0; i < pSelectedServer->m_NumReceivedClients; i++)
+	for(size_t i = 0; i < pSelectedServer->m_vClients.size(); i++)
 	{
-		const CServerInfo::CClient &CurrentClient = pSelectedServer->m_aClients[i];
+		const CServerInfo::CClient &CurrentClient = pSelectedServer->m_vClients[i];
 		const CListboxItem Item = s_ListBox.DoNextItem(&CurrentClient);
 		if(!Item.m_Visible)
 			continue;
@@ -1520,7 +1497,7 @@ void CMenus::RenderServerbrowserInfoScoreboard(CUIRect View, const CServerInfo *
 	const int NewSelected = s_ListBox.DoEnd();
 	if(s_ListBox.WasItemSelected())
 	{
-		const CServerInfo::CClient &SelectedClient = pSelectedServer->m_aClients[NewSelected];
+		const CServerInfo::CClient &SelectedClient = pSelectedServer->m_vClients[NewSelected];
 		if(SelectedClient.m_FriendState == IFriends::FRIEND_PLAYER)
 			GameClient()->Friends()->RemoveFriend(SelectedClient.m_aName, SelectedClient.m_aClan);
 		else
@@ -1529,6 +1506,141 @@ void CMenus::RenderServerbrowserInfoScoreboard(CUIRect View, const CServerInfo *
 		Client()->ServerBrowserUpdate();
 	}
 }
+
+void CMenus::RenderServerbrowserAmfPresence(CUIRect View)
+{
+	const float RowHeight = 18.0f;
+	const float FontSize = (RowHeight - 4.0f) * CUi::ms_FontmodHeight;
+	const CServerInfo *pSelectedServer = ServerBrowser()->SortedGet(m_SelectedIndex);
+	View.Margin(5.0f, &View);
+
+	CUIRect Toggle, RefreshButton;
+	View.HSplitTop(RowHeight, &Toggle, &View);
+	Toggle.VSplitRight(RowHeight, &Toggle, &RefreshButton);
+	if(DoButton_CheckBox(&g_Config.m_AmfBrowserFilter, TCLocalize("Show AMF Client only", "AMF Client"), g_Config.m_AmfBrowserFilter, &Toggle))
+	{
+		g_Config.m_AmfBrowserFilter ^= 1;
+		Client()->ServerBrowserUpdate();
+	}
+
+	static CButtonContainer s_RefreshAmfPresenceButton;
+	if(Ui()->DoButton_FontIcon(&s_RefreshAmfPresenceButton, FontIcon::ARROW_ROTATE_RIGHT, 0, &RefreshButton, BUTTONFLAG_LEFT))
+		GameClient()->m_AmfPresenceTransport.RequestBrowserSnapshot();
+	GameClient()->m_Tooltips.DoToolTip(&s_RefreshAmfPresenceButton, &RefreshButton, TCLocalize("Refresh AMF Client list", "AMF Client"));
+
+	View.HSplitTop(6.0f, nullptr, &View);
+	CUIRect Label;
+	if(!GameClient()->m_AmfPresenceResolver.HasBrowserSnapshot())
+	{
+		View.HSplitTop(RowHeight, &Label, &View);
+		Ui()->DoLabel(&Label, TCLocalize("AMF Client presence unavailable", "AMF Client"), FontSize, TEXTALIGN_MC);
+		return;
+	}
+
+	char aLabel[128];
+	str_format(aLabel, sizeof(aLabel), TCLocalize("All AMF Client players: %d", "AMF Client"), GameClient()->m_AmfPresenceResolver.BrowserActiveUserCount());
+	View.HSplitTop(RowHeight, &Label, &View);
+	Ui()->DoLabel(&Label, aLabel, FontSize, TEXTALIGN_ML);
+	View.HSplitTop(4.0f, nullptr, &View);
+
+	if(!pSelectedServer)
+	{
+		View.HSplitTop(RowHeight, &Label, &View);
+		Ui()->DoLabel(&Label, Localize("No server selected"), FontSize, TEXTALIGN_MC);
+		return;
+	}
+
+	str_format(aLabel, sizeof(aLabel), TCLocalize("AMF Client players: %d", "AMF Client"), pSelectedServer->m_AmfClientCount);
+	View.HSplitTop(RowHeight, &Label, &View);
+	Ui()->DoLabel(&Label, aLabel, FontSize, TEXTALIGN_ML);
+	View.HSplitTop(4.0f, nullptr, &View);
+
+	std::vector<int> vAmfClientIndexes;
+	vAmfClientIndexes.reserve(pSelectedServer->m_NumReceivedClients);
+	for(int i = 0; i < pSelectedServer->m_NumReceivedClients; ++i)
+	{
+		if(ServerBrowser()->IsAmfClientPlayer(*pSelectedServer, pSelectedServer->m_vClients[i].m_aName))
+			vAmfClientIndexes.push_back(i);
+	}
+	if(vAmfClientIndexes.empty())
+	{
+		View.HSplitTop(RowHeight, &Label, &View);
+		const char *pEmptyText = GameClient()->m_AmfPresenceResolver.BrowserActiveUserCount() == 0 ?
+			TCLocalize("No AMF Client players online", "AMF Client") :
+			TCLocalize("No AMF Client users on the selected server", "AMF Client");
+		Ui()->DoLabel(&Label, pEmptyText, FontSize, TEXTALIGN_MC);
+		return;
+	}
+
+	static CListBox s_AmfPlayersList;
+	s_AmfPlayersList.DoAutoSpacing(2.0f);
+	s_AmfPlayersList.SetScrollbarWidth(16.0f);
+	s_AmfPlayersList.SetScrollbarMargin(5.0f);
+	s_AmfPlayersList.DoStart(26.0f, static_cast<int>(vAmfClientIndexes.size()), 1, 1, -1, &View, false, IGraphics::CORNER_NONE, true);
+
+	for(const int ClientIndex : vAmfClientIndexes)
+	{
+		const CServerInfo::CClient &Player = pSelectedServer->m_vClients[ClientIndex];
+		const CListboxItem Item = s_AmfPlayersList.DoNextItem(&Player, false);
+		if(!Item.m_Visible)
+			continue;
+
+		CUIRect Skin, Name, Clan;
+		Item.m_Rect.Draw(PlayerBackgroundColor(false, false, Player.m_Afk, false, false), IGraphics::CORNER_ALL, 4.0f);
+		Item.m_Rect.Margin(3.0f, &Name);
+		Name.VSplitLeft(Name.h, &Skin, &Name);
+		Name.VSplitLeft(4.0f, nullptr, &Name);
+		Name.HSplitTop(Name.h / 2.0f, &Name, &Clan);
+
+		if(Player.m_aSkin[0] != '\0')
+		{
+			const CTeeRenderInfo TeeInfo = GetTeeRenderInfo(vec2(Skin.w, Skin.h), Player.m_aSkin, Player.m_CustomSkinColors, Player.m_CustomSkinColorBody, Player.m_CustomSkinColorFeet);
+			const CAnimState *pIdleState = CAnimState::GetIdle();
+			vec2 OffsetToMid;
+			CRenderTools::GetRenderTeeOffsetToRenderedTee(pIdleState, &TeeInfo, OffsetToMid);
+			const vec2 TeeRenderPos = vec2(Skin.x + TeeInfo.m_Size / 2.0f, Skin.y + Skin.h / 2.0f + OffsetToMid.y);
+			RenderTools()->RenderTee(pIdleState, &TeeInfo, Player.m_Afk ? EMOTE_BLINK : EMOTE_NORMAL, vec2(1.0f, 0.0f), TeeRenderPos);
+		}
+		else if(Player.m_aaSkin7[protocol7::SKINPART_BODY][0] != '\0')
+		{
+			CTeeRenderInfo TeeInfo;
+			TeeInfo.m_Size = std::min(Skin.w, Skin.h);
+			for(int Part = 0; Part < protocol7::NUM_SKINPARTS; ++Part)
+			{
+				GameClient()->m_Skins7.FindSkinPart(Part, Player.m_aaSkin7[Part], true)->ApplyTo(TeeInfo.m_aSixup[g_Config.m_ClDummy]);
+				GameClient()->m_Skins7.ApplyColorTo(TeeInfo.m_aSixup[g_Config.m_ClDummy], Player.m_aUseCustomSkinColor7[Part], Player.m_aCustomSkinColor7[Part], Part);
+			}
+			const CAnimState *pIdleState = CAnimState::GetIdle();
+			vec2 OffsetToMid;
+			CRenderTools::GetRenderTeeOffsetToRenderedTee(pIdleState, &TeeInfo, OffsetToMid);
+			const vec2 TeeRenderPos = vec2(Skin.x + TeeInfo.m_Size / 2.0f, Skin.y + Skin.h / 2.0f + OffsetToMid.y);
+			RenderTools()->RenderTee(pIdleState, &TeeInfo, Player.m_Afk ? EMOTE_BLINK : EMOTE_NORMAL, vec2(1.0f, 0.0f), TeeRenderPos);
+		}
+
+		const float IconHeight = std::min(FontSize, Name.h);
+		const float IconWidth = IconHeight * 327.0f / 287.0f;
+		const float IconSpacing = 2.0f;
+		CUIRect NameText = Name;
+		NameText.w = std::max(0.0f, NameText.w - IconWidth - IconSpacing);
+		CTextCursor NameCursor;
+		NameCursor.SetPosition(vec2(NameText.x, NameText.y + (NameText.h - FontSize) / 2.0f));
+		NameCursor.m_FontSize = FontSize;
+		NameCursor.m_Flags |= TEXTFLAG_STOP_AT_END;
+		NameCursor.m_LineWidth = NameText.w;
+		TextRender()->TextEx(&NameCursor, Player.m_aName, -1);
+
+		CUIRect CatIcon;
+		CatIcon.w = IconWidth;
+		CatIcon.h = IconHeight;
+		CatIcon.x = std::min(NameCursor.m_X + IconSpacing, Name.x + Name.w - CatIcon.w);
+		CatIcon.y = Name.y + (Name.h - CatIcon.h) / 2.0f;
+		GameClient()->m_AmfClientIndicator.RenderIcon(CatIcon);
+		Ui()->DoLabel(&Clan, Player.m_aClan, FontSize - 2.0f, TEXTALIGN_ML);
+	}
+
+	s_AmfPlayersList.DoEnd();
+}
+
 
 void CMenus::RenderServerbrowserFriends(CUIRect View)
 {
@@ -1564,9 +1676,8 @@ void CMenus::RenderServerbrowserFriends(CUIRect View)
 		if(pEntry->m_FriendState == IFriends::FRIEND_NO)
 			continue;
 
-		for(int ClientIndex = 0; ClientIndex < pEntry->m_NumReceivedClients; ++ClientIndex)
+		for(const CServerInfo::CClient &CurrentClient : pEntry->m_vClients)
 		{
-			const CServerInfo::CClient &CurrentClient = pEntry->m_aClients[ClientIndex];
 			if(CurrentClient.m_FriendState == IFriends::FRIEND_NO)
 				continue;
 
@@ -1857,14 +1968,16 @@ enum
 	UI_TOOLBOX_PAGE_FILTERS = 0,
 	UI_TOOLBOX_PAGE_INFO,
 	UI_TOOLBOX_PAGE_FRIENDS,
+	UI_TOOLBOX_PAGE_AMF_PRESENCE,
 	NUM_UI_TOOLBOX_PAGES,
 };
 
 void CMenus::RenderServerbrowserTabBar(CUIRect TabBar)
 {
-	CUIRect FilterTabButton, InfoTabButton, FriendsTabButton;
-	TabBar.VSplitLeft(TabBar.w / 3.0f, &FilterTabButton, &TabBar);
-	TabBar.VSplitMid(&InfoTabButton, &FriendsTabButton);
+	CUIRect FilterTabButton, InfoTabButton, AmfPresenceTabButton, FriendsTabButton;
+	TabBar.VSplitLeft(TabBar.w / 4.0f, &FilterTabButton, &TabBar);
+	TabBar.VSplitLeft(TabBar.w / 3.0f, &InfoTabButton, &TabBar);
+	TabBar.VSplitLeft(TabBar.w / 2.0f, &AmfPresenceTabButton, &FriendsTabButton);
 
 	const ColorRGBA ColorActive = ColorRGBA(0.0f, 0.0f, 0.0f, 0.3f);
 	const ColorRGBA ColorInactive = ColorRGBA(0.0f, 0.0f, 0.0f, 0.15f);
@@ -1872,7 +1985,25 @@ void CMenus::RenderServerbrowserTabBar(CUIRect TabBar)
 	if(!Ui()->IsPopupOpen() && Ui()->ConsumeHotkey(CUi::HOTKEY_TAB))
 	{
 		const int Direction = Input()->ShiftIsPressed() ? -1 : 1;
-		g_Config.m_UiToolboxPage = (g_Config.m_UiToolboxPage + NUM_UI_TOOLBOX_PAGES + Direction) % NUM_UI_TOOLBOX_PAGES;
+		static constexpr int aPageOrder[NUM_UI_TOOLBOX_PAGES] = {
+			UI_TOOLBOX_PAGE_FILTERS,
+			UI_TOOLBOX_PAGE_INFO,
+			UI_TOOLBOX_PAGE_AMF_PRESENCE,
+			UI_TOOLBOX_PAGE_FRIENDS,
+		};
+		int CurrentIndex = 0;
+		for(int i = 0; i < NUM_UI_TOOLBOX_PAGES; ++i)
+		{
+			if(aPageOrder[i] == g_Config.m_UiToolboxPage)
+			{
+				CurrentIndex = i;
+				break;
+			}
+		}
+		const int NextIndex = (CurrentIndex + NUM_UI_TOOLBOX_PAGES + Direction) % NUM_UI_TOOLBOX_PAGES;
+		g_Config.m_UiToolboxPage = aPageOrder[NextIndex];
+		if(g_Config.m_UiToolboxPage == UI_TOOLBOX_PAGE_AMF_PRESENCE)
+			GameClient()->m_AmfPresenceTransport.RequestBrowserSnapshot();
 	}
 
 	TextRender()->SetFontPreset(EFontPreset::ICON_FONT);
@@ -1891,6 +2022,15 @@ void CMenus::RenderServerbrowserTabBar(CUIRect TabBar)
 		g_Config.m_UiToolboxPage = UI_TOOLBOX_PAGE_INFO;
 	}
 	GameClient()->m_Tooltips.DoToolTip(&s_InfoTabButton, &InfoTabButton, Localize("Server info"));
+
+	static CButtonContainer s_AmfPresenceTabButton;
+	if(DoButton_MenuTab(&s_AmfPresenceTabButton, "", g_Config.m_UiToolboxPage == UI_TOOLBOX_PAGE_AMF_PRESENCE, &AmfPresenceTabButton, IGraphics::CORNER_T, &m_aAnimatorsSmallPage[SMALL_TAB_BROWSER_AMF_PRESENCE], &ColorInactive, &ColorActive))
+	{
+		g_Config.m_UiToolboxPage = UI_TOOLBOX_PAGE_AMF_PRESENCE;
+		GameClient()->m_AmfPresenceTransport.RequestBrowserSnapshot();
+	}
+	RenderCenteredAmfPresenceTabIcon(GameClient(), AmfPresenceTabButton);
+	GameClient()->m_Tooltips.DoToolTip(&s_AmfPresenceTabButton, &AmfPresenceTabButton, TCLocalize("AMF Client players", "AMF Client"));
 
 	static CButtonContainer s_FriendsTabButton;
 	if(DoButton_MenuTab(&s_FriendsTabButton, FontIcon::HEART, g_Config.m_UiToolboxPage == UI_TOOLBOX_PAGE_FRIENDS, &FriendsTabButton, IGraphics::CORNER_T, &m_aAnimatorsSmallPage[SMALL_TAB_BROWSER_FRIENDS], &ColorInactive, &ColorActive))
@@ -1914,6 +2054,9 @@ void CMenus::RenderServerbrowserToolBox(CUIRect ToolBox)
 		return;
 	case UI_TOOLBOX_PAGE_INFO:
 		RenderServerbrowserInfo(ToolBox);
+		return;
+	case UI_TOOLBOX_PAGE_AMF_PRESENCE:
+		RenderServerbrowserAmfPresence(ToolBox);
 		return;
 	case UI_TOOLBOX_PAGE_FRIENDS:
 		RenderServerbrowserFriends(ToolBox);

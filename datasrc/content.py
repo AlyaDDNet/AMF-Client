@@ -245,6 +245,7 @@ container.sounds.Add(SoundSet("ctf_grab_en", ["audio/sfx_ctf_grab_en.wv"]))
 container.sounds.Add(SoundSet("ctf_capture", ["audio/sfx_ctf_cap_pl.wv"]))
 
 container.sounds.Add(SoundSet("menu", ["audio/music_menu.wv"]))
+container.sounds.Add(SoundSet("amf_run_reset", ["audio/amf_run_reset.wv"]))
 
 image_null = Image("null", "")
 image_particles = Image("particles", "particles.png")
@@ -263,8 +264,10 @@ container.images.Add(image_null)
 container.images.Add(image_game)
 container.images.Add(image_particles)
 container.images.Add(Image("cursor", "gui_cursor.png"))
-container.images.Add(Image("banner", "tclient/gui_logo.png")) # TClient
+container.images.Add(Image("banner", "tclient/amf/amf_client_logo.png")) # AMF Client 2.0 - Nova Edition
 container.images.Add(Image("amf_heart", "tclient/amf_heart.png"))
+container.images.Add(Image("amf_mordiser_click", "tclient/amf/mordiser_click.png"))
+container.images.Add(Image("amf_helper_click", "tclient/amf/helper_click.png"))
 container.images.Add(image_emoticons)
 container.images.Add(Image("background_noise", "background_noise.png"))
 container.images.Add(image_speedup_arrow)
@@ -390,6 +393,7 @@ container.sprites.Add(Sprite("pickup_armor_shotgun", set_game, 15, 2, 2, 2))
 container.sprites.Add(Sprite("pickup_armor_grenade", set_game, 17, 2, 2, 2))
 container.sprites.Add(Sprite("pickup_armor_ninja", set_game, 10, 10, 2, 2))
 container.sprites.Add(Sprite("pickup_armor_laser", set_game, 19, 2, 2, 2))
+container.sprites.Add(Sprite("pickup_freeze", set_game, 6, 2, 2, 2))
 
 container.sprites.Add(Sprite("flag_blue", set_game, 12, 8, 4, 8))
 container.sprites.Add(Sprite("flag_red", set_game, 16, 8, 4, 8))

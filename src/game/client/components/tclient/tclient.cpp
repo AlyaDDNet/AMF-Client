@@ -97,12 +97,14 @@ void CTClient::ConchainRandomColor(IConsole::IResult *pResult, void *pUserData, 
 
 void CTClient::OnInit()
 {
-	TextRender()->SetCustomFace(g_Config.m_TcCustomFont);
+	TextRender()->SetCustomFace(g_Config.m_AmfImprovedUi && g_Config.m_AmfImprovedUiFont ? "ActayWide Bold" : g_Config.m_TcCustomFont);
 	m_pGraphics = Kernel()->RequestInterface<IEngineGraphics>();
+	m_HasWindowActive = m_pGraphics != nullptr;
+	m_LastWindowActive = m_pGraphics != nullptr && m_pGraphics->WindowActive() != 0;
 
 	char aError[512] = "";
-	if(!Storage()->FileExists("tclient/gui_logo.png", IStorage::TYPE_ALL))
-		str_format(aError, sizeof(aError), TCLocalize("%s not found", DATA_VERSION_PATH), "data/tclient/gui_logo.png");
+	if(!Storage()->FileExists("tclient/amf/amf_client_logo.png", IStorage::TYPE_ALL))
+		str_format(aError, sizeof(aError), TCLocalize("%s not found", DATA_VERSION_PATH), "data/tclient/amf/amf_client_logo.png");
 	if(aError[0] == '\0')
 		CheckDataVersion(aError, sizeof(aError), Storage()->OpenFile(DATA_VERSION_PATH, IOFLAG_READ, IStorage::TYPE_ALL));
 	if(aError[0] != '\0')
@@ -351,7 +353,7 @@ void CTClient::AirRescue()
 		return;
 	if(GameClient()->m_Snap.m_aCharacters[ClientId].m_HasExtendedDisplayInfo && (GameClient()->m_Snap.m_aCharacters[ClientId].m_ExtendedData.m_Flags & CHARACTERFLAG_PRACTICE_MODE) == 0)
 	{
-		GameClient()->Echo("You are not in practice");
+	GameClient()->Echo(TCLocalize("You are not in practice"));
 		return;
 	}
 
@@ -387,7 +389,7 @@ void CTClient::AirRescue()
 		return;
 	}
 
-	GameClient()->Echo("No safe position found");
+	GameClient()->Echo(TCLocalize("No safe position found"));
 }
 
 void CTClient::ConAirRescue(IConsole::IResult *pResult, void *pUserData)
@@ -544,6 +546,14 @@ bool CTClient::ServerCommandExists(const char *pCommand)
 
 void CTClient::OnRender()
 {
+	const bool WindowActive = m_pGraphics != nullptr && m_pGraphics->WindowActive() != 0;
+	if(!m_HasWindowActive || WindowActive != m_LastWindowActive)
+	{
+		m_HasWindowActive = true;
+		m_LastWindowActive = WindowActive;
+		GameClient()->ApplyAmfProcessPriority();
+	}
+
 	// Keep the forced/custom aspect state in sync with the active game/menu
 	// state, matching the Best Client runtime path. SetForcedAspect is a cheap
 	// no-op when neither the forced viewport nor the configured ratio changed.
@@ -666,11 +676,16 @@ static void StripStr(const char *pIn, char *pOut, const char *pEnd)
 		*pOut = '\0';
 }
 
-void CTClient::RenderMiniVoteHud()
+void CTClient::RenderMiniVoteHud(bool Preview)
 {
-	CUIRect View = {0.0f, 60.0f, 70.0f, 35.0f};
-	View.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.4f), IGraphics::CORNER_R, 3.0f);
-	View.Margin(3.0f, &View);
+	const float HudHeight = 300.0f;
+	const float HudWidth = HudHeight * Graphics()->ScreenAspect();
+	CUIRect View = GameClient()->m_Voting.GetHudRect(HudWidth, HudHeight, Preview);
+	if(View.w <= 0.0f || View.h <= 0.0f)
+		return;
+	const float Scale = View.h / 35.0f;
+	View.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.4f), IGraphics::CORNER_R, 3.0f * Scale);
+	View.Margin(3.0f * Scale, &View);
 
 	SLabelProperties Props;
 	Props.m_EllipsisAtEnd = true;
@@ -680,47 +695,56 @@ void CTClient::RenderMiniVoteHud()
 	char aBuf[256];
 
 	// Vote description
-	View.HSplitTop(6.0f, &Row, &View);
-	StripStr(GameClient()->m_Voting.VoteDescription(), aBuf, aBuf + sizeof(aBuf));
-	Ui()->DoLabel(&Row, aBuf, 6.0f, TEXTALIGN_ML, Props);
+	View.HSplitTop(6.0f * Scale, &Row, &View);
+	if(Preview)
+		str_format(aBuf, sizeof(aBuf), "%s", Localize("Change map to Kobra 3"));
+	else
+		StripStr(GameClient()->m_Voting.VoteDescription(), aBuf, aBuf + sizeof(aBuf));
+	Ui()->DoLabel(&Row, aBuf, 6.0f * Scale, TEXTALIGN_ML, Props);
 
 	// Vote reason
-	View.HSplitTop(3.0f, nullptr, &View);
-	View.HSplitTop(4.0f, &Row, &View);
-	Ui()->DoLabel(&Row, GameClient()->m_Voting.VoteReason(), 4.0f, TEXTALIGN_ML, Props);
+	View.HSplitTop(3.0f * Scale, nullptr, &View);
+	View.HSplitTop(4.0f * Scale, &Row, &View);
+	Ui()->DoLabel(&Row, Preview ? Localize("Editor preview") : GameClient()->m_Voting.VoteReason(), 4.0f * Scale, TEXTALIGN_ML, Props);
 
 	// Time left
-	str_format(aBuf, sizeof(aBuf), Localize("%ds left"), GameClient()->m_Voting.SecondsLeft());
-	View.HSplitTop(3.0f, nullptr, &View);
-	View.HSplitTop(3.0f, &Row, &View);
-	Row.VSplitLeft(2.0f, nullptr, &Row);
-	Row.VSplitLeft(3.0f, &ProgressSpinner, &Row);
-	Row.VSplitLeft(2.0f, nullptr, &Row);
+	str_format(aBuf, sizeof(aBuf), Localize("%ds left"), Preview ? 12 : GameClient()->m_Voting.SecondsLeft());
+	View.HSplitTop(3.0f * Scale, nullptr, &View);
+	View.HSplitTop(3.0f * Scale, &Row, &View);
+	Row.VSplitLeft(2.0f * Scale, nullptr, &Row);
+	Row.VSplitLeft(3.0f * Scale, &ProgressSpinner, &Row);
+	Row.VSplitLeft(2.0f * Scale, nullptr, &Row);
 
 	SProgressSpinnerProperties ProgressProps;
-	ProgressProps.m_Progress = std::clamp((time() - GameClient()->m_Voting.m_Opentime) / (float)(GameClient()->m_Voting.m_Closetime - GameClient()->m_Voting.m_Opentime), 0.0f, 1.0f);
+	ProgressProps.m_Progress = 0.33f;
+	if(!Preview)
+	{
+		const int64_t Duration = GameClient()->m_Voting.m_Closetime - GameClient()->m_Voting.m_Opentime;
+		if(Duration > 0)
+			ProgressProps.m_Progress = std::clamp((time() - GameClient()->m_Voting.m_Opentime) / (float)Duration, 0.0f, 1.0f);
+	}
 	Ui()->RenderProgressSpinner(ProgressSpinner.Center(), ProgressSpinner.h / 2.0f, ProgressProps);
 
-	Ui()->DoLabel(&Row, aBuf, 3.0f, TEXTALIGN_ML);
+	Ui()->DoLabel(&Row, aBuf, 3.0f * Scale, TEXTALIGN_ML);
 
 	// Bars
-	View.HSplitTop(3.0f, nullptr, &View);
-	View.HSplitTop(3.0f, &Row, &View);
+	View.HSplitTop(3.0f * Scale, nullptr, &View);
+	View.HSplitTop(3.0f * Scale, &Row, &View);
 	GameClient()->m_Voting.RenderBars(Row);
 
 	// F3 / F4
-	View.HSplitTop(3.0f, nullptr, &View);
-	View.HSplitTop(0.5f, &Row, &View);
-	Row.VSplitMid(&LeftColumn, &RightColumn, 4.0f);
+	View.HSplitTop(3.0f * Scale, nullptr, &View);
+	View.HSplitTop(0.5f * Scale, &Row, &View);
+	Row.VSplitMid(&LeftColumn, &RightColumn, 4.0f * Scale);
 
 	char aKey[64];
 	GameClient()->m_Binds.GetKey("vote yes", aKey, sizeof(aKey));
 	TextRender()->TextColor(GameClient()->m_Voting.TakenChoice() == 1 ? ColorRGBA(0.2f, 0.9f, 0.2f, 0.85f) : TextRender()->DefaultTextColor());
-	Ui()->DoLabel(&LeftColumn, aKey[0] == '\0' ? "yes" : aKey, 0.5f, TEXTALIGN_ML);
+	Ui()->DoLabel(&LeftColumn, aKey[0] == '\0' ? Localize("Yes") : aKey, 0.5f * Scale, TEXTALIGN_ML);
 
 	GameClient()->m_Binds.GetKey("vote no", aKey, sizeof(aKey));
 	TextRender()->TextColor(GameClient()->m_Voting.TakenChoice() == -1 ? ColorRGBA(0.95f, 0.25f, 0.25f, 0.85f) : TextRender()->DefaultTextColor());
-	Ui()->DoLabel(&RightColumn, aKey[0] == '\0' ? "no" : aKey, 0.5f, TEXTALIGN_MR);
+	Ui()->DoLabel(&RightColumn, aKey[0] == '\0' ? Localize("No") : aKey, 0.5f * Scale, TEXTALIGN_MR);
 
 	TextRender()->TextColor(TextRender()->DefaultTextColor());
 }

@@ -1,5 +1,8 @@
 #include "updater.h"
+#include "updater_launch_policy.h"
 
+#include <base/io.h>
+#include <base/log.h>
 #include <base/math.h>
 #include <base/process.h>
 #include <base/fs.h>
@@ -19,6 +22,13 @@
 #include <iterator>
 #include <string>
 #include <vector>
+
+#if !defined(CONF_HEADLESS_CLIENT) && defined(CONF_FAMILY_WINDOWS)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 namespace
 {
@@ -270,7 +280,7 @@ void CUpdater::Init()
 {
 	m_pClient = Kernel()->RequestInterface<IClient>();
 	m_pStorage = Kernel()->RequestInterface<IStorage>();
-	m_pHttp = Kernel()->RequestInterface<IEngineHttp>();
+	m_pHttp = Kernel()->RequestInterface<IHttp>();
 #if !defined(CONF_HEADLESS_CLIENT) && defined(CONF_FAMILY_WINDOWS)
 	if(LaunchPortableInstallMigration())
 		return;
@@ -305,7 +315,7 @@ bool CUpdater::LaunchPortableInstallMigration()
 	str_copy(aParentDirectory, aInstallDirectory, sizeof(aParentDirectory));
 	StripFilename(aParentDirectory);
 	char aTargetDirectory[IO_MAX_PATH_LENGTH];
-	str_format(aTargetDirectory, sizeof(aTargetDirectory), "%s/%s", aParentDirectory, "AMFClient-" AMF_CLIENT_VERSION "-Ascension-Portable");
+	str_format(aTargetDirectory, sizeof(aTargetDirectory), "%s/%s", aParentDirectory, "AMFClient-" AMF_CLIENT_VERSION "-Nova-Portable");
 	if(str_comp_nocase(aInstallDirectory, aTargetDirectory) == 0 || m_pStorage->FolderExists(aTargetDirectory, IStorage::TYPE_ABSOLUTE))
 		return false;
 
@@ -314,8 +324,10 @@ bool CUpdater::LaunchPortableInstallMigration()
 	char aPid[32];
 	str_format(aPid, sizeof(aPid), "%d", process_id());
 	const char *apArguments[] = {"--migrate-install", aPid, aInstallDirectory, aTargetDirectory, aTargetClientPath};
-	if(process_execute(aMigratorPath, EShellExecuteWindowState::FOREGROUND, apArguments, std::size(apArguments)) == INVALID_PROCESS)
+	const PROCESS MigratorProcess = process_execute(aMigratorPath, EShellExecuteWindowState::FOREGROUND, apArguments, std::size(apArguments));
+	if(MigratorProcess == INVALID_PROCESS)
 		return false;
+	CloseHandle(static_cast<HANDLE>(MigratorProcess));
 
 	m_bInstallMigrationLaunched = true;
 	m_pClient->Quit();
@@ -475,12 +487,14 @@ bool CUpdater::LaunchUpdaterAndQuit()
 	str_copy(aInstallDir, aExePath, sizeof(aInstallDir));
 	StripFilename(aInstallDir);
 	str_format(aPid, sizeof(aPid), "%d", process_id());
-	const char *apArguments[] = {aPid, aArchivePath, aInstallDir, aExePath};
-	if(process_execute(aUpdaterPath, EShellExecuteWindowState::FOREGROUND, apArguments, std::size(apArguments)) == INVALID_PROCESS)
+	auto Arguments = UpdaterLaunchPolicy::MakeUpdateTransactionArguments(aPid, aArchivePath, aInstallDir, aExePath);
+	const PROCESS UpdaterProcess = process_execute(aUpdaterPath, EShellExecuteWindowState::FOREGROUND, Arguments.data(), Arguments.size());
+	if(UpdaterProcess == INVALID_PROCESS)
 	{
 		SetStatus("Failed to launch AMF Client updater");
 		return false;
 	}
+	CloseHandle(static_cast<HANDLE>(UpdaterProcess));
 	m_pClient->Quit();
 	return true;
 #else
@@ -520,7 +534,7 @@ void CUpdater::InitiateUpdate()
 
 void CUpdater::ApplyUpdateAndRestart()
 {
-	if(GetCurrentState() != IUpdater::NEED_RESTART || m_bApplyLaunched)
+	if(!UpdaterLaunchPolicy::ShouldLaunchUpdateTransaction(GetCurrentState() == IUpdater::NEED_RESTART, m_bApplyLaunched))
 		return;
 	m_bApplyLaunched = true;
 	if(!LaunchUpdaterAndQuit())

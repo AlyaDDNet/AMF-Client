@@ -6,10 +6,10 @@
 #include <base/color.h>
 #include <base/io.h>
 #include <base/log.h>
+#include <base/log_color.h>
 #include <base/time.h>
 
 #include <engine/editor.h>
-#include <engine/friends.h>
 #include <engine/external/regex.h>
 #include <engine/graphics.h>
 #include <engine/keys.h>
@@ -22,16 +22,16 @@
 
 #include <game/client/animstate.h>
 #include <game/client/components/censor.h>
-#include <game/client/components/hud_layout.h>
 #include <game/client/components/scoreboard.h>
 #include <game/client/components/skins.h>
 #include <game/client/components/sounds.h>
 #include <game/client/components/tclient/colored_parts.h>
+#include <game/client/components/hud_layout.h>
 #include <game/client/gameclient.h>
 #include <game/client/smooth_ui.h>
 #include <game/localization.h>
 
-char CChat::ms_aDisplayText[CChat::MAX_LINE_LENGTH] = "";
+char CChat::ms_aDisplayText[MAX_CHAT_LENGTH] = "";
 
 static constexpr int CHAT_TYPING_ANIM_MAX_TEXT_BYTES = 16;
 
@@ -332,7 +332,7 @@ void CChat::ExecuteSmoothHudContextAction(int Action)
 
 	if(Action == 0) // Copy
 	{
-		char aText[MAX_NAME_LENGTH + MAX_LINE_LENGTH + 4];
+		char aText[MAX_NAME_LENGTH + MAX_CHAT_LENGTH + 4];
 		str_format(aText, sizeof(aText), "%s%s%s", Line.m_aName, Line.m_ClientId >= 0 ? ": " : "", Line.m_aText);
 		Input()->SetClipboardText(aText);
 		str_copy(m_aSmoothHudNotification, TCLocalize("Message copied", "AMF Client"), sizeof(m_aSmoothHudNotification));
@@ -558,9 +558,7 @@ void CChat::Reset()
 	DisableMode();
 	ResetSmoothHudState(false);
 	m_vServerCommands.clear();
-
-	for(int64_t &LastSoundPlayed : m_aLastSoundPlayed)
-		LastSoundPlayed = 0;
+	std::fill(std::begin(m_aLastSoundPlayed), std::end(m_aLastSoundPlayed), 0);
 }
 
 void CChat::OnRelease()
@@ -738,6 +736,7 @@ bool CChat::OnInput(const IInput::CEvent &Event)
 		{
 			m_Input.Clear();
 			m_pHistoryEntry = nullptr;
+			m_EditingNewLine = true;
 		}
 	}
 	else if(Event.m_Flags & IInput::FLAG_PRESS && (Event.m_Key == KEY_RETURN || Event.m_Key == KEY_KP_ENTER))
@@ -755,6 +754,7 @@ bool CChat::OnInput(const IInput::CEvent &Event)
 		else
 			SendChatQueued(m_Input.GetString());
 		m_pHistoryEntry = nullptr;
+		m_EditingNewLine = true;
 		DisableMode();
 		GameClient()->OnRelease();
 		m_Input.Clear();
@@ -850,7 +850,7 @@ bool CChat::OnInput(const IInput::CEvent &Event)
 			// insert the command
 			if(pCompletionCommand)
 			{
-		char aBuf[MAX_LINE_LENGTH];
+				char aBuf[MAX_CHAT_LENGTH];
 				// add part before the name
 				str_truncate(aBuf, sizeof(aBuf), m_Input.GetString(), m_PlaceholderOffset);
 
@@ -909,7 +909,7 @@ bool CChat::OnInput(const IInput::CEvent &Event)
 			// insert the name
 			if(pCompletionString)
 			{
-		char aBuf[MAX_LINE_LENGTH];
+				char aBuf[MAX_CHAT_LENGTH];
 				// add part before the name
 				str_truncate(aBuf, sizeof(aBuf), m_Input.GetString(), m_PlaceholderOffset);
 
@@ -1062,7 +1062,7 @@ void CChat::OnMessage(int MsgType, void *pRawMsg)
 		/*
 		if(g_Config.m_ClCensorChat)
 		{
-		char aMessage[MAX_LINE_LENGTH];
+			char aMessage[MAX_CHAT_LENGTH];
 			str_copy(aMessage, pMsg->m_pMessage);
 			GameClient()->m_Censor.CensorMessage(aMessage);
 			AddLine(pMsg->m_ClientId, pMsg->m_Team, aMessage);
@@ -1173,7 +1173,7 @@ void CChat::AddLine(int ClientId, int Team, const char *pLine)
 					  (GameClient()->m_Snap.m_LocalClientId != ClientId && GameClient()->m_aClients[ClientId].m_Foe))))
 		return;
 
-	// TClient
+	// TClient: optionally hide client-generated/system notices without changing server chat visibility.
 	if(ClientId == CLIENT_MSG && !g_Config.m_TcShowChatClient)
 		return;
 
@@ -1196,7 +1196,7 @@ void CChat::AddLine(int ClientId, int Team, const char *pLine)
 			pEnd = pStrOld;
 		}
 
-		if(++Length >= MAX_LINE_LENGTH)
+		if(++Length >= MAX_CHAT_LENGTH)
 		{
 			*(const_cast<char *>(pStr)) = '\0';
 			break;
@@ -1210,9 +1210,7 @@ void CChat::AddLine(int ClientId, int Team, const char *pLine)
 
 	bool Highlighted = false;
 
-	auto &&FChatMsgCheckAndPrint = [this](const CLine &Line) {
-		char aBuf[1024];
-		str_format(aBuf, sizeof(aBuf), "%s%s%s", Line.m_aName, Line.m_ClientId >= 0 ? ": " : "", Line.m_aText);
+	auto &&FChatMsgCheckAndPrint = [](const CLine &Line) {
 		ColorRGBA ChatLogColor = ColorRGBA(1.0f, 1.0f, 1.0f, 1.0f);
 		if(Line.m_Highlighted)
 		{
@@ -1244,7 +1242,7 @@ void CChat::AddLine(int ClientId, int Team, const char *pLine)
 		else
 			pFrom = "chat/all";
 
-		Console()->Print(IConsole::OUTPUT_LEVEL_STANDARD, pFrom, aBuf, ChatLogColor);
+		log_info_color(color_cast<LOG_COLOR>(ChatLogColor), pFrom, "%s%s%s", Line.m_aName, Line.m_ClientId >= 0 ? ": " : "", Line.m_aText);
 	};
 
 	// Custom color for new line
@@ -1430,7 +1428,6 @@ void CChat::AddLine(int ClientId, int Team, const char *pLine)
 		}
 	}
 
-	// TClient
 	GameClient()->m_Translate.AutoTranslate(CurrentLine);
 }
 
@@ -1604,9 +1601,7 @@ void CChat::OnPrepareLines(float x, float y)
 				AppendCursor.m_FontSize /= 0.8f;
 			}
 			else
-			{
 				TextRender()->TextEx(&AppendCursor, pText);
-			}
 
 			Line.m_aYOffset[OffsetType] = AppendCursor.Height() + RealMsgPaddingY;
 		}
@@ -1813,7 +1808,8 @@ void CChat::OnRender()
 
 	const float Height = 300.0f;
 	const float Width = Height * Graphics()->ScreenAspect();
-	Graphics()->MapScreen(0.0f, 0.0f, Width, Height);
+	Graphics()->MapScreenToSize(Width, Height);
+
 	const bool WindowActive = Kernel()->RequestInterface<IEngineGraphics>()->WindowActive();
 	if(m_SmoothHudCursorActive && m_Mode == MODE_NONE)
 		ResetSmoothHudState(true);
@@ -1836,8 +1832,6 @@ void CChat::OnRender()
 		m_SmoothHudCursorActive = true;
 	}
 	else if(m_SmoothHudCursorActive)
-		// Reapply this after a focus transition as SDL/platform backends may
-		// restore their native cursor while the window was inactive.
 		Input()->SetSystemCursorVisible(false);
 
 	const auto ChatLayout = HudLayout::Get(HudLayout::MODULE_CHAT, Width, Height);
@@ -1845,18 +1839,11 @@ void CChat::OnRender()
 	if(ChatLayoutOverride && !HudLayout::IsEnabled(HudLayout::MODULE_CHAT))
 		return;
 	float x = ChatLayoutOverride ? ChatLayout.m_X : 5.0f;
-
-	// TClient
 	float y = ChatLayoutOverride ? ChatLayout.m_Y : 300.0f - (20.0f * FontSize() / 6.0f + (g_Config.m_TcStatusBar ? g_Config.m_TcStatusBarHeight : 0.0f));
-	// float y = 300.0f - 20.0f * FontSize() / 6.0f;
-
 	const float ChatLayoutScale = ChatLayoutOverride ? std::clamp(ChatLayout.m_Scale / 100.0f, 0.25f, 3.0f) : 1.0f;
 	float ScaledFontSize = FontSize() * (8.0f / 6.0f) * ChatLayoutScale;
 	if(m_Mode != MODE_NONE)
 	{
-		// Chat input remains logically live from the first frame. Only its
-		// presentation receives a short entrance so typed characters are never
-		// buffered, delayed or animated one by one.
 		const bool AnimateChatOpen = g_Config.m_AmfSmoothHud && WindowActive && g_Config.m_AmfAnimChatOpen;
 		const bool AnimateChatText = AnimateChatOpen && g_Config.m_AmfAnimText;
 		const float ChatOpenProgress = AnimateChatOpen && m_SmoothHudChatOpenedTime != 0 ?
@@ -1877,8 +1864,6 @@ void CChat::OnRender()
 		InputCursor.SetPosition(vec2(x, y + ChatOpenOffset));
 		InputCursor.m_FontSize = ScaledFontSize;
 		InputCursor.m_LineWidth = g_Config.m_ClChatWidth * ChatLayoutScale;
-
-		// TClient
 		InputCursor.m_LineWidth = std::max(InputCursor.m_LineWidth, 190.0f * ChatLayoutScale);
 
 		if(m_Mode == MODE_ALL)
@@ -1907,7 +1892,7 @@ void CChat::OnRender()
 		const bool SmoothCaret = g_Config.m_AmfSmoothHud && WindowActive && g_Config.m_AmfAnimSmoothCaret;
 		const bool AnimateTypedCharacters = g_Config.m_AmfSmoothHud && WindowActive && g_Config.m_AmfAnimText;
 		constexpr float TypingAnimDuration = 0.18f;
-		char aDisplayedInputText[MAX_LINE_LENGTH];
+	char aDisplayedInputText[MAX_CHAT_LENGTH];
 		str_copy(aDisplayedInputText, m_Input.GetDisplayedString());
 		m_vSmoothHudTypedCharacterColorSplits.clear();
 		if(AnimateTypedCharacters && aDisplayedInputText[0] != '\0' && ChatTypingAnimSupportsText(aDisplayedInputText))
@@ -1934,12 +1919,12 @@ void CChat::OnRender()
 				++It;
 			}
 		}
-		m_Input.SetHideCaret(SmoothCaret);
+		const bool HideCaretChanged = m_Input.SetHideCaret(SmoothCaret);
 		TextRender()->TextColor(TextRender()->DefaultTextColor());
 		const bool DisableBaseOutline = !m_vSmoothHudTypedCharacterColorSplits.empty();
 		if(DisableBaseOutline)
 			TextRender()->TextOutlineColor(ColorRGBA(0.0f, 0.0f, 0.0f, 0.0f));
-		const STextBoundingBox BoundingBox = m_Input.Render(&InputCursorRect, InputCursor.m_FontSize, TEXTALIGN_TL, Changed, MessageMaxWidth, 0.0f, m_vSmoothHudTypedCharacterColorSplits);
+		const STextBoundingBox BoundingBox = m_Input.Render(&InputCursorRect, InputCursor.m_FontSize, TEXTALIGN_TL, Changed || HideCaretChanged, MessageMaxWidth, 0.0f, m_vSmoothHudTypedCharacterColorSplits);
 		if(DisableBaseOutline)
 			TextRender()->TextOutlineColor(TextRender()->DefaultTextOutlineColor());
 
@@ -1953,7 +1938,7 @@ void CChat::OnRender()
 			const float Ease = 1.0f - std::pow(1.0f - Progress, 3.0f);
 			const float OverlayYOffset = -4.5f * (1.0f - Ease);
 			const int PrefixBytes = TypingGlyphAnim.m_ByteIndex;
-		char aPrefixText[MAX_LINE_LENGTH] = "";
+			char aPrefixText[MAX_CHAT_LENGTH] = "";
 			if(PrefixBytes < 0 || PrefixBytes > str_length(aDisplayedInputText))
 				continue;
 			str_truncate(aPrefixText, sizeof(aPrefixText), aDisplayedInputText, PrefixBytes);
@@ -2262,12 +2247,34 @@ void CChat::EnsureCoherentWidth() const
 
 void CChat::SendChat(int Team, const char *pLine)
 {
-	SendChat(Team, pLine, g_Config.m_ClDummy);
+	// don't send empty messages
+	if(*str_utf8_skip_whitespaces(pLine) == '\0')
+		return;
+	if(GameClient()->m_FastPractice.ConsumePracticeChatCommand(Team, pLine))
+		return;
+
+	m_LastChatSend = time();
+
+	if(GameClient()->Client()->IsSixup())
+	{
+		protocol7::CNetMsg_Cl_Say Msg7;
+		Msg7.m_Mode = Team == 1 ? protocol7::CHAT_TEAM : protocol7::CHAT_ALL;
+		Msg7.m_Target = -1;
+		Msg7.m_pMessage = pLine;
+		Client()->SendPackMsgActive(&Msg7, MSGFLAG_VITAL, true);
+		return;
+	}
+
+	// send chat message
+	CNetMsg_Cl_Say Msg;
+	Msg.m_Team = Team;
+	Msg.m_pMessage = pLine;
+	Client()->SendPackMsgActive(&Msg, MSGFLAG_VITAL);
 }
 
 void CChat::SendChat(int Team, const char *pLine, int Connection)
 {
-	// don't send empty messages
+	// Keep the old explicit-connection semantics for Impact's /mapinfo request.
 	if(*str_utf8_skip_whitespaces(pLine) == '\0')
 		return;
 	if(GameClient()->m_FastPractice.ConsumePracticeChatCommand(Team, pLine))
@@ -2285,7 +2292,6 @@ void CChat::SendChat(int Team, const char *pLine, int Connection)
 		return;
 	}
 
-	// send chat message
 	CNetMsg_Cl_Say Msg;
 	Msg.m_Team = Team;
 	Msg.m_pMessage = pLine;

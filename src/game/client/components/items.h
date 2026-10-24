@@ -11,10 +11,13 @@
 
 class CProjectileData;
 class CLaserData;
+class CScreenRect;
 
 class CItems : public CComponent
 {
-	void RenderProjectile(const CProjectileData *pCurrent, int ItemId);
+	friend class CTClient;
+
+	void RenderProjectile(const CProjectileData *pCurrent, int ItemId, const CScreenRect &ScreenRect);
 	void RenderPickup(const CNetObj_Pickup *pPrev, const CNetObj_Pickup *pCurrent, bool IsPredicted, int Flags);
 	void RenderFlags();
 	void RenderFlag(const CNetObj_Flag *pPrev, const CNetObj_Flag *pCurrent, const CNetObj_GameData *pPrevGameData, const CNetObj_GameData *pCurGameData);
@@ -35,6 +38,7 @@ private:
 	int m_RedFlagOffset;
 	int m_PickupHealthOffset;
 	int m_PickupArmorOffset;
+	int m_PickupFreezeOffset;
 	int m_aPickupWeaponOffset[NUM_WEAPONS];
 	int m_PickupNinjaOffset;
 	int m_aPickupWeaponArmorOffset[4];
@@ -43,8 +47,6 @@ private:
 	int m_DoorHeadOffset;
 	int m_PulleyHeadOffset;
 	int m_FreezeHeadOffset;
-
-	friend class CTClient;
 };
 
 #endif

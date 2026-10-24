@@ -12,6 +12,8 @@
 
 #include "backend_opengl.h"
 
+#include <cstdint>
+
 class CGLSLPrimitiveExProgram;
 class CGLSLQuadProgram;
 class CGLSLSpriteMultipleProgram;
@@ -71,6 +73,14 @@ protected:
 
 	CCommandBuffer::SColorf m_ClearColor;
 
+	TWGLuint m_aAmfMotionBlurTextures[2] = {0, 0};
+	uint32_t m_AmfMotionBlurTextureWidth = 0;
+	uint32_t m_AmfMotionBlurTextureHeight = 0;
+	int m_AmfMotionBlurReadIndex = 0;
+	bool m_AmfMotionBlurHistoryValid = false;
+	bool m_AmfMotionBlurEnabledLastFrame = false;
+	int64_t m_AmfMotionBlurLastTime = 0;
+
 	void InitPrimExProgram(CGLSLPrimitiveExProgram *pProgram, class CGLSLCompiler *pCompiler, class IStorage *pStorage, bool Textured, bool Rotationless);
 
 	bool IsNewApi() override { return true; }
@@ -78,6 +88,9 @@ protected:
 	void UseProgram(CGLSLTWProgram *pProgram);
 	void UploadStreamBufferData(EPrimitiveType PrimitiveType, const void *pVertices, size_t VertSize, unsigned int PrimitiveCount, bool AsTex3D = false);
 	void RenderText(const CCommandBuffer::SState &State, int DrawNum, int TextTextureIndex, int TextOutlineTextureIndex, int TextureSize, const ColorRGBA &TextColor, const ColorRGBA &TextOutlineColor);
+	void EnsureAmfMotionBlurTexture();
+	void DestroyAmfMotionBlurTexture();
+	void RenderAmfMotionBlur();
 
 	void TextureUpdate(int Slot, int X, int Y, int Width, int Height, int GLFormat, uint8_t *pTexData);
 	void TextureCreate(int Slot, int Width, int Height, int GLFormat, int GLStoreFormat, int Flags, uint8_t *pTexData);
@@ -92,6 +105,7 @@ protected:
 	void Cmd_Clear(const CCommandBuffer::SCommand_Clear *pCommand) override;
 	void Cmd_Render(const CCommandBuffer::SCommand_Render *pCommand) override;
 	void Cmd_RenderTex3D(const CCommandBuffer::SCommand_RenderTex3D *pCommand) override;
+	void Cmd_BeforeSwap() override;
 
 	void Cmd_CreateBufferObject(const CCommandBuffer::SCommand_CreateBufferObject *pCommand) override;
 	void Cmd_RecreateBufferObject(const CCommandBuffer::SCommand_RecreateBufferObject *pCommand) override;

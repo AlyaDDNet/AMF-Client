@@ -979,12 +979,12 @@ About the project
 == Про проєкт
 
 [AMF Client Info]
-AMF Client 1.2.1 - Ascension Edition is a custom client based on Best Client and DDNet 19.9. This foundation is extended with AMF Client features, interface and capabilities. AMF Client is owned by alya?. Artificial intelligence, including OpenAI Codex, is used to develop the client and write code.
-== AMF Client 1.2.1 - Ascension Edition - користувацький клієнт, створений на базі Best Client і DDNet 19.9. На цій основі AMF Client додає власні функції, інтерфейс і можливості. AMF Client належить alya?. Під час розробки клієнта та написання коду використовується штучний інтелект OpenAI Codex.
+AMF Client 2.0 - Nova Edition is a custom client based on Best Client and DDNet 20.1. This foundation is extended with AMF Client features, interface and capabilities. AMF Client is owned by alya?. Artificial intelligence, including OpenAI Codex, is used to develop the client and write code.
+== AMF Client 2.0 - Nova Edition - користувацький клієнт, створений на базі Best Client і DDNet 20.1. На цій основі AMF Client додає власні функції, інтерфейс і можливості. AMF Client належить alya?. Під час розробки клієнта та написання коду використовується штучний інтелект OpenAI Codex.
 
 [AMF Client Info]
-Foundation: Best Client · Game base: DDNet 19.9 · Edition: Ascension Edition
-== Основа: Best Client · Гра: DDNet 19.9 · Редакція: Ascension Edition
+Foundation: Best Client · Game base: DDNet 20.1 · Edition: Nova Edition
+== Основа: Best Client · Гра: DDNet 20.1 · Редакція: Nova Edition
 
 [AMF Client Info]
 Project status
@@ -1167,6 +1167,38 @@ Show AMF Client users only
 [AMF Client]
 AMF Client online: %d
 == AMF Client онлайн: %d
+
+[AMF Client]
+AMF Client players
+== Гравці AMF Client
+
+[AMF Client]
+All AMF Client players: %d
+== Усього гравців AMF Client: %d
+
+[AMF Client]
+AMF Client players: %d
+== Гравці AMF Client: %d
+
+[AMF Client]
+Show AMF Client only
+== Показувати лише AMF Client
+
+[AMF Client]
+No AMF Client players online
+== Немає гравців AMF Client у мережі
+
+[AMF Client]
+No AMF Client users on the selected server
+== На вибраному сервері немає користувачів AMF Client
+
+[AMF Client]
+AMF Client presence unavailable
+== Дані AMF Client недоступні
+
+[AMF Client]
+Refresh AMF Client list
+== Оновити список AMF Client
 
 Sub-Tick aiming
 == Субтікове прицілювання
@@ -1662,24 +1694,12 @@ Cloud Input
 == Cloud Input
 
 [AMF Client]
-Cloud Input Old
-== Cloud Input Old
-
-[AMF Client]
 Cloud Input others
 == Cloud Input для інших Tee
 
 [AMF Client]
-Cloud Input Old others
-== Cloud Input Old для інших Tee
-
-[AMF Client]
 Applies Cloud Input prediction to other tees.
 == Застосовує передбачення Cloud Input до інших Tee.
-
-[AMF Client]
-Applies Cloud Input Old prediction to other tees.
-== Застосовує передбачення Cloud Input Old до інших Tee.
 
 [AMF Client]
 Fast practice
@@ -1694,8 +1714,8 @@ Fast Practice
 == Швидка практика
 
 [AMF Client]
-Fancy Weapons
-== Ефектна зброя
+Enhanced Weapons
+== Покращена зброя
 
 [AMF Client]
 Renders rifle and shotgun lasers with the AMF visual effect without changing gameplay.
@@ -1910,6 +1930,14 @@ Low Priority Discord
 == Низький пріоритет Discord
 
 [AMF Client]
+Low Priority Spotify | SoundCloud
+== Низький пріоритет Spotify | SoundCloud
+
+[AMF Client]
+Sets Spotify.exe and the SoundCloud desktop app to Windows Low priority while enabled.
+== Встановлює низький пріоритет Windows лише для Spotify.exe та настільного застосунку SoundCloud.
+
+[AMF Client]
 Sets only Discord.exe processes to Windows Low priority while enabled.
 == Установлює низький пріоритет Windows лише для процесів Discord.exe.
 
@@ -1949,8 +1977,16 @@ Drag, scale, reset and save the position of AMF HUD elements.
 == Перетягуйте, масштабуйте, скидайте та зберігайте позиції елементів HUD AMF Client.
 
 [AMF Client]
+Open in HUD editor
+== Відкрити в редакторі HUD
+
+[AMF Client]
 Connect to a server first to open the HUD Editor.
 == Спочатку підключіться до сервера, щоб відкрити редактор HUD.
+
+[AMF Client]
+Join a game first
+== Спочатку зайдіть у гру
 
 [AMF Client]
 Textures
@@ -2425,7 +2461,15 @@ Show Lyrics
 
 [AMF Client]
 Show Current Time
-== Показувати поточний час
+== Показувати таймкод музики
+
+[AMF Client]
+Show music time
+== Показувати таймкод музики
+
+[AMF Client]
+Show server time
+== Показувати час сервера
 
 [AMF Client]
 Aspect Ratio
@@ -2530,3 +2574,955 @@ Yellow
 [AMF Client]
 White
 == Білий
+
+[AMF Client]
+Impact / Run Statistics
+== Impact / статистика забігів
+
+[AMF Client]
+Show Other Players' Statistics
+== Показувати статистику інших учасників
+
+[AMF Client]
+Statistics
+== Статистика
+
+[AMF Client]
+Run Statistics
+== Статистика забігу
+
+[AMF Client]
+Full Run Statistics
+== Повна статистика забігу
+
+[AMF Client]
+Current Run
+== Поточний забіг
+
+[AMF Client]
+History
+== Історія
+
+[AMF Client]
+Analyzing...
+== Аналіз...
+
+[AMF Client]
+Impact disabled
+== Impact вимкнено
+
+[AMF Client]
+Unsupported server
+== Непідтримуваний сервер
+
+[AMF Client]
+Impact analysis unavailable for this team
+== Аналіз недоступний для цієї команди
+
+[AMF Client]
+Waiting for start
+== Очікування старту
+
+[AMF Client]
+Waiting for second participant
+== Очікування другого учасника
+
+[AMF Client]
+Waiting for another team member
+== Очікування другого учасника в команді
+
+[AMF Client]
+Waiting for participants to start
+== Очікування старту учасників
+
+[AMF Client]
+Waiting for the second participant to start
+== Очікування старту другого учасника
+
+[AMF Client]
+Analysis paused — one participant remains in the team
+== Аналіз призупинено — у команді залишився 1 учасник
+
+[AMF Client]
+Waiting for a suitable participant to start
+== Очікування відповідного учасника / старту
+
+[AMF Client]
+Waiting for the team to resume activity
+== Очікування відновлення активності команди
+
+[AMF Client]
+Analysis paused
+== Аналіз призупинено
+
+[AMF Client]
+Partial statistics
+== Неповна статистика
+
+[AMF Client]
+Save
+== Зберегти
+
+[AMF Client]
+Don't Save
+== Не зберігати
+
+[AMF Client]
+Rating
+== Рейтинг
+
+[AMF Client]
+Impact
+== Вплив
+
+[AMF Client]
+Consistency
+== Стабільність
+
+[AMF Client]
+Stability
+== Стабільність
+
+[AMF Client]
+MVP
+== MVP
+
+[AMF Client]
+Left the run
+== Покинув забіг
+
+[AMF Client]
+Player
+== Гравець
+
+[AMF Client]
+Saves
+== Сейви
+
+[AMF Client]
+Aleds
+== Аледи
+
+[AMF Client]
+Backs
+== Backs
+
+[AMF Client]
+Players Skipped
+== Пропущені гравці
+
+[AMF Client]
+Parts Completed
+== Завершені частини
+
+[AMF Client]
+Clutches
+== Клатчі
+
+[AMF Client]
+Falls
+== Падіння
+
+[AMF Client]
+Participants
+== Учасники
+
+[AMF Client]
+Result
+== Результат
+
+[AMF Client]
+Duration
+== Тривалість
+
+[AMF Client]
+Map
+== Карта
+
+[AMF Client]
+Difficulty
+== Складність
+
+[AMF Client]
+Date
+== Дата
+
+[AMF Client]
+Time
+== Час
+
+[AMF Client]
+Short Run
+== Короткий забіг
+
+[AMF Client]
+Show Full Run History
+== Показати повну історію забігів
+
+[AMF Client]
+View Full History
+== Переглянути повну історію
+
+[AMF Client]
+View Recent History
+== Переглянути останні забіги
+
+[AMF Client]
+END OF THE LAST 30 RUNS
+== КІНЕЦЬ ОСТАННІХ 30 ЗАБІГІВ
+
+[AMF Client]
+SHOW MORE RUNS
+== ПОКАЗАТИ БІЛЬШЕ ЗАБІГІВ
+
+[AMF Client]
+Fail
+== Невдача
+
+[AMF Client]
+Map was changed
+== Зміна карти
+
+[AMF Client]
+Finished
+== Фініш
+
+[AMF Client]
+Disconnected
+== З’єднання перервано
+
+[AMF Client]
+Run ended
+== Забіг завершено
+
+[AMF Client]
+Run statistics can be saved
+== Статистику забігу можна зберегти
+
+[AMF Client]
+You can save the run statistics
+== Статистику забігу можна зберегти
+
+[AMF Client]
+Run saved
+== Забіг збережено
+
+[AMF Client]
+Run statistics were automatically saved
+== Статистику забігу автоматично збережено
+
+[AMF Client]
+Server
+== Сервер
+
+[AMF Client]
+Individual summary unavailable
+== Індивідуальні показники недоступні
+
+[AMF Client]
+Save previous run?
+== Зберегти попередній забіг?
+
+[AMF Client]
+State
+== Стан
+
+[AMF Client]
+Finalized
+== Завершено
+
+[AMF Client]
+No saved runs
+== Немає збережених забігів
+
+[AMF Client]
+Delete Run
+== Видалити забіг
+
+[AMF Client]
+Delete saved run
+== Видалити збережений забіг
+
+[AMF Client]
+Delete
+== Видалити
+
+[AMF Client]
+Cancel
+== Скасувати
+
+[AMF Client]
+Back
+== Назад
+
+[AMF Client]
+Collects only confirmed run events on supported servers.
+== Збирає лише підтверджені події забігу на підтримуваних серверах.
+
+[AMF Client]
+Accent
+== Акцент
+
+[AMF Client]
+Accent color
+== Колір акценту
+
+[AMF Client]
+Air jump ring
+== Кільце повітряного стрибка
+
+[AMF Client]
+Amount
+== Кількість
+
+[AMF Client]
+Animate speed
+== Швидкість анімації
+
+[AMF Client]
+Background color
+== Колір фону
+
+[AMF Client]
+Badge
+== Значок
+
+[AMF Client]
+Ball amount: %d
+== Кількість куль: %d
+
+[AMF Client]
+Ball skin
+== Скін куль
+
+[AMF Client]
+Base color
+== Основний колір
+
+[AMF Client]
+Better checkbox
+== Покращений чекбокс
+
+[AMF Client]
+Better color picker
+== Покращений вибір кольору
+
+[AMF Client]
+Better font
+== Покращений шрифт
+
+[AMF Client]
+Better scrollbar
+== Покращена смуга прокручування
+
+[AMF Client]
+Better tab option
+== Покращена навігація вкладками
+
+[AMF Client]
+Binds
+== Прив’язки клавіш
+
+[AMF Client]
+Black hole
+== Чорна діра
+
+[AMF Client]
+Button
+== Кнопка
+
+[AMF Client]
+Checkbox
+== Чекбокс
+
+[AMF Client]
+Clear all balls
+== Очистити всі кулі
+
+[AMF Client]
+Cold color
+== Колір холоду
+
+[AMF Client]
+Consider freeze walls
+== Враховувати стіни з фризом
+
+[AMF Client]
+Copy theme to clipboard
+== Скопіювати тему до буфера обміну
+
+[AMF Client]
+Cull map tiles outside FPS fog
+== Не відображати тайли мапи поза областю FPS-туману
+
+[AMF Client]
+Custom hook color
+== Власний колір гака
+
+[AMF Client]
+Disable all particles render
+== Вимкнути відображення всіх частинок
+
+[AMF Client]
+Disable hammer particles
+== Вимкнути частинки молота
+
+[AMF Client]
+Disable high detail
+== Вимкнути високу деталізацію
+
+[AMF Client]
+Disable if you have shotgun, grenade or laser
+== Вимикати за наявності дробовика, гранати або лазера
+
+[AMF Client]
+Disable jump particles
+== Вимкнути частинки стрибка
+
+[AMF Client]
+Disable map quads render
+== Вимкнути відображення квадрів мапи
+
+[AMF Client]
+Disk
+== Диск
+
+[AMF Client]
+Disk color
+== Колір диска
+
+[AMF Client]
+Dots
+== Крапки
+
+[AMF Client]
+Droplist
+== Спадний список
+
+[AMF Client]
+Dust
+== Пил
+
+[AMF Client]
+Dust color
+== Колір пилу
+
+[AMF Client]
+Element
+== Елемент
+
+[AMF Client]
+Embers
+== Жаринки
+
+[AMF Client]
+Enable
+== Увімкнути
+
+[AMF Client]
+Quick Statistics Hold Key
+== Клавіша швидкої статистики
+
+[AMF Client]
+Enable better UI
+== Увімкнути покращений інтерфейс
+
+[AMF Client]
+Enable colorable background
+== Увімкнути змінюваний колір тла
+
+[AMF Client]
+Enable finish prediction
+== Увімкнути прогнозування фінішу
+
+[AMF Client]
+Enable flying name plates
+== Увімкнути літаючі неймплейти
+
+[AMF Client]
+Enable gores mode
+== Увімкнути режим Gores
+
+[AMF Client]
+Enable optimizer
+== Увімкнути оптимізатор
+
+[AMF Client]
+Energy motes
+== Частинки енергії
+
+[AMF Client]
+Export
+== Експортувати
+
+[AMF Client]
+Exported!
+== Експортовано!
+
+[AMF Client]
+Eye
+== Око
+
+[AMF Client]
+FPS fog (cull outside limit)
+== FPS-туман (приховувати об’єкти поза областю)
+
+[AMF Client]
+Finish Prediction
+== Прогнозування фінішу
+
+[AMF Client]
+Finish time
+== Час фінішу
+
+[AMF Client]
+Fire
+== Вогонь
+
+[AMF Client]
+Fire color
+== Колір вогню
+
+[AMF Client]
+Fireflies
+== Світлячки
+
+[AMF Client]
+Firefly color
+== Колір світлячків
+
+[AMF Client]
+Flames
+== Полум’я
+
+[AMF Client]
+Flesh color
+== Колір плоті
+
+[AMF Client]
+Flow
+== Швидкість переливання
+
+[AMF Client]
+Flying Nameplates
+== Літаючі неймплейти
+
+[AMF Client]
+Follow speed
+== Швидкість слідування
+
+[AMF Client]
+Forks
+== Розгалуження
+
+[AMF Client]
+Freeze Lifestyle
+== Фріз лайфстайл
+
+[AMF Client]
+Frost
+== Іній
+
+[AMF Client]
+Function block
+== Блок функцій
+
+[AMF Client]
+Glitter
+== Блиск
+
+[AMF Client]
+Gores Mode
+== Режим Gores
+
+[AMF Client]
+Grab gust
+== Порив під час захоплення
+
+[AMF Client]
+Gradient
+== Градієнт
+
+[AMF Client]
+Gradient color
+== Колір градієнта
+
+[AMF Client]
+Grow time
+== Час зростання
+
+[AMF Client]
+Hammer slash
+== Візуальний ефект удару молота
+
+[AMF Client]
+Hide line
+== Приховати лінію
+
+[AMF Client]
+Hold aura
+== Аура заряду
+
+[AMF Client]
+Hold burst
+== Спалах під час заряду
+
+[AMF Client]
+Hook
+== Гак
+
+[AMF Client]
+Hook Effects
+== Ефекти хука
+
+[AMF Client]
+Hook box
+== Рамка навколо захопленого гравця
+
+[AMF Client]
+Hook hold
+== Ефект накопичення заряду гака
+
+[AMF Client]
+Hook lasso
+== Аркан гака
+
+[AMF Client]
+Import
+== Імпортувати
+
+[AMF Client]
+Imported!
+== Імпортовано!
+
+[AMF Client]
+Improved UI
+== Покращений UI
+
+[AMF Client]
+Input field
+== Поле введення
+
+[AMF Client]
+Jitter
+== Тремтіння
+
+[AMF Client]
+Leaves
+== Листя
+
+[AMF Client]
+Lift above player
+== Підняти над гравцем
+
+[AMF Client]
+Lightning
+== Блискавка
+
+[AMF Client]
+Lightning color
+== Колір блискавки
+
+[AMF Client]
+Lightning thickness
+== Товщина блискавки
+
+[AMF Client]
+Line thickness
+== Товщина ліній
+
+[AMF Client]
+Magic
+== Магія
+
+[AMF Client]
+Matter
+== Речовина
+
+[AMF Client]
+Movement drag
+== Інерція під час руху
+
+[AMF Client]
+NEW
+== НОВЕ
+
+[AMF Client]
+New Ball
+== Нова куля
+
+[AMF Client]
+New Ball Cursor
+== Куля біля курсора
+
+[AMF Client]
+None
+== Немає
+
+[AMF Client]
+Optimizer
+== Оптимізатор
+
+[AMF Client]
+Paste theme from clipboard
+== Вставити тему з буфера обміну
+
+[AMF Client]
+Physic Balls
+== Фізичні кулі
+
+[AMF Client]
+Radius
+== Радіус
+
+[AMF Client]
+Radius (tiles)
+== Радіус (тайли)
+
+[AMF Client]
+Rain
+== Дощ
+
+[AMF Client]
+Rain color
+== Колір дощу
+
+[AMF Client]
+Rainbow
+== Веселка
+
+[AMF Client]
+Rays
+== Промені
+
+[AMF Client]
+Reach
+== Дальність
+
+[AMF Client]
+Render FPS fog rectangle
+== Показувати межу FPS-туману
+
+[AMF Client]
+Reset to defaults
+== Скинути налаштування
+
+[AMF Client]
+Ribbon width
+== Ширина стрічки
+
+[AMF Client]
+Runes
+== Руни
+
+[AMF Client]
+Screen shake
+== Тремтіння екрана
+
+[AMF Client]
+Scrollbar
+== Смуга прокручування
+
+[AMF Client]
+Settings tabs
+== Вкладки налаштувань
+
+[AMF Client]
+Shield
+== Щит
+
+[AMF Client]
+Show always
+== Показувати завжди
+
+[AMF Client]
+Show milliseconds
+== Показувати мілісекунди
+
+[AMF Client]
+Show percentage
+== Показувати відсоток
+
+[AMF Client]
+Show time
+== Показувати час
+
+[AMF Client]
+Slime
+== Слиз
+
+[AMF Client]
+Smoke
+== Дим
+
+[AMF Client]
+Snow
+== Сніг
+
+[AMF Client]
+Snow color
+== Колір снігу
+
+[AMF Client]
+Snow look
+== Вигляд снігу
+
+[AMF Client]
+Snowflakes
+== Сніжинки
+
+[AMF Client]
+Sparkles
+== Іскорки
+
+[AMF Client]
+Sparks
+== Іскри
+
+[AMF Client]
+Spawn count
+== Кількість куль за дію
+
+[AMF Client]
+Spell color
+== Колір закляття
+
+[AMF Client]
+Spin
+== Обертання
+
+[AMF Client]
+Spin speed
+== Швидкість обертання
+
+[AMF Client]
+Strands
+== Нитки
+
+[AMF Client]
+Style the hook
+== Стилізувати гак
+
+[AMF Client]
+Suckers
+== Присоски
+
+[AMF Client]
+Tentacle
+== Щупальце
+
+[AMF Client]
+Text
+== Текст
+
+[AMF Client]
+Thickness
+== Товщина
+
+[AMF Client]
+Time left
+== Час, що залишився
+
+[AMF Client]
+Troll
+== Троль
+
+[AMF Client]
+UI Themes
+== Теми UI
+
+[AMF Client]
+UI background
+== Тло інтерфейсу
+
+[AMF Client]
+Use custom style
+== Використовувати власний стиль
+
+[AMF Client]
+Visible area (%)
+== Видима область (%)
+
+[AMF Client]
+Wall arcs
+== Електричні дуги на стіні
+
+[AMF Client]
+Weather
+== Погода
+
+[AMF Client]
+Weather type
+== Тип погоди
+
+[AMF Client]
+Whirlwind
+== Вихор
+
+[AMF Client]
+Wind color
+== Колір вітру
+
+[AMF Client]
+Wind lines
+== Лінії вітру
+
+[AMF Client]
+Wind opacity
+== Непрозорість вітру
+
+[AMF Client]
+Writhing
+== Звивання
+
+[AMF Client]
+Zoom %
+== Масштаб %
+
+[AMF Client]
+Laser
+== Лазер
+
+[AMF Client]
+Shotgun
+== Дробовик
+
+[AMF Client]
+Rocket
+== Ракета
+
+[AMF Client]
+Classic
+== Класичний
+
+[AMF Client]
+Prism
+== Призма
+
+[AMF Client]
+Pulse
+== Пульсація
+
+[AMF Client]
+Crystal
+== Кристал
+
+[AMF Client]
+Power
+== Інтенсивність
+
+[AMF Client]
+Color
+== Колір
+
+[AMF Client]
+Nuke effects
+== Ядерні ефекти
+
+[AMF Client]
+Enable Nuke effects
+== Увімкнути ядерні ефекти
+
+[AMF Client]
+Nuke size
+== Розмір ядерного вибуху

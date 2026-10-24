@@ -1,4 +1,5 @@
 #include "amf_presence_resolver.h"
+#include "amf_presence_policy.h"
 
 #include <base/log.h>
 #include <base/net.h>
@@ -10,6 +11,7 @@
 #include <engine/shared/config.h>
 
 #include <game/client/gameclient.h>
+#include <game/version.h>
 
 namespace
 {
@@ -26,23 +28,44 @@ const char *InstallationIdSuffix(const char *pClientId)
 void CAmfPresenceResolver::OnReset()
 {
 	ClearRemoteState();
+	m_CurrentRoomId.clear();
 }
 
 void CAmfPresenceResolver::OnStateChange(int NewState, int OldState)
 {
 	(void)OldState;
 	if(NewState == IClient::STATE_OFFLINE)
+	{
 		ClearRemoteState();
+		m_CurrentRoomId.clear();
+	}
 }
 
 void CAmfPresenceResolver::OnUpdate()
 {
+	const std::string CurrentRoomId = Client()->State() == IClient::STATE_ONLINE ? AmfPresence::RoomIdForServer(Client()->ServerAddress()) : std::string();
+	if(CurrentRoomId != m_CurrentRoomId)
+	{
+		if(!m_CurrentRoomId.empty())
+		{
+			const std::string PreviousRoomId = m_CurrentRoomId;
+			ClearRemoteState();
+			m_LastPresenceEvent = "server-room-changed";
+			if(g_Config.m_AmfPresenceDebug)
+				log_info("amf_presence", "resolver invalidated server-scoped claims previous_room=%s current_room=%s", PreviousRoomId.c_str(), CurrentRoomId.empty() ? "-" : CurrentRoomId.c_str());
+		}
+		m_CurrentRoomId = CurrentRoomId;
+	}
+
 	const bool PresenceEnabled = g_Config.m_AmfPresenceEnabled != 0;
 	if(PresenceEnabled != m_PresenceWasEnabled)
 	{
 		m_PresenceWasEnabled = PresenceEnabled;
 		if(!PresenceEnabled)
+		{
 			ClearRemoteState();
+			ClearBrowserState();
+		}
 		else
 			m_Dirty = true;
 	}
@@ -64,6 +87,32 @@ bool CAmfPresenceResolver::GetPlayerGradient(int ClientId, SPlayerGradient &Grad
 	if(!Claim.m_Active || !Claim.m_Gradient.m_Active)
 		return false;
 	Gradient = Claim.m_Gradient;
+	return true;
+}
+
+bool CAmfPresenceResolver::GetPlayerVersion(int ClientId, char *pVersion, int VersionSize) const
+{
+	if(!pVersion || VersionSize <= 0)
+		return false;
+	pVersion[0] = '\0';
+	if(ClientId < 0 || ClientId >= MAX_CLIENTS)
+		return false;
+
+	if(IsLocalClientId(ClientId))
+	{
+		str_copy(pVersion, CLIENT_RELEASE_VERSION_DISPLAY, VersionSize);
+		return true;
+	}
+
+	const SPublishedClaim &Claim = m_aPublishedClaims[ClientId];
+	if(!Claim.m_Active || Claim.m_SlotGeneration != m_aPlayerGenerations[ClientId] || Claim.m_ClientVersion.empty())
+		return false;
+
+	const auto &ClientData = GameClient()->m_aClients[ClientId];
+	if(ClientData.m_Active && str_comp(ClientData.m_aName, Claim.m_PlayerName.c_str()) != 0)
+		return false;
+
+	str_copy(pVersion, Claim.m_ClientVersion.c_str(), VersionSize);
 	return true;
 }
 
@@ -92,10 +141,11 @@ bool CAmfPresenceResolver::ConsumeTransportEvents()
 		case CAmfPresenceTransport::ERemoteEventType::CONNECTED:
 		case CAmfPresenceTransport::ERemoteEventType::DISCONNECTED:
 			m_RemotePresence.clear();
+			m_RemotePresenceLastSeen.clear();
 			m_RemotePresenceAuthoritative.clear();
 			// The websocket session no longer has an authoritative member list.
-			// Keep already validated claims only until its next snapshot, so a
-			// harmless reconnect cannot produce a false -> true cat flicker.
+			// Keep same-room confirmed claims through transient reconnect gaps; the
+			// per-claim lease and exact slot identity bound how long they can remain.
 			m_AwaitingSnapshot = true;
 			m_LastPresenceEvent = Event.m_Type == CAmfPresenceTransport::ERemoteEventType::CONNECTED ? "transport-connected" : "transport-disconnected";
 			if(g_Config.m_AmfPresenceDebug)
@@ -104,19 +154,24 @@ bool CAmfPresenceResolver::ConsumeTransportEvents()
 			LiveStateChanged = true;
 			break;
 		case CAmfPresenceTransport::ERemoteEventType::SNAPSHOT:
+		{
 			if(Event.m_SnapshotComplete)
 			{
 				m_RemotePresence.clear();
+				m_RemotePresenceLastSeen.clear();
 				m_RemotePresenceAuthoritative.clear();
 			}
+			const int64_t SeenAt = time_get();
 			for(auto &Presence : Event.m_vPresence)
 			{
 				const std::string PresenceId = Presence.m_PresenceId;
 				m_RemotePresence.insert_or_assign(PresenceId, std::move(Presence));
+				m_RemotePresenceLastSeen[PresenceId] = SeenAt;
 				m_RemotePresenceAuthoritative[PresenceId] = Event.m_SnapshotComplete;
 			}
-			// Keep waiting through an incomplete payload. A complete snapshot is the
-			// only member-list event allowed to invalidate a confirmed identity.
+			// Keep waiting through an incomplete payload. A complete snapshot
+			// replaces the latest observations, while omission of an already
+			// confirmed identity is handled by its bounded lease in the resolver.
 			m_AwaitingSnapshot = !Event.m_SnapshotComplete;
 			m_LastPresenceEvent = Event.m_SnapshotComplete ? "presence-snapshot-complete" : "presence-snapshot-incomplete";
 			if(g_Config.m_AmfPresenceDebug)
@@ -124,13 +179,15 @@ bool CAmfPresenceResolver::ConsumeTransportEvents()
 			m_Dirty = true;
 			LiveStateChanged = true;
 			break;
+		}
 		case CAmfPresenceTransport::ERemoteEventType::DELTA:
 			if(Event.m_vPresence.size() == 1 && Event.m_vPresence.front().m_PresenceId == Event.m_PresenceId)
 			{
 				m_RemotePresence.insert_or_assign(Event.m_PresenceId, std::move(Event.m_vPresence.front()));
-				// A delta is not a complete member-list assertion. A transient game
-				// snapshot can therefore publish connected=false without invalidating
-				// the already confirmed identity.
+				m_RemotePresenceLastSeen[Event.m_PresenceId] = time_get();
+				// A delta updates one installation, not the whole member list.
+				// A connected=false connection within it is still an explicit leave
+				// for that main/dummy Tee; the other Tee can remain present.
 				m_RemotePresenceAuthoritative[Event.m_PresenceId] = false;
 				m_LastPresenceEvent = "presence-delta";
 				if(g_Config.m_AmfPresenceDebug)
@@ -142,6 +199,7 @@ bool CAmfPresenceResolver::ConsumeTransportEvents()
 		case CAmfPresenceTransport::ERemoteEventType::OFFLINE:
 		{
 			const bool RemovedRemotePresence = m_RemotePresence.erase(Event.m_PresenceId) != 0;
+			m_RemotePresenceLastSeen.erase(Event.m_PresenceId);
 			m_RemotePresenceAuthoritative.erase(Event.m_PresenceId);
 			const bool InvalidatedPublishedClaim = InvalidatePublishedPresence(Event.m_PresenceId);
 			m_LastPresenceEvent = "presence-offline";
@@ -179,7 +237,11 @@ bool CAmfPresenceResolver::ConsumeTransportEvents()
 			}
 			// Publish the total only with the same complete replacement as the
 			// per-server metadata, so the browser never shows a mixed generation.
+			// This is the backend's installation-level aggregate (main+dummy share
+			// one installation); don't add a client-side +1 because this payload
+			// carries no stable identity with which to deduplicate a local instance.
 			m_BrowserActiveUserCount = Event.m_TotalActiveUsers;
+			m_HasBrowserSnapshot = true;
 			if(g_Config.m_AmfPresenceDebug)
 				log_info("amf_presence", "resolver applied browser snapshot servers=%d active_users=%d", (int)Event.m_vBrowserServers.size(), m_BrowserActiveUserCount);
 			break;
@@ -288,9 +350,13 @@ void CAmfPresenceResolver::RebuildIndicators()
 			Claim.m_PresenceId = PresenceId;
 			Claim.m_InstallationId = pInstallationId;
 			Claim.m_PlayerName = Connection.m_PlayerName;
+			Claim.m_RoomId = m_CurrentRoomId;
 			Claim.m_SlotGeneration = m_aPlayerGenerations[ClientId];
+			const auto LastSeenIt = m_RemotePresenceLastSeen.find(PresenceId);
+			Claim.m_LastConfirmedTick = LastSeenIt != m_RemotePresenceLastSeen.end() ? LastSeenIt->second : time_get();
 			Claim.m_SettingsOpen = Connection.m_SettingsOpen;
 			Claim.m_FastPractice = Connection.m_FastPractice;
+			Claim.m_ClientVersion = Connection.m_ClientVersion;
 			Claim.m_Gradient.m_Active = Connection.m_CustomGradient;
 			Claim.m_Gradient.m_Color1 = Connection.m_GradientColor1;
 			Claim.m_Gradient.m_Color2 = Connection.m_GradientColor2;
@@ -320,11 +386,11 @@ void CAmfPresenceResolver::RebuildIndicators()
 		}
 	}
 
-	// A newly accepted claim replaces the old one immediately. If the player
-	// snapshot briefly lags a live Presence update, retain the exact previous
-	// binding instead of clearing the cat for one frame. It is removed as soon
-	// as the authoritative snapshot, offline event, slot identity, or room reset
-	// disproves that binding.
+	// A newly accepted claim replaces the old one immediately. A brief omission
+	// from a member snapshot is not a definitive leave; preserve the prior exact
+	// server/slot/installation binding for one bounded presence lease instead.
+	// Explicit offline/disconnected events and identity changes still invalidate
+	// it immediately.
 	for(int ClientId = 0; ClientId < MAX_CLIENTS; ++ClientId)
 	{
 		if(aClaimCounts[ClientId] == 0 && !aResolvedClaims[ClientId].m_Active && CanPreservePublishedClaim(ClientId, m_aPublishedClaims[ClientId]))
@@ -361,48 +427,35 @@ bool CAmfPresenceResolver::CanPreservePublishedClaim(int ClientId, const SPublis
 {
 	if(!Claim.m_Active || IsLocalClientId(ClientId))
 		return false;
-	if(Claim.m_SlotGeneration != m_aPlayerGenerations[ClientId])
-		return false;
+	const bool SameSlotIdentity = Claim.m_SlotGeneration == m_aPlayerGenerations[ClientId] &&
+		(!m_aPlayerActive[ClientId] || str_comp(m_aaPlayerNames[ClientId].data(), Claim.m_PlayerName.c_str()) == 0);
 
-	// A confirmed identity must not flicker because DDNet has not populated a
-	// slot for a transient frame. A real active slot with a different name is an
-	// identity change, while an inactive slot is merely incomplete until an
-	// authoritative Presence snapshot or offline event says otherwise.
-	if(m_aPlayerActive[ClientId] && str_comp(m_aaPlayerNames[ClientId].data(), Claim.m_PlayerName.c_str()) != 0)
-		return false;
-
-	// The reconnect gap has no member list to validate against. An incomplete
-	// snapshot is the same non-authoritative state, so retain the prior claim
-	// while the local slot identity is unchanged. OnReset still clears on a
-	// room/server change and a complete snapshot reconciles it immediately.
-	if(m_AwaitingSnapshot)
-		return true;
-
+	bool PresenceIdentityCompatible = true;
+	bool ExplicitlyDisconnected = false;
 	const auto It = m_RemotePresence.find(Claim.m_PresenceId);
-	if(It == m_RemotePresence.end() || It->second.m_ClientId != Claim.m_InstallationId)
-		return false;
-	const auto &Connection = Claim.m_Dummy ? It->second.m_Dummy : It->second.m_Main;
-	// ParseRemoteConnection deliberately treats a disconnected connection as
-	// incomplete and does not require clientId/playerName. A delta can therefore
-	// report connected=false while the exact Presence identity is still valid.
-	// Do not compare the unset fields with the published claim in that case.
-	if(!Connection.m_Connected)
+	if(It != m_RemotePresence.end())
 	{
-		// A disconnected connection in a delta/incomplete update is not an
-		// authoritative member-list removal. Only a complete snapshot (or the
-		// explicit OFFLINE event handled above) can invalidate the identity.
-		const auto AuthoritativeIt = m_RemotePresenceAuthoritative.find(Claim.m_PresenceId);
-		return AuthoritativeIt == m_RemotePresenceAuthoritative.end() || !AuthoritativeIt->second;
+		PresenceIdentityCompatible = It->second.m_ClientId == Claim.m_InstallationId;
+		if(PresenceIdentityCompatible)
+		{
+			const auto &Connection = Claim.m_Dummy ? It->second.m_Dummy : It->second.m_Main;
+			ExplicitlyDisconnected = !Connection.m_Connected;
+			if(!ExplicitlyDisconnected && (Connection.m_GameClientId != ClientId || Connection.m_PlayerName != Claim.m_PlayerName))
+				return false;
+		}
 	}
-	if(Connection.m_GameClientId != ClientId || Connection.m_PlayerName != Claim.m_PlayerName)
-		return false;
-	return true;
+
+	const bool SameServer = !Claim.m_RoomId.empty() && Claim.m_RoomId == m_CurrentRoomId;
+	const int64_t Now = time_get();
+	const bool LeaseValid = AmfPresence::PublishedClaimLeaseIsValid(Now, Claim.m_LastConfirmedTick, time_freq());
+	return AmfPresence::KeepConfirmedClaim(SameServer, SameSlotIdentity, PresenceIdentityCompatible, ExplicitlyDisconnected, LeaseValid);
 }
 
 void CAmfPresenceResolver::ApplyPublishedClaims(const std::array<SPublishedClaim, MAX_CLIENTS> &aClaims)
 {
 	const auto SameIdentity = [](const SPublishedClaim &Left, const SPublishedClaim &Right) {
-		return Left.m_Dummy == Right.m_Dummy && Left.m_PresenceId == Right.m_PresenceId && Left.m_InstallationId == Right.m_InstallationId && Left.m_PlayerName == Right.m_PlayerName && Left.m_SlotGeneration == Right.m_SlotGeneration;
+		return Left.m_Dummy == Right.m_Dummy && Left.m_PresenceId == Right.m_PresenceId && Left.m_InstallationId == Right.m_InstallationId &&
+			Left.m_PlayerName == Right.m_PlayerName && Left.m_RoomId == Right.m_RoomId && Left.m_SlotGeneration == Right.m_SlotGeneration;
 	};
 	const auto SameGradient = [](const SPlayerGradient &Left, const SPlayerGradient &Right) {
 		return Left.m_Active == Right.m_Active && Left.m_Color1 == Right.m_Color1 && Left.m_Color2 == Right.m_Color2 &&
@@ -415,7 +468,10 @@ void CAmfPresenceResolver::ApplyPublishedClaims(const std::array<SPublishedClaim
 		const bool HadOldClaim = OldClaim.m_Active;
 		const bool HasNewClaim = NewClaim.m_Active;
 		const bool IdentityChanged = HadOldClaim && HasNewClaim && !SameIdentity(OldClaim, NewClaim);
-		const bool StateChanged = HadOldClaim && HasNewClaim && (OldClaim.m_SettingsOpen != NewClaim.m_SettingsOpen || OldClaim.m_FastPractice != NewClaim.m_FastPractice || !SameGradient(OldClaim.m_Gradient, NewClaim.m_Gradient));
+		const bool StateChanged = HadOldClaim && HasNewClaim && (OldClaim.m_SettingsOpen != NewClaim.m_SettingsOpen || OldClaim.m_FastPractice != NewClaim.m_FastPractice || OldClaim.m_ClientVersion != NewClaim.m_ClientVersion || !SameGradient(OldClaim.m_Gradient, NewClaim.m_Gradient));
+		SPublishedClaim PublishedClaim = NewClaim;
+		if(HadOldClaim && SameIdentity(OldClaim, NewClaim) && PublishedClaim.m_ClientVersion.empty())
+			PublishedClaim.m_ClientVersion = OldClaim.m_ClientVersion;
 
 		if(HadOldClaim && (!HasNewClaim || IdentityChanged))
 		{
@@ -442,7 +498,7 @@ void CAmfPresenceResolver::ApplyPublishedClaims(const std::array<SPublishedClaim
 			if(g_Config.m_AmfPresenceDebug)
 				log_info("amf_presence", "resolver updated client_id=%d settings_open=%d fast_practice=%d", ClientId, NewClaim.m_SettingsOpen, NewClaim.m_FastPractice);
 		}
-		m_aPublishedClaims[ClientId] = NewClaim;
+		m_aPublishedClaims[ClientId] = PublishedClaim;
 	}
 }
 
@@ -478,6 +534,7 @@ bool CAmfPresenceResolver::InvalidatePublishedPresence(const std::string &Presen
 void CAmfPresenceResolver::ClearRemoteState()
 {
 	m_RemotePresence.clear();
+	m_RemotePresenceLastSeen.clear();
 	m_RemotePresenceAuthoritative.clear();
 	m_aPublishedClaims.fill(SPublishedClaim{});
 	m_aPlayerActive.fill(false);
@@ -489,14 +546,18 @@ void CAmfPresenceResolver::ClearRemoteState()
 	m_PresenceWasEnabled = g_Config.m_AmfPresenceEnabled != 0;
 	m_AwaitingSnapshot = false;
 	m_LastPresenceEvent = "reset";
-	// Browser totals belong to the same Presence lifecycle as the per-server
-	// materialized cache. Do not carry a stale count across a reset, room
-	// change, or an explicit Presence disable.
+	// The donor keeps its browser snapshot across game/map resets. Its HTTP
+	// refresh lifecycle is independent of this server's live member list.
+	m_Dirty = true;
+	ClearPublishedIndicators();
+}
+
+void CAmfPresenceResolver::ClearBrowserState()
+{
 	GameClient()->ServerBrowser()->ClearAmfClientCounts();
 	GameClient()->ServerBrowser()->ClearAmfClientPlayerNames();
 	m_BrowserActiveUserCount = 0;
-	m_Dirty = true;
-	ClearPublishedIndicators();
+	m_HasBrowserSnapshot = false;
 }
 
 void CAmfPresenceResolver::ClearPublishedIndicators()

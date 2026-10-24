@@ -15,6 +15,7 @@
 #include <game/client/components/particles.h>
 #include <game/client/components/sounds.h>
 #include <game/client/gameclient.h>
+#include <game/client/components/tclient/amf_features/fx/effect_policy.h>
 
 CEffects::CEffects()
 {
@@ -23,9 +24,10 @@ CEffects::CEffects()
 	m_Add100hz = false;
 }
 
-void CEffects::AirJump(vec2 Pos, float Alpha, float Volume)
+void CEffects::AirJump(vec2 Pos, float Alpha, float Volume, bool OtherPlayer)
 {
-	if(g_Config.m_AmfFocusMode && g_Config.m_AmfFocusModeHideEffects)
+	const bool HideAmfAirJumpParticles = AmfEffectPolicy::HideAirJumpParticles(g_Config.m_AmfAirJump, g_Config.m_AmfAirJumpHideParticles, OtherPlayer);
+	if((g_Config.m_AmfFocusMode && g_Config.m_AmfFocusModeHideEffects) || HideAmfAirJumpParticles)
 	{
 		if(g_Config.m_SndGame)
 			GameClient()->m_Sounds.PlayAt(CSounds::CHN_WORLD, SOUND_PLAYER_AIRJUMP, Volume, Pos);
@@ -337,6 +339,7 @@ void CEffects::Confetti(vec2 Pos, float Alpha)
 
 void CEffects::Explosion(vec2 Pos, float Alpha)
 {
+	const bool CustomExplosion = GameClient()->m_WeaponVfx.TriggerExplosion(Pos, Alpha);
 	// add to flow
 	for(int y = -8; y <= 8; y++)
 		for(int x = -8; x <= 8; x++)
@@ -359,7 +362,8 @@ void CEffects::Explosion(vec2 Pos, float Alpha)
 	p.m_Rot = random_angle();
 	p.m_Color.a = Alpha;
 	p.m_StartAlpha = Alpha;
-	GameClient()->m_Particles.Add(CParticles::GROUP_EXPLOSIONS, &p);
+	if(!CustomExplosion)
+		GameClient()->m_Particles.Add(CParticles::GROUP_EXPLOSIONS, &p);
 
 	// Nudge position slightly to edge of closest tile so the
 	// smoke doesn't get stuck inside the tile.
@@ -384,7 +388,7 @@ void CEffects::Explosion(vec2 Pos, float Alpha)
 	}
 
 	// add the smoke
-	for(int i = 0; i < 24; i++)
+	for(int i = 0; !CustomExplosion && i < 24; i++)
 	{
 		p.SetDefault();
 		p.m_Spr = SPRITE_PART_SMOKE;
@@ -399,11 +403,14 @@ void CEffects::Explosion(vec2 Pos, float Alpha)
 		p.m_StartAlpha = p.m_Color.a;
 		GameClient()->m_Particles.Add(CParticles::GROUP_GENERAL, &p);
 	}
+
+	GameClient()->m_AmfPhysicBalls.OnExplosion(Pos, Alpha == 1.0f);
 }
 
-void CEffects::HammerHit(vec2 Pos, float Alpha, float Volume)
+void CEffects::HammerHit(vec2 Pos, float Alpha, float Volume, bool OtherPlayer)
 {
-	if(g_Config.m_AmfFocusMode && g_Config.m_AmfFocusModeHideEffects)
+	const bool HideAmfHammerParticles = AmfEffectPolicy::HideHammerHitParticles(g_Config.m_AmfHammerSlash, g_Config.m_AmfHammerHideParticles, OtherPlayer);
+	if((g_Config.m_AmfFocusMode && g_Config.m_AmfFocusModeHideEffects) || HideAmfHammerParticles)
 	{
 		if(g_Config.m_SndGame)
 			GameClient()->m_Sounds.PlayAt(CSounds::CHN_WORLD, SOUND_HAMMER_HIT, Volume, Pos);

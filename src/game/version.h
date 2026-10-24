@@ -5,10 +5,10 @@
 
 // ddnet
 #define GAME_NAME "DDNet"
-#define DDNET_VERSION_NUMBER 19090
+#define DDNET_VERSION_NUMBER 20011
 extern const char *GIT_SHORTREV_HASH;
 #ifndef GAME_RELEASE_VERSION_INTERNAL
-#define GAME_RELEASE_VERSION_INTERNAL 19.9
+#define GAME_RELEASE_VERSION_INTERNAL 20.1.1
 #endif
 #define GAME_RELEASE_VERSION STRINGIFY(GAME_RELEASE_VERSION_INTERNAL)
 
@@ -16,23 +16,16 @@ extern const char *GIT_SHORTREV_HASH;
 #define CLIENT_VERSION7 0x0705
 // For compatibility with DDNet client 15.8 and older we need to include the prefix `0.6` in the version string
 // because this was used for a "Compatible version" filter in the server browser.
-#define GAME_VERSION "0.6.4, " GAME_RELEASE_VERSION
+#define GAME_VERSION "0.6, " GAME_RELEASE_VERSION
 #define GAME_NETVERSION "0.6 626fce9a778df4d4"
 #define GAME_NETVERSION7 "0.7 802f1be60a05665f"
 
-// TClient
 #ifndef TCLIENT_VERSION
-#define TCLIENT_VERSION "10.8.7"
+#define TCLIENT_VERSION "10.9.0"
 #endif
-
-// custom
 #define CLIENT_NAME "AMF Client"
-#define AMF_CLIENT_VERSION "1.2.1"
-#define AMF_CLIENT_VERSION_DISPLAY "1.2.1 - Ascension Edition"
-
-// The default release identity is shared by the runtime, CMake packaging and
-// updater comparison. Optional build overrides remain available for custom
-// builds without changing the checked-in release metadata.
+#define AMF_CLIENT_VERSION "2.0.1"
+#define AMF_CLIENT_VERSION_DISPLAY "2.0.1 - Nova Edition"
 #ifndef AMF_CLIENT_RELEASE_VERSION_OVERRIDE
 #define AMF_CLIENT_RELEASE_VERSION_OVERRIDE AMF_CLIENT_VERSION
 #endif

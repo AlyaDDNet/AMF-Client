@@ -83,9 +83,6 @@ private:
 	int m_CompositionCursor;
 	std::vector<std::string> m_vCandidates;
 	int m_CandidateSelectedIndex;
-	bool m_TextInputRectValid = false;
-	SDL_Rect m_TextInputRect = {0, 0, 0, 0};
-	int64_t m_LastEnsureKeyboardTime = 0;
 
 	// events
 	std::vector<CEvent> m_vInputEvents;
@@ -105,6 +102,8 @@ private:
 	void HandleJoystickHatMotionEvent(const SDL_JoyHatEvent &Event);
 	void HandleJoystickAddedEvent(const SDL_JoyDeviceEvent &Event);
 	void HandleJoystickRemovedEvent(const SDL_JoyDeviceEvent &Event);
+	vec2 TouchPositionToViewport(vec2 Position) const;
+	vec2 TouchDeltaToViewport(vec2 Delta) const;
 	void HandleTouchDownEvent(const SDL_TouchFingerEvent &Event);
 	void HandleTouchUpEvent(const SDL_TouchFingerEvent &Event);
 	void HandleTouchMotionEvent(const SDL_TouchFingerEvent &Event);
@@ -130,7 +129,6 @@ public:
 	bool AltIsPressed() const override { return KeyIsPressed(KEY_LALT) || KeyIsPressed(KEY_RALT); }
 	bool KeyIsPressed(int Key) const override;
 	bool KeyPress(int Key) const override;
-	const char *KeyName(int Key) const override;
 	int FindKeyByName(const char *pKeyName) const override;
 
 	size_t NumJoysticks() const override { return m_vJoysticks.size(); }
@@ -140,8 +138,8 @@ public:
 
 	bool MouseRelative(float *pX, float *pY) override;
 	void MouseModeAbsolute() override;
-	void MouseModeRelative() override;
 	void SetSystemCursorVisible(bool Visible) override;
+	void MouseModeRelative() override;
 	vec2 NativeMousePos() const override;
 	bool NativeMousePressed(int Index) const override;
 

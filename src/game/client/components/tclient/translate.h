@@ -4,6 +4,7 @@
 #include <game/client/component.h>
 #include <game/client/components/chat.h>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -14,13 +15,34 @@ class CTranslate;
 class ITranslateBackend
 {
 public:
+	explicit ITranslateBackend(const char *pName) :
+		m_pName(pName) {}
 	virtual ~ITranslateBackend() = default;
 	virtual const char *EncodeTarget(const char *pTarget) const;
 	virtual bool CompareTargets(const char *pA, const char *pB) const;
-	virtual const char *Name() const = 0;
-	virtual bool IsRateLimited() const { return false; }
+	const char *Name() const { return m_pName; }
 	virtual std::optional<bool> Update(CTranslateResponse &Out) = 0;
+
+private:
+	const char *m_pName;
 };
+
+struct STranslateLanguage
+{
+	const char *m_pName;
+	const char *m_pCode;
+};
+
+struct STranslateBackendInfo
+{
+	const char *m_pValue;
+	const char *m_pName;
+	std::vector<STranslateLanguage> m_vLanguages;
+	bool m_NeedsEndpointConfig;
+};
+
+extern const std::array<STranslateBackendInfo, 2> g_aTranslateBackends;
+int TranslateLanguageIndex(const std::vector<STranslateLanguage> &vLanguages, const char *pCode);
 
 class CTranslate : public CComponent
 {
@@ -31,10 +53,12 @@ class CTranslate : public CComponent
 		// For chat translations
 		CChat::CLine *m_pLine = nullptr;
 		std::shared_ptr<CTranslateResponse> m_pTranslateResponse = nullptr;
+		int64_t m_Deadline = 0;
 	};
 	std::vector<CTranslateJob> m_vJobs;
 	int64_t m_NextRequestTime = 0;
-	int64_t m_RateLimitUntil = 0;
+
+	bool CanStartRequest() const;
 
 	static void ConTranslate(IConsole::IResult *pResult, void *pUserData);
 	static void ConTranslateId(IConsole::IResult *pResult, void *pUserData);
@@ -50,9 +74,6 @@ public:
 	void Translate(CChat::CLine &Line, bool ShowProgress = true);
 
 	void AutoTranslate(CChat::CLine &Line);
-
-private:
-	bool CanStartRequest() const;
 };
 
 #endif

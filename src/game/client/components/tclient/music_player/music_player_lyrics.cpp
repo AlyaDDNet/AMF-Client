@@ -105,12 +105,24 @@ void CMusicPlayerLyrics::TickDisplay(float Delta)
 {
 	if(m_DisplayState == EDisplayState::NotFound)
 		m_NotFoundDisplayMs += std::max(0.0f, Delta) * 1000.0f;
+	else if(m_DisplayState == EDisplayState::Offline)
+		m_OfflineDisplayMs += std::max(0.0f, Delta) * 1000.0f;
 }
 
 int CMusicPlayerLyrics::ResolveDisplayLineIndex() const
 {
+	if(m_DisplayState == EDisplayState::Loading)
+		return m_TrackTitle.empty() ? FALLBACK_ELLIPSIS : FALLBACK_TITLE;
 	if(m_DisplayState == EDisplayState::NotFound)
 		return (m_NotFoundDisplayMs < (float)NOT_FOUND_HOLD_MS) ? FALLBACK_NOT_FOUND : FALLBACK_TITLE;
+	if(m_DisplayState == EDisplayState::Offline)
+	{
+		if(m_OfflineDisplayMs < (float)OFFLINE_HOLD_MS)
+			return FALLBACK_NO_CONNECTION;
+		if(!m_TrackTitle.empty())
+			return FALLBACK_TITLE;
+		return FALLBACK_NO_MEDIA;
+	}
 
 	if(m_DisplayState != EDisplayState::Ready)
 		return LINE_NONE;
@@ -140,8 +152,9 @@ float CMusicPlayerLyrics::PreferredTextSlotWidth(ITextRender *pTextRender, float
 		return 0.0f;
 
 	// The no-media fallback and track title shrink to content; lyrics, errors, and countdown keep full width.
-	const bool ShowNoMedia = m_DisplayState == EDisplayState::Idle;
-	const bool ShowTitle = m_DisplayState == EDisplayState::NotFound && ResolveDisplayLineIndex() == FALLBACK_TITLE;
+	const int LineIndex = ResolveDisplayLineIndex();
+	const bool ShowNoMedia = m_DisplayState == EDisplayState::Idle || LineIndex == FALLBACK_NO_MEDIA;
+	const bool ShowTitle = LineIndex == FALLBACK_TITLE;
 	if(!ShowNoMedia && !ShowTitle)
 		return ClampedMax;
 
@@ -175,6 +188,7 @@ void CMusicPlayerLyrics::ClearActiveTrack()
 	m_vCharMetrics.clear();
 	m_BaseLineWidth = 0.0f;
 	m_NotFoundDisplayMs = 0.0f;
+	m_OfflineDisplayMs = 0.0f;
 	m_TitleMarqueeOffset = 0.0f;
 	m_ClockPositionMs = 0;
 	m_ClockTick = 0;
@@ -217,17 +231,14 @@ void CMusicPlayerLyrics::AbortRequest()
 
 std::string CMusicPlayerLyrics::BuildCacheKey(const char *pTitle, const char *pArtist, const char *pAlbum, int64_t DurationMs)
 {
-	const int DurationSec = (int)((std::max<int64_t>(0, DurationMs) + 500) / 1000);
+	(void)pAlbum;
+	(void)DurationMs;
 	std::string Key;
-	Key.reserve(160);
+	Key.reserve(128);
 	Key += "v3|";
 	Key += pArtist ? pArtist : "";
 	Key += '|';
 	Key += pTitle ? pTitle : "";
-	Key += '|';
-	Key += pAlbum ? pAlbum : "";
-	Key += '|';
-	Key += std::to_string(DurationSec);
 	return Key;
 }
 
@@ -447,66 +458,54 @@ void CMusicPlayerLyrics::ProcessRequest()
 	m_pRequest.reset();
 	const std::string FinishedKey = m_RequestKey;
 	m_RequestKey.clear();
+	const bool ApplyToActive = !FinishedKey.empty() && FinishedKey == m_ActiveKey;
 
-	if(FinishedKey != m_ActiveKey)
-		return;
+	auto FailOffline = [&]() {
+		if(!ApplyToActive)
+			return;
+		m_DisplayState = EDisplayState::Offline;
+		m_vLines.clear();
+		ClearActiveTrack();
+		m_OfflineRetryAt = time_get() + time_freq() * LYRICS_OFFLINE_RETRY_MS / 1000;
+	};
 
 	// Done() is also true for ERROR/ABORTED — must not call StatusCode() unless DONE.
 	if(pFinished->State() != EHttpState::DONE)
 	{
-		m_DisplayState = EDisplayState::Offline;
-		m_vLines.clear();
-		ClearActiveTrack();
-		m_OfflineRetryAt = time_get() + time_freq() * LYRICS_OFFLINE_RETRY_MS / 1000;
+		FailOffline();
 		return;
 	}
 
 	const int StatusCode = pFinished->StatusCode();
-	if(StatusCode == 0)
+	if(StatusCode == 0 || (StatusCode != 404 && (StatusCode < 200 || StatusCode >= 300)))
 	{
-		m_DisplayState = EDisplayState::Offline;
-		m_vLines.clear();
-		ClearActiveTrack();
-		m_OfflineRetryAt = time_get() + time_freq() * LYRICS_OFFLINE_RETRY_MS / 1000;
+		FailOffline();
 		return;
 	}
 
-	if(StatusCode == 404)
+	SCacheEntry Entry;
+	Entry.m_State = EDisplayState::NotFound;
+	if(StatusCode != 404)
 	{
-		SCacheEntry Entry;
-		Entry.m_State = EDisplayState::NotFound;
+		json_value *pRoot = pFinished->ResultJson();
+		if(pRoot != nullptr && pRoot != &json_value_none && pRoot->type == json_object)
+		{
+			const char *pSynced = JsonStringOrEmpty(json_object_get(pRoot, "syncedLyrics"));
+			if(ParseSyncedLyrics(pSynced, Entry.m_vLines))
+				Entry.m_State = EDisplayState::Ready;
+		}
+		if(pRoot)
+			json_value_free(pRoot);
+	}
+
+	if(!FinishedKey.empty())
+	{
 		if(m_Cache.size() >= LYRICS_CACHE_MAX)
 			m_Cache.clear();
 		m_Cache[FinishedKey] = Entry;
+	}
+	if(ApplyToActive)
 		ApplyCacheEntry(Entry);
-		return;
-	}
-
-	if(StatusCode < 200 || StatusCode >= 300)
-	{
-		m_DisplayState = EDisplayState::Offline;
-		m_vLines.clear();
-		ClearActiveTrack();
-		m_OfflineRetryAt = time_get() + time_freq() * LYRICS_OFFLINE_RETRY_MS / 1000;
-		return;
-	}
-
-	json_value *pRoot = pFinished->ResultJson();
-	SCacheEntry Entry;
-	Entry.m_State = EDisplayState::NotFound;
-	if(pRoot != nullptr && pRoot != &json_value_none && pRoot->type == json_object)
-	{
-		const char *pSynced = JsonStringOrEmpty(json_object_get(pRoot, "syncedLyrics"));
-		if(ParseSyncedLyrics(pSynced, Entry.m_vLines))
-			Entry.m_State = EDisplayState::Ready;
-	}
-	if(pRoot)
-		json_value_free(pRoot);
-
-	if(m_Cache.size() >= LYRICS_CACHE_MAX)
-		m_Cache.clear();
-	m_Cache[FinishedKey] = Entry;
-	ApplyCacheEntry(Entry);
 }
 
 int64_t CMusicPlayerLyrics::CurrentPositionMs() const
@@ -661,10 +660,16 @@ float CMusicPlayerLyrics::CountdownProgress(int CountdownIndex, int64_t Remainin
 
 const char *CMusicPlayerLyrics::FallbackText(int Index) const
 {
+	if(Index == FALLBACK_NO_CONNECTION)
+		return "No connection";
+	if(Index == FALLBACK_ELLIPSIS)
+		return "…";
 	if(Index == FALLBACK_NOT_FOUND)
 		return "Lyrics not found";
 	if(Index == FALLBACK_TITLE)
 		return m_TrackTitle.empty() ? "Unknown title" : m_TrackTitle.c_str();
+	if(Index == FALLBACK_NO_MEDIA)
+		return TCLocalize("No media", "AMF Client");
 	return "";
 }
 
@@ -843,12 +848,10 @@ void CMusicPlayerLyrics::Render(ITextRender *pTextRender, CUi *pUi, const CUIRec
 		WhiteStatusText = true;
 		break;
 	case EDisplayState::Loading:
-		pStatusText = "…";
 		break;
 	case EDisplayState::NotFound:
 		break;
 	case EDisplayState::Offline:
-		pStatusText = "No connection";
 		break;
 	case EDisplayState::Ready:
 		break;
@@ -872,7 +875,10 @@ void CMusicPlayerLyrics::Render(ITextRender *pTextRender, CUi *pUi, const CUIRec
 	{
 		const bool SequentialForward =
 			m_CurrentLineIndex != LINE_NONE && LineIndex == m_CurrentLineIndex + 1;
-		if(SequentialForward)
+		const bool MessageToResult =
+			(m_CurrentLineIndex == FALLBACK_NOT_FOUND || m_CurrentLineIndex == FALLBACK_NO_CONNECTION) &&
+			(LineIndex == FALLBACK_TITLE || LineIndex == FALLBACK_NO_MEDIA);
+		if(SequentialForward || MessageToResult)
 		{
 			m_OutgoingLineIndex = m_CurrentLineIndex;
 			m_LineTransitionT = 0.0f;
@@ -901,7 +907,7 @@ void CMusicPlayerLyrics::Render(ITextRender *pTextRender, CUi *pUi, const CUIRec
 		return;
 
 	const bool FallbackMode = IsFallbackIndex(m_CurrentLineIndex);
-	const bool TitleMarquee = m_CurrentLineIndex == FALLBACK_TITLE && m_BaseLineWidth > Area.w + 0.5f;
+	const bool TitleMarquee = m_CurrentLineIndex == FALLBACK_TITLE && m_LineTransitionT >= 1.0f && m_BaseLineWidth > Area.w + 0.5f;
 	if(TitleMarquee)
 	{
 		const float Gap = FontSize * LYRICS_TITLE_MARQUEE_GAP_FACTOR;
@@ -1032,15 +1038,15 @@ void CMusicPlayerLyrics::Render(ITextRender *pTextRender, CUi *pUi, const CUIRec
 			OutWidth = pTextRender->TextWidth(FontSize, m_vLines[m_OutgoingLineIndex].m_Text.c_str(), -1, -1.0f);
 		}
 		const float OutX = IsCountdownIndex(m_OutgoingLineIndex) ? CountdownTextCenterX - OutWidth * 0.5f : CenterX - OutWidth * 0.5f;
-		const int OutColorMode = (m_OutgoingLineIndex == FALLBACK_NOT_FOUND) ? 1 : 2;
+		const int OutColorMode = IsMutedFallback(m_OutgoingLineIndex) ? 1 : 2;
 		DrawDisplay(m_OutgoingLineIndex, OutX, OutgoingY, 0.0f, 1.0f - SlideT, OutColorMode);
 	}
 
 	const float ActiveAlpha = m_OutgoingLineIndex != LINE_NONE ? SlideT : 1.0f;
 	int ActiveColorMode = 0;
-	if(m_CurrentLineIndex == FALLBACK_NOT_FOUND)
+	if(IsMutedFallback(m_CurrentLineIndex))
 		ActiveColorMode = 1;
-	else if(m_CurrentLineIndex == FALLBACK_TITLE)
+	else if(m_CurrentLineIndex == FALLBACK_TITLE || m_CurrentLineIndex == FALLBACK_NO_MEDIA)
 		ActiveColorMode = 2;
 	DrawDisplay(m_CurrentLineIndex, TextStartX, IncomingY, ProgressChars, ActiveAlpha, ActiveColorMode);
 }

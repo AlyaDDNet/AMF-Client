@@ -13,13 +13,18 @@ int CGameClient::TranslateSnap(CSnapshotBuffer *pSnapDstSix, CSnapshot *pSnapSrc
 {
 	CSnapshotBuilder Builder;
 	Builder.Init();
+	CSnapshotDebugContext SnapshotDebugContext;
+	SnapshotDebugContext.m_pStage = "sixup-snapshot-translation";
+	SnapshotDebugContext.m_Connection = Conn;
+	SnapshotDebugContext.m_Sixup = true;
+	SnapshotDebugContext.m_Dummy = Dummy;
+	Builder.SetDebugContext(SnapshotDebugContext);
 
 	float LocalTime = Client()->LocalTime();
 	int GameTick = Client()->GameTick(g_Config.m_ClDummy);
 	CTranslationContext &TranslationContext = Client()->m_TranslationContext;
 
-	for(auto &PlayerInfosRace : TranslationContext.m_apPlayerInfosRace)
-		PlayerInfosRace = nullptr;
+	std::fill(std::begin(TranslationContext.m_apPlayerInfosRace), std::end(TranslationContext.m_apPlayerInfosRace), nullptr);
 
 	int SpectatorId = -3;
 
@@ -68,6 +73,7 @@ int CGameClient::TranslateSnap(CSnapshotBuffer *pSnapDstSix, CSnapshot *pSnapSrc
 				Size,
 				pItem7->Id());
 			pSnapSrcSeven->InvalidateItem(i);
+			continue;
 		}
 
 		if(ItemType == protocol7::NETOBJTYPE_PLAYERINFORACE)

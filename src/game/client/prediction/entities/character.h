@@ -78,6 +78,8 @@ public:
 	vec2 m_PrevPos;
 	vec2 m_PrevPrevPos;
 	int m_TeleCheckpoint;
+	int m_FreezeAccumulation;
+	int m_AliveAccumulation;
 
 	int m_TileIndex;
 	int m_TileFIndex;
@@ -109,15 +111,13 @@ public:
 			m_Input.m_TargetY = m_LatestInput.m_TargetY = -1;
 		}
 	}
-	// Synchronize every side of the direct-input transition. Fast Practice uses
-	// this when control returns from UI/chat so a held menu click cannot be
-	// interpreted as a new fire/hammer edge in its private world.
 	void RebaseInput(const CNetObj_PlayerInput *pNewInput)
 	{
 		m_SavedInput = m_LatestPrevInput = m_LatestInput = m_Input = *pNewInput;
 		if(m_Input.m_TargetX == 0 && m_Input.m_TargetY == 0)
 			m_SavedInput.m_TargetY = m_LatestPrevInput.m_TargetY = m_LatestInput.m_TargetY = m_Input.m_TargetY = -1;
 	}
+	CNetObj_PlayerInput *LatestInput() { return &m_LatestInput; }
 	int GetJumped() const { return m_Core.m_Jumped; }
 	int GetAttackTick() const { return m_AttackTick; }
 	int GetStrongWeakId() const { return m_StrongWeakId; }
@@ -143,11 +143,6 @@ public:
 	bool GrenadeHitDisabled() const { return m_Core.m_GrenadeHitDisabled; }
 
 	bool IsSuper() const { return m_Core.m_Super; }
-	int m_FreezeAccumulation;
-	int m_AliveAccumulation;
-
-	// TClient
-	CNetObj_PlayerInput *LatestInput() { return &m_LatestInput; }
 
 	// antiping
 	void AntiPingInterference(int ClientId, bool DisallowReset = false, bool HasToBeUnfrozen = false);

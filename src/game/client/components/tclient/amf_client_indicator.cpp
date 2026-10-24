@@ -69,22 +69,21 @@ bool CAmfClientIndicator::IsPlayerAmf(int ClientId) const
 	return GameClient()->m_AmfPresenceResolver.IsConfirmedAmf(ClientId);
 }
 
+bool CAmfClientIndicator::GetPlayerVersionLabel(int ClientId, char *pVersion, int VersionSize) const
+{
+	if(!pVersion || VersionSize <= 0)
+		return false;
+	pVersion[0] = '\0';
+	if(!IsPlayerAmf(ClientId))
+		return false;
+
+	return GameClient()->m_AmfPresenceResolver.GetPlayerVersion(ClientId, pVersion, VersionSize);
+}
+
 bool CAmfClientIndicator::CanRender(int ClientId) const
 {
 	if(!g_Config.m_AmfClientIndicator || !m_Texture.IsValid() || !IsPlayerAmf(ClientId))
 		return false;
-
-	// Position mode 2 is a local display preference, not a Presence opt-out.
-	// Use the canonical local-id list so TAB, nameplates, spectator and player
-	// info all agree without introducing a second identity heuristic.
-	if(g_Config.m_AmfClientIndicatorPosition == 2)
-	{
-		for(const int LocalId : GameClient()->m_aLocalIds)
-		{
-			if(ClientId == LocalId)
-				return false;
-		}
-	}
 
 	return true;
 }
@@ -93,6 +92,18 @@ bool CAmfClientIndicator::CanRenderInWorld(int ClientId) const
 {
 	if(!CanRender(ClientId))
 		return false;
+
+	// Position mode 2 is a local display preference, not a Presence opt-out.
+	// Apply it only to the local Tee's in-world nameplate. Keep the canonical
+	// AMF result visible to TAB, spectator/player lists and server-browser UI.
+	if(g_Config.m_AmfClientIndicatorPosition == 2)
+	{
+		for(const int LocalId : GameClient()->m_aLocalIds)
+		{
+			if(ClientId == LocalId)
+				return false;
+		}
+	}
 
 	if(g_Config.m_AmfPresenceDebug && IsPlayerAmf(ClientId) && !m_aDebugRenderedWorld[ClientId])
 	{

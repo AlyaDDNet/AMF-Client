@@ -17,9 +17,9 @@ class CAmfAutoMargin : public CComponent
 	float m_SmoothedJitter = 0.0f;
 	bool m_HighPing = false;
 	bool m_WasEnabled = false;
-	int m_SavedMargin = -1;
 	bool m_ManualMarginInitialized = false;
 	int m_LastManualMargin = -1;
+	int m_RuntimeMargin = -1;
 
 	void ResetState();
 

@@ -14,6 +14,8 @@ class CCharacter;
 class CEntity;
 class CMapBugs;
 
+using CPracticeTileOverrideCallback = void (*)(void *pUser, int PracticeGameTick, vec2 Position, bool ResolveCurrentPosition, int &GameTile, int &FrontTile);
+
 class CGameWorld
 {
 public:
@@ -77,7 +79,6 @@ public:
 		bool m_IsFNG;
 		bool m_InfiniteAmmo;
 		bool m_PredictTiles;
-		bool m_PredictTeleports;
 		int m_PredictFreeze;
 		bool m_PredictWeapons;
 		bool m_PredictDDRace;
@@ -86,6 +87,8 @@ public:
 		bool m_BugDDRaceInput;
 		bool m_NoWeakHookAndBounce;
 		bool m_PredictEvents;
+		bool m_OldLaser;
+		bool m_PredictTeleports;
 	} m_WorldConfig;
 
 	bool m_IsValidCopy;
@@ -99,9 +102,20 @@ public:
 	void NetObjBegin(CTeamsCore Teams, int LocalClientId);
 	void NetCharAdd(int ObjId, CNetObj_Character *pChar, CNetObj_DDNetCharacter *pExtended, int GameTeam, bool IsLocal);
 	void NetObjAdd(int ObjId, int ObjType, const void *pObjData, const CNetObj_EntityEx *pDataEx);
+	void ResetDoorCollision();
+	void SetPracticeTileOverrideCallback(void *pUser, CPracticeTileOverrideCallback pfnCallback)
+	{
+		m_pPracticeTileOverrideUser = pUser;
+		m_pPracticeTileOverrideCallback = pfnCallback;
+	}
+	void ApplyPracticeTileOverride(vec2 Position, bool ResolveCurrentPosition, int &GameTile, int &FrontTile) const
+	{
+		if(m_pPracticeTileOverrideCallback)
+			m_pPracticeTileOverrideCallback(m_pPracticeTileOverrideUser, m_GameTick, Position, ResolveCurrentPosition, GameTile, FrontTile);
+	}
 	void NetObjEnd();
+	void CopyWorldClean(CGameWorld *pFrom);
 	void CopyWorld(CGameWorld *pFrom);
-	void CopyWorldClean(CGameWorld *pFrom); // TClient
 	CEntity *FindMatch(int ObjId, int ObjType, const void *pObjData);
 	void Clear();
 
@@ -143,9 +157,14 @@ public:
 	void CreatePredictedDamageIndEvent(vec2 Pos, float Angle, int Amount, int Id = -1);
 
 private:
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	bool DebugContainsEntity(const CEntity *pEntity) const;
+#endif
 	void RemoveEntities();
 
 	CEntity *m_pNextTraverseEntity = nullptr;
+	void *m_pPracticeTileOverrideUser = nullptr;
+	CPracticeTileOverrideCallback m_pPracticeTileOverrideCallback = nullptr;
 	CEntity *m_apFirstEntityTypes[NUM_ENTTYPES];
 
 	CCharacter *m_apCharacters[MAX_CLIENTS];

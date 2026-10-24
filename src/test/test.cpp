@@ -24,7 +24,7 @@ CTestInfo::CTestInfo()
 	// Replace the string after the first slash with the name of the typed test and use hyphen instead of slash.
 	char aTestCaseName[128];
 	str_copy(aTestCaseName, pTestInfo->test_case_name());
-	for(int i = 0; i < str_length(aTestCaseName); i++)
+	for(int i = 0; aTestCaseName[i] != '\0'; i++)
 	{
 		if(aTestCaseName[i] == '/')
 		{
@@ -81,7 +81,7 @@ public:
 	std::vector<CTestInfoPath> *m_pvEntries;
 };
 
-int TestCollect(const char *pName, int IsDir, int Unused, void *pUser)
+static int TestCollect(const char *pName, int IsDir, int Unused, void *pUser)
 {
 	CTestCollectData *pData = (CTestCollectData *)pUser;
 
@@ -104,7 +104,7 @@ int TestCollect(const char *pName, int IsDir, int Unused, void *pUser)
 	return 0;
 }
 
-void TestDeleteTestStorageFiles(const char *pPath)
+static void TestDeleteTestStorageFiles(const char *pPath)
 {
 	std::vector<CTestInfoPath> vEntries;
 	CTestCollectData Data;

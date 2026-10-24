@@ -271,12 +271,14 @@ public:
 	virtual const std::vector<std::string> &MaplistEntries() const = 0;
 
 	// server info
-	virtual void GetServerInfo(class CServerInfo *pServerInfo) const = 0;
+	virtual const class CServerInfo &ServerInfo() const = 0;
 	virtual bool ServerCapAnyPlayerFlag() const = 0;
 
 	virtual int GetPredictionTime() = 0;
 	virtual int GetPredictionTick() = 0;
 	virtual int PredictionMargin() const = 0;
+	// A transient Auto Margin value must not overwrite the persisted manual setting.
+	virtual void SetAutoPredictionMargin(int Margin) = 0;
 
 	// snapshot interface
 
@@ -291,6 +293,9 @@ public:
 	virtual int SnapNumItems(int SnapId) const = 0;
 	virtual const void *SnapFindItem(int SnapId, int Type, int Id) const = 0;
 	virtual CSnapItem SnapGetItem(int SnapId, int Index) const = 0;
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	virtual bool DebugCheckSnapshotStorage(const char *pBoundary, int OnceSlot = -1) = 0;
+#endif
 
 	virtual void SnapSetStaticsize(int ItemType, int Size) = 0;
 	virtual void SnapSetStaticsize7(int ItemType, int Size) = 0;
@@ -320,6 +325,7 @@ public:
 	virtual const char *PlayerName() const = 0;
 	virtual const char *DummyName() = 0;
 	virtual const char *ErrorString() const = 0;
+	virtual const char *LatestVersion() const = 0;
 	virtual bool ConnectionProblems() const = 0;
 
 	virtual IGraphics::CTextureHandle GetDebugFont() const = 0; // TODO: remove this function
@@ -356,8 +362,8 @@ public:
 	virtual IFriends *Foes() = 0;
 
 	virtual void GetSmoothTick(int *pSmoothTick, float *pSmoothIntraTick, float MixAmount) = 0;
-	// TClient
 	virtual void GetSmoothFreezeTick(int *pSmoothTick, float *pSmoothIntraTick, float MixAmount) = 0;
+	bool m_IsLocalFrozen = false;
 
 	virtual void AddWarning(const SWarning &Warning) = 0;
 	virtual std::optional<SWarning> CurrentWarning() = 0;
@@ -383,6 +389,8 @@ public:
 	 * @return `true` on success, `false` on failure.
 	 *
 	 * @remark This may not be called with untrusted input or it'll result in arbitrary code execution, especially on Windows.
+	 *
+	 * @remark On iOS the file or directory is shown in the Files app.
 	 */
 	virtual bool ViewFile(const char *pFilename) = 0;
 
@@ -393,9 +401,6 @@ public:
 
 	virtual std::optional<int> ShowMessageBox(const IGraphics::CMessageBox &MessageBox) = 0;
 	virtual void GetGpuInfoString(char (&aGpuInfo)[512]) = 0;
-
-	// TClient
-	bool m_IsLocalFrozen = false;
 };
 
 class IGameClient : public IInterface
@@ -403,10 +408,6 @@ class IGameClient : public IInterface
 	MACRO_INTERFACE("gameclient")
 protected:
 public:
-	// TClient
-	virtual bool CheckNewInput() = 0;
-	virtual void SetConnectInfo(const NETADDR *pAddress) = 0;
-
 	virtual void OnConsoleInit() = 0;
 
 	virtual void OnRconType(bool UsernameReq) = 0;
@@ -415,10 +416,8 @@ public:
 	virtual void InvalidateSnapshot() = 0;
 	virtual void OnNewSnapshot(bool DummySwapped) = 0;
 	virtual void OnEnterGame() = 0;
-	virtual void OnShutdown() = 0;
-	// Called while all game components are still alive, immediately before the
-	// shared HTTP service begins its shutdown.
 	virtual void OnBeforeHttpShutdown() {}
+	virtual void OnShutdown() = 0;
 	virtual void OnRender() = 0;
 	virtual void OnUpdate() = 0;
 	virtual void OnStateChange(int NewState, int OldState) = 0;
@@ -427,6 +426,8 @@ public:
 	virtual void OnPredict() = 0;
 	virtual void OnActivateEditor() = 0;
 	virtual void OnWindowResize() = 0;
+	virtual bool CheckNewInput() = 0;
+	virtual void SetConnectInfo(const NETADDR *pAddress) = 0;
 
 	virtual int OnSnapInput(int *pData, bool Dummy, bool Force) = 0;
 	virtual bool NeedsInputSanitization() const = 0;

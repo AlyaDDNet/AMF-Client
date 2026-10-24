@@ -232,6 +232,7 @@ container.sounds.Add(SoundSet("ctf_grab_en", ["audio/sfx_ctf_grab_en.wv"]))
 container.sounds.Add(SoundSet("ctf_capture", ["audio/sfx_ctf_cap_pl.wv"]))
 
 container.sounds.Add(SoundSet("menu", ["audio/music_menu.wv"]))
+container.sounds.Add(SoundSet("amf_run_reset", ["audio/amf_run_reset.wv"]))
 
 image_null = Image("null", "")
 image_particles = Image("particles", "particles.png")

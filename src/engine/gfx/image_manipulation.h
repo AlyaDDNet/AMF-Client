@@ -16,8 +16,8 @@ bool ConvertToRgba(CImageInfo &Image);
 void ConvertToGrayscale(const CImageInfo &Image);
 void ConvertToGrayscaleRect(const CImageInfo &Image, size_t StartX, size_t StartY, size_t Width, size_t Height);
 
-// Color a rectangle inside an image with hue and saturation.
-void ColorizeWithHueRect(CImageInfo &Image, float Hue, float Sat, size_t StartX, size_t StartY, size_t Width, size_t Height);
+// Color a grayscale rectangle with a preset while preserving its source alpha.
+void ColorizeWithPresetRect(CImageInfo &Image, const ColorRGBA &PresetColor, size_t StartX, size_t StartY, size_t Width, size_t Height);
 
 // These functions assume that the image data is 4 bytes per pixel RGBA
 void DilateImage(uint8_t *pImageBuff, int w, int h);

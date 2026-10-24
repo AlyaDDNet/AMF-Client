@@ -48,6 +48,7 @@ public:
 	bool ForcePredictPlayers() const;
 	void InvalidateBufferedInputState();
 	bool IsPracticeParticipant(int ClientId) const;
+	bool ShouldShowPracticeFrozenSkin(int ClientId) const;
 	// Position of the real server-world Tee marker while the same client slot is
 	// rendered from the local practice world.
 	bool GetRegularWorldMarkerPosition(int ClientId, vec2 &Position) const;
@@ -79,6 +80,7 @@ private:
 	enum
 	{
 		INPUT_HISTORY_SIZE = 200,
+		FREEZE_SKIN_DEBOUNCE_TICKS = 3,
 	};
 
 	struct SStoredInput
@@ -154,6 +156,9 @@ private:
 	int m_LastResolvedLocalClientId = -1;
 	int m_LastResolvedDummyClientId = -1;
 	std::array<ivec2, NUM_DUMMIES> m_aServerLockedTargets{};
+	std::array<int, NUM_DUMMIES> m_aServerLockedFire{};
+	std::array<int, NUM_DUMMIES> m_aServerLockedNextWeapon{};
+	std::array<int, NUM_DUMMIES> m_aServerLockedPrevWeapon{};
 	std::array<bool, NUM_DUMMIES> m_aHasServerLockedTargets{};
 	// The real server must receive a stable, released fire counter while the
 	// corresponding input is consumed by the practice world. Keeping one
@@ -184,6 +189,8 @@ private:
 	std::array<CCharacterCore, MAX_CLIENTS> m_aPublishedPrevPredicted{};
 	std::array<CCharacterCore, MAX_CLIENTS> m_aPublishedRegularPredicted{};
 	std::array<bool, MAX_CLIENTS> m_aPublishedValid{};
+	std::array<int, MAX_CLIENTS> m_aFreezeSkinTicks{};
+	int m_LastFreezeSkinDebounceTick = -1;
 
 	SGhostData m_MainGhost;
 	SGhostData m_DummyGhost;
@@ -197,6 +204,7 @@ private:
 	CGameWorld m_PracticePrevWorld;
 
 	static void ConFastPracticeToggle(IConsole::IResult *pResult, void *pUserData);
+	static void ApplyPracticeTileOverride(void *pUser, int PracticeGameTick, vec2 Position, bool ResolveCurrentPosition, int &GameTile, int &FrontTile);
 
 	void ResetPracticeState();
 	void ResetCommandState();
@@ -220,6 +228,7 @@ private:
 	void ReleaseBufferedInputState();
 	void ClearLocalEmoticonPresentation();
 	void CaptureServerLockedTargets();
+	void UpdateFreezeSkinDebounce();
 	void CaptureFrozenTargets();
 	void ResetStoredInputs();
 	void InitializeNeutralFireState();

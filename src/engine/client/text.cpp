@@ -19,14 +19,15 @@
 
 #include <chrono>
 #include <cstddef>
+#include <algorithm>
 #include <limits>
+#include <string>
 #include <tuple>
 #include <unordered_map>
 #include <vector>
 
 using namespace std::chrono_literals;
 
-// TClient
 static void ReplaceHyphensWithSpaces(char *pStr)
 {
 	if(pStr == nullptr)
@@ -35,7 +36,7 @@ static void ReplaceHyphensWithSpaces(char *pStr)
 	{
 		if(*pStr == '-')
 			*pStr = ' ';
-		pStr++;
+		++pStr;
 	}
 }
 
@@ -368,15 +369,13 @@ private:
 				FamilyNameMatch = CurrentFace;
 			}
 
-			// TClient
-			// Third best match: match the fucking font name
-			char aBuf[256];
-			str_copy(aBuf, FT_Get_Postscript_Name(CurrentFace));
-			ReplaceHyphensWithSpaces(aBuf);
-			if(!FamilyNameMatch && str_comp(pFamilyName, aBuf) == 0)
-			{
+			// The custom-font list uses normalized PostScript face names. Keep the
+			// AMF fallback so those entries select the same face on the 20.1 renderer.
+			char aPostscriptName[256];
+			str_copy(aPostscriptName, FT_Get_Postscript_Name(CurrentFace));
+			ReplaceHyphensWithSpaces(aPostscriptName);
+			if(!FamilyNameMatch && str_comp(pFamilyName, aPostscriptName) == 0)
 				FamilyNameMatch = CurrentFace;
-			}
 		}
 
 		return FamilyNameMatch;
@@ -428,7 +427,7 @@ private:
 
 	FT_UInt GetCharGlyph(int Chr, FT_Face *pFace, bool AllowReplacementCharacter)
 	{
-		// TClient: 0xE0073 is '󠁳', which doesn't get rendered if Noto Emoji is used as fallback font
+		// TClient: 0xE0073 is '' which is not rendered with Noto Emoji as fallback.
 		if(Chr == 0xe0073)
 			Chr = REPLACEMENT_CHARACTER;
 
@@ -633,8 +632,6 @@ public:
 			delete[] pTextureData;
 		}
 	}
-	// TClient
-	std::vector<FT_Face> *GetFaces() { return &m_vFtFaces; }
 
 	FT_Face DefaultFace() const
 	{
@@ -649,6 +646,11 @@ public:
 	void AddFace(FT_Face Face)
 	{
 		m_vFtFaces.push_back(Face);
+	}
+
+	const std::vector<FT_Face> *GetFaces() const
+	{
+		return &m_vFtFaces;
 	}
 
 	bool SetDefaultFaceByName(const char *pFamilyName)
@@ -1008,8 +1010,6 @@ class CTextRender : public IEngineTextRender
 	SBufferContainerInfo m_DefaultTextContainerInfo;
 
 	std::chrono::nanoseconds m_CursorRenderTime;
-
-	// TClient
 	std::vector<std::string> m_CustomFontFaces;
 	std::vector<std::string> m_DefaultFontFaces;
 
@@ -1208,16 +1208,15 @@ public:
 		m_pStorage = nullptr;
 	}
 
-	// TClient
 	static int LaziestFileCallback(const char *pFilename, int IsDir, int StorageType, void *pUser)
 	{
-		std::vector<std::string> *pVector = static_cast<std::vector<std::string> *>(pUser);
+		(void)StorageType;
 		if(IsDir)
 			return 0;
-		pVector->emplace_back(pFilename);
+		static_cast<std::vector<std::string> *>(pUser)->emplace_back(pFilename);
 		return 0;
 	}
-	// TClient
+
 	void CheckDefaultFaces()
 	{
 		for(const auto &CurrentFace : *m_pGlyphMap->GetFaces())
@@ -1228,7 +1227,7 @@ public:
 			m_DefaultFontFaces.emplace_back(aBuf);
 		}
 	}
-	// TClient
+
 	void UpdateCustomFontList()
 	{
 		std::vector<std::string> vAllFaces;
@@ -1246,7 +1245,7 @@ public:
 			if(std::find(m_DefaultFontFaces.begin(), m_DefaultFontFaces.end(), Face) == m_DefaultFontFaces.end())
 				m_CustomFontFaces.push_back(Face);
 	}
-	// TClient
+
 	void LoadCustomFonts()
 	{
 		CheckDefaultFaces();
@@ -1262,27 +1261,21 @@ public:
 			if(Storage()->ReadFile(aFontName, IStorage::TYPE_ALL, &pFontData, &FontDataSize))
 			{
 				if(LoadFontCollection(aFontName, static_cast<FT_Byte *>(pFontData), (FT_Long)FontDataSize))
-				{
 					m_vpFontData.push_back(pFontData);
-				}
 				else
-				{
 					free(pFontData);
-				}
 			}
 			else
-			{
 				log_error("textrender", "Failed to open/read font file '%s'", aFontName);
-			}
 		}
 		UpdateCustomFontList();
 	}
-	// TClient
+
 	std::vector<std::string> *GetCustomFaces() override
 	{
 		return &m_CustomFontFaces;
 	}
-	// TClient
+
 	void SetCustomFace(const char *pFace) override
 	{
 		m_pGlyphMap->SetDefaultFaceByName(pFace);
@@ -1373,7 +1366,7 @@ public:
 			log_error("textrender", "Font index malformed: 'default' must be a string");
 			Success = false;
 		}
-		// TClient
+
 		LoadCustomFonts();
 		m_pGlyphMap->AddFallbackFaceByName("DejaVu Sans");
 
@@ -1583,12 +1576,11 @@ public:
 		TextContainerIndex.Reset();
 		TextContainerIndex.m_Index = GetFreeTextContainerIndex();
 
-		float ScreenX0, ScreenY0, ScreenX1, ScreenY1;
-		Graphics()->GetScreen(&ScreenX0, &ScreenY0, &ScreenX1, &ScreenY1);
+		CScreenRect ScreenRect = Graphics()->GetScreen();
 
 		STextContainer &TextContainer = GetTextContainer(TextContainerIndex);
 		TextContainer.m_SingleTimeUse = (m_RenderFlags & TEXT_RENDER_FLAG_ONE_TIME_USE) != 0;
-		const vec2 FakeToScreen = vec2(Graphics()->ScreenWidth(), Graphics()->ScreenHeight()) / vec2(ScreenX1 - ScreenX0, ScreenY1 - ScreenY0);
+		const vec2 FakeToScreen = Graphics()->ScreenSize() / ScreenRect.Size();
 		TextContainer.m_AlignedStartX = round_to_int(pCursor->m_X * FakeToScreen.x) / FakeToScreen.x;
 		TextContainer.m_AlignedStartY = round_to_int(pCursor->m_Y * FakeToScreen.y) / FakeToScreen.y;
 		TextContainer.m_X = pCursor->m_X;
@@ -1633,10 +1625,9 @@ public:
 		STextContainer &TextContainer = GetTextContainer(TextContainerIndex);
 		str_append(TextContainer.m_aDebugText, pText);
 
-		float ScreenX0, ScreenY0, ScreenX1, ScreenY1;
-		Graphics()->GetScreen(&ScreenX0, &ScreenY0, &ScreenX1, &ScreenY1);
+		CScreenRect ScreenRect = Graphics()->GetScreen();
 
-		const vec2 FakeToScreen = vec2(Graphics()->ScreenWidth(), Graphics()->ScreenHeight()) / vec2(ScreenX1 - ScreenX0, ScreenY1 - ScreenY0);
+		const vec2 FakeToScreen = Graphics()->ScreenSize() / ScreenRect.Size();
 		const float CursorX = round_to_int(pCursor->m_X * FakeToScreen.x) / FakeToScreen.x;
 		const float CursorY = round_to_int(pCursor->m_Y * FakeToScreen.y) / FakeToScreen.y;
 		const int ActualSize = round_truncate(pCursor->m_FontSize * FakeToScreen.y);
@@ -1654,19 +1645,11 @@ public:
 		const char *pPrevBatchEnd = nullptr;
 		const char *pEllipsis = "…";
 		const SGlyph *pEllipsisGlyph = nullptr;
-		if(pCursor->m_Flags & TEXTFLAG_ELLIPSIS_AT_END)
-		{
-			if(pCursor->m_LineWidth > 0.0f && pCursor->m_LineWidth < TextWidth(pCursor->m_FontSize, pText))
-			{
-				pEllipsisGlyph = m_pGlyphMap->GetGlyph(0x2026, ActualSize); // …
-				if(pEllipsisGlyph == nullptr)
-				{
-					// no ellipsis char in font, just stop at end instead
-					pCursor->m_Flags &= ~TEXTFLAG_ELLIPSIS_AT_END;
-					pCursor->m_Flags |= TEXTFLAG_STOP_AT_END;
-				}
-			}
-		}
+		// Only text that does not fit as a whole is ellipsized. Both the ellipsis glyph and
+		// the width of the whole text are only determined once the line width is nearly
+		// exhausted, so text that stays well within it is never measured a second time.
+		bool EllipsisGlyphResolved = false;
+		bool EllipsisFitResolved = false;
 
 		const unsigned RenderFlags = TextContainer.m_RenderFlags;
 
@@ -1686,7 +1669,7 @@ public:
 
 		const bool IsRendered = (pCursor->m_Flags & TEXTFLAG_RENDER) != 0;
 
-		const float CursorInnerWidth = ((ScreenX1 - ScreenX0) / Graphics()->ScreenWidth()) * 2;
+		const float CursorInnerWidth = (ScreenRect.Width() / Graphics()->ScreenWidth()) * 2;
 		const float CursorOuterWidth = CursorInnerWidth * 2;
 		const float CursorOuterInnerDiff = (CursorOuterWidth - CursorInnerWidth) / 2;
 
@@ -1869,22 +1852,44 @@ public:
 						CharKerning = m_pGlyphMap->Kerning(pLastGlyph, pGlyph).x * Scale * pCursor->m_AlignedFontSize;
 					pLastGlyph = pGlyph;
 
-					if(pEllipsisGlyph != nullptr && pCursor->m_Flags & TEXTFLAG_ELLIPSIS_AT_END && pCurrent < pBatchEnd && pCurrent != pEllipsis)
+					if((pCursor->m_Flags & TEXTFLAG_ELLIPSIS_AT_END) != 0 && pCursor->m_LineWidth > 0.0f && pCurrent < pBatchEnd && pCurrent != pEllipsis)
 					{
-						float AdvanceEllipsis = (((RenderFlags & TEXT_RENDER_FLAG_ONLY_ADVANCE_WIDTH) != 0) ? (pEllipsisGlyph->m_Width) : (pEllipsisGlyph->m_AdvanceX + ((!ApplyBearingX) ? (-pEllipsisGlyph->m_OffsetX) : 0.f))) * Scale * pCursor->m_AlignedFontSize;
-						float CharKerningEllipsis = 0.0f;
-						if((RenderFlags & TEXT_RENDER_FLAG_KERNING) != 0)
+						if(!EllipsisGlyphResolved)
 						{
-							CharKerningEllipsis = m_pGlyphMap->Kerning(pGlyph, pEllipsisGlyph).x * Scale * pCursor->m_AlignedFontSize;
+							EllipsisGlyphResolved = true;
+							pEllipsisGlyph = m_pGlyphMap->GetGlyph(0x2026, ActualSize); // …
+							if(pEllipsisGlyph == nullptr)
+							{
+								// no ellipsis char in font, just stop at end instead
+								pCursor->m_Flags &= ~TEXTFLAG_ELLIPSIS_AT_END;
+								pCursor->m_Flags |= TEXTFLAG_STOP_AT_END;
+							}
 						}
-						if(pCursor->m_LineWidth > 0.0f &&
-							DrawX + CharKerning + Advance + CharKerningEllipsis + AdvanceEllipsis - pCursor->m_StartX > pCursor->m_LineWidth)
+						if(pEllipsisGlyph != nullptr)
 						{
-							// we hit the end, only render ellipsis and finish
-							pTmp = pEllipsis;
-							NextCharacter = 0x2026;
-							pCursor->m_Truncated = true;
-							continue;
+							float AdvanceEllipsis = (((RenderFlags & TEXT_RENDER_FLAG_ONLY_ADVANCE_WIDTH) != 0) ? (pEllipsisGlyph->m_Width) : (pEllipsisGlyph->m_AdvanceX + ((!ApplyBearingX) ? (-pEllipsisGlyph->m_OffsetX) : 0.f))) * Scale * pCursor->m_AlignedFontSize;
+							float CharKerningEllipsis = 0.0f;
+							if((RenderFlags & TEXT_RENDER_FLAG_KERNING) != 0)
+							{
+								CharKerningEllipsis = m_pGlyphMap->Kerning(pGlyph, pEllipsisGlyph).x * Scale * pCursor->m_AlignedFontSize;
+							}
+							if(DrawX + CharKerning + Advance + CharKerningEllipsis + AdvanceEllipsis - pCursor->m_StartX > pCursor->m_LineWidth)
+							{
+								if(!EllipsisFitResolved)
+								{
+									EllipsisFitResolved = true;
+									if(pCursor->m_LineWidth >= TextWidth(pCursor->m_FontSize, pText))
+										pEllipsisGlyph = nullptr;
+								}
+								if(pEllipsisGlyph != nullptr)
+								{
+									// we hit the end, only render ellipsis and finish
+									pTmp = pEllipsis;
+									NextCharacter = 0x2026;
+									pCursor->m_Truncated = true;
+									continue;
+								}
+							}
 						}
 					}
 
@@ -2027,13 +2032,10 @@ public:
 					{
 						if(pCursor->m_GlyphCount == pCursor->m_CursorCharacter)
 						{
+							HasCursor = !pCursor->m_HideCursor;
+							aCursorQuads[0] = IGraphics::CQuadItem(SelX - CursorOuterInnerDiff, DrawY, CursorOuterWidth, pCursor->m_AlignedFontSize);
+							aCursorQuads[1] = IGraphics::CQuadItem(SelX, DrawY + CursorOuterInnerDiff, CursorInnerWidth, pCursor->m_AlignedFontSize - CursorOuterInnerDiff * 2);
 							pCursor->m_CursorRenderedPosition = vec2(SelX, DrawY);
-							if(!pCursor->m_HideCursorRendering)
-							{
-								HasCursor = true;
-								aCursorQuads[0] = IGraphics::CQuadItem(SelX - CursorOuterInnerDiff, DrawY, CursorOuterWidth, pCursor->m_AlignedFontSize);
-								aCursorQuads[1] = IGraphics::CQuadItem(SelX, DrawY + CursorOuterInnerDiff, CursorInnerWidth, pCursor->m_AlignedFontSize - CursorOuterInnerDiff * 2);
-							}
 						}
 					}
 
@@ -2138,13 +2140,10 @@ public:
 
 			if(pCursor->m_GlyphCount == pCursor->m_CursorCharacter)
 			{
+				HasCursor = !pCursor->m_HideCursor;
+				aCursorQuads[0] = IGraphics::CQuadItem((LastSelX + LastSelWidth) - CursorOuterInnerDiff, DrawY, CursorOuterWidth, pCursor->m_AlignedFontSize);
+				aCursorQuads[1] = IGraphics::CQuadItem((LastSelX + LastSelWidth), DrawY + CursorOuterInnerDiff, CursorInnerWidth, pCursor->m_AlignedFontSize - CursorOuterInnerDiff * 2);
 				pCursor->m_CursorRenderedPosition = vec2(LastSelX + LastSelWidth, DrawY);
-				if(!pCursor->m_HideCursorRendering)
-				{
-					HasCursor = true;
-					aCursorQuads[0] = IGraphics::CQuadItem((LastSelX + LastSelWidth) - CursorOuterInnerDiff, DrawY, CursorOuterWidth, pCursor->m_AlignedFontSize);
-					aCursorQuads[1] = IGraphics::CQuadItem((LastSelX + LastSelWidth), DrawY + CursorOuterInnerDiff, CursorInnerWidth, pCursor->m_AlignedFontSize - CursorOuterInnerDiff * 2);
-				}
 			}
 		}
 
@@ -2336,12 +2335,11 @@ public:
 		STextContainer &TextContainer = GetTextContainer(TextContainerIndex);
 
 		// remap the current screen, after render revert the change again
-		float ScreenX0, ScreenY0, ScreenX1, ScreenY1;
-		Graphics()->GetScreen(&ScreenX0, &ScreenY0, &ScreenX1, &ScreenY1);
+		CScreenRect ScreenRect = Graphics()->GetScreen();
 
 		if((TextContainer.m_RenderFlags & TEXT_RENDER_FLAG_NO_PIXEL_ALIGNMENT) == 0)
 		{
-			const vec2 FakeToScreen = vec2(Graphics()->ScreenWidth(), Graphics()->ScreenHeight()) / vec2(ScreenX1 - ScreenX0, ScreenY1 - ScreenY0);
+			const vec2 FakeToScreen = Graphics()->ScreenSize() / ScreenRect.Size();
 			const float AlignedX = round_to_int((TextContainer.m_X + X) * FakeToScreen.x) / FakeToScreen.x;
 			const float AlignedY = round_to_int((TextContainer.m_Y + Y) * FakeToScreen.y) / FakeToScreen.y;
 			X = AlignedX - TextContainer.m_AlignedStartX;
@@ -2351,9 +2349,9 @@ public:
 		TextContainer.m_BoundingBox.m_X = X;
 		TextContainer.m_BoundingBox.m_Y = Y;
 
-		Graphics()->MapScreen(ScreenX0 - X, ScreenY0 - Y, ScreenX1 - X, ScreenY1 - Y);
+		Graphics()->MapScreen(ScreenRect.Move(vec2(-X, -Y)));
 		RenderTextContainer(TextContainerIndex, TextColor, TextOutlineColor);
-		Graphics()->MapScreen(ScreenX0, ScreenY0, ScreenX1, ScreenY1);
+		Graphics()->MapScreen(ScreenRect);
 	}
 
 	STextBoundingBox GetBoundingBoxTextContainer(STextContainerIndex TextContainerIndex) override

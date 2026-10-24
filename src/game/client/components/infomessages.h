@@ -58,8 +58,6 @@ class CInfoMessages : public CComponent
 	CInfoMsg m_aInfoMsgs[MAX_INFOMSGS];
 	int m_InfoMsgCurrent;
 	HudLayout::SModuleRect m_KillFeedBounds{};
-	// The editor owns a stable compact reservation. Unlike m_KillFeedBounds it
-	// must never follow the transient message list.
 	HudLayout::SModuleRect m_KillFeedEditorBounds{};
 
 	CInfoMsg CreateInfoMsg(EType Type);
@@ -76,11 +74,8 @@ class CInfoMessages : public CComponent
 	void ResetMessage(CInfoMsg &InfoMsg);
 
 public:
-	// The compact editor geometry matches the original Killfeed reservation.
-	// It is deliberately independent of the transient message list.
 	static constexpr float KILLFEED_EDITOR_BASE_WIDTH = 110.0f;
 	static constexpr float KILLFEED_EDITOR_BASE_HEIGHT = 32.0f;
-
 	int Sizeof() const override { return sizeof(*this); }
 	void OnWindowResize() override;
 	void OnReset() override;

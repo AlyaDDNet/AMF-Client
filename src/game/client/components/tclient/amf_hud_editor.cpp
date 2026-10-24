@@ -99,7 +99,8 @@ namespace
 	       Module == HudLayout::MODULE_DUMMY_ACTIONS ||
 	       Module == HudLayout::MODULE_LOCAL_TIME ||
 	       Module == HudLayout::MODULE_GAME_TIMER ||
-	       Module == HudLayout::MODULE_KILLFEED;
+	       Module == HudLayout::MODULE_KILLFEED ||
+	       Module == HudLayout::MODULE_FINISH_PREDICTION;
 	}
 
 	bool SupportsModuleScale(HudLayout::EModule Module)
@@ -119,7 +120,8 @@ namespace
 		       Module == HudLayout::MODULE_LOCAL_TIME ||
 		       Module == HudLayout::MODULE_SCORE ||
 		       Module == HudLayout::MODULE_DUMMY_ACTIONS ||
-		       Module == HudLayout::MODULE_KILLFEED;
+		       Module == HudLayout::MODULE_KILLFEED ||
+		       Module == HudLayout::MODULE_FINISH_PREDICTION;
 	}
 
 	bool PointInRect(vec2 Point, const CUIRect &Rect)
@@ -375,6 +377,9 @@ CUIRect CAmfHudEditor::GetFallbackModuleRect(HudLayout::EModule Module, bool *pH
 		if(Rect.w <= 0.0f || Rect.h <= 0.0f)
 			Rect = GameClient()->m_MusicPlayer.GetHudDefaultRect();
 		break;
+	case HudLayout::MODULE_FINISH_PREDICTION:
+		Rect = GameClient()->m_AmfFinishPrediction.GetHudEditorRect();
+		break;
 	case HudLayout::MODULE_KEYSTROKES_KEYBOARD:
 	{
 		const auto Bounds = GameClient()->m_Hud.GetAmfKeyIndicatorBounds();
@@ -462,8 +467,15 @@ CUIRect CAmfHudEditor::GetFallbackModuleRect(HudLayout::EModule Module, bool *pH
 		Rect = {Layout.m_X, Layout.m_Y, 70.0f, 35.0f};
 		break;
 	case HudLayout::MODULE_NOTIFY_LAST:
-		Rect = {Layout.m_X, Layout.m_Y, 185.0f, 16.0f};
+	{
+		const float Scale = std::clamp(Layout.m_Scale / 100.0f, 0.25f, 3.0f);
+		const float FontSize = std::clamp(g_Config.m_TcNotifyWhenLastSize * Scale, 1.0f, 50.0f * Scale);
+		const char *pText = g_Config.m_TcNotifyWhenLastText[0] != '\0' ? g_Config.m_TcNotifyWhenLastText : "Last!";
+		const float TextWidth = TextRender()->TextWidth(FontSize, pText, -1, -1.0f);
+		const auto Bounds = HudLayout::ClampRectToScreen({Layout.m_X, Layout.m_Y, std::max(TextWidth, 8.0f), FontSize + 2.0f * Scale, 0.0f}, Width, Height);
+		Rect = {Bounds.m_X, Bounds.m_Y, Bounds.m_W, Bounds.m_H};
 		break;
+	}
 	case HudLayout::MODULE_LOCK_CAM:
 		Rect = {Layout.m_X, Layout.m_Y, 16.0f, 16.0f};
 		break;
@@ -530,9 +542,7 @@ CUIRect CAmfHudEditor::GetFallbackModuleRect(HudLayout::EModule Module, bool *pH
 			Rect = {Layout.m_X, Layout.m_Y, 44.0f * Scale, 12.0f * Scale};
 			break;
 		case HudLayout::MODULE_KILLFEED:
-			Rect = {Width - CInfoMessages::KILLFEED_EDITOR_BASE_WIDTH * Scale, 5.0f, CInfoMessages::KILLFEED_EDITOR_BASE_WIDTH * Scale, CInfoMessages::KILLFEED_EDITOR_BASE_HEIGHT * Scale};
-			if(HudLayout::HasPositionOverride(Module))
-				Rect = {Layout.m_X - Rect.w, Layout.m_Y, Rect.w, Rect.h};
+			Rect = {Layout.m_X - CInfoMessages::KILLFEED_EDITOR_BASE_WIDTH * Scale, Layout.m_Y, CInfoMessages::KILLFEED_EDITOR_BASE_WIDTH * Scale, CInfoMessages::KILLFEED_EDITOR_BASE_HEIGHT * Scale};
 			break;
 		default:
 			break;
@@ -620,6 +630,7 @@ void CAmfHudEditor::CollectModuleVisuals(SModuleVisual *pOut, int &Count) const
 	AddModule(HudLayout::MODULE_LOCAL_TIME);
 	AddModule(HudLayout::MODULE_GAME_TIMER);
 	AddModule(HudLayout::MODULE_KILLFEED);
+	AddModule(HudLayout::MODULE_FINISH_PREDICTION);
 }
 
 HudLayout::EModule CAmfHudEditor::HitTestModule(vec2 MousePos) const
@@ -1139,6 +1150,7 @@ void CAmfHudEditor::RenderOverlay(vec2 MousePos)
 	Graphics()->MapScreen(0.0f, 0.0f, Width, Height);
 	Graphics()->TextureClear();
 	Graphics()->DrawRect(0.0f, 0.0f, Width, Height, ColorRGBA(0.0f, 0.0f, 0.0f, 0.38f), IGraphics::CORNER_ALL, 0.0f);
+	GameClient()->m_AmfFinishPrediction.RenderPreview();
 
 	// The live HUD remains underneath the editor. Reservations are drawn below even
 	// when a game-state dependent module is temporarily invisible.

@@ -325,9 +325,11 @@ void CConfigManager::Init()
 		AddVariable(m_ConfigHeap.Allocate<SStringConfigVariable>( \
 			m_pConsole, pScriptName, SConfigVariable::VAR_STRING, Flags, m_ConfigHeap.StoreString(aHelp), g_Config.m_##Name, Def, Len, pOldValue)); \
 	}
+
 #define SET_CONFIG_DOMAIN(_ConfigDomain) ConfigDomain = _ConfigDomain;
 #include "config_includes.h"
 #undef SET_CONFIG_DOMAIN
+
 #undef MACRO_CONFIG_INT
 #undef MACRO_CONFIG_COL
 #undef MACRO_CONFIG_STR
@@ -398,15 +400,13 @@ bool CConfigManager::SaveDomain(ConfigDomain ConfigDomain)
 	if(s_aConfigDomains[ConfigDomain].m_aConfigPath == nullptr)
 		return true;
 
-	m_aFailed[ConfigDomain] = false;
 	char aConfigFileTmp[IO_MAX_PATH_LENGTH];
-	m_aConfigFile[ConfigDomain] = m_pStorage->OpenFile(IStorage::FormatTmpPath(
-									   aConfigFileTmp, sizeof(aConfigFileTmp), s_aConfigDomains[ConfigDomain].m_aConfigPath),
-		IOFLAG_WRITE, IStorage::TYPE_SAVE);
+	m_aFailed[ConfigDomain] = false;
+	m_aConfigFile[ConfigDomain] = m_pStorage->OpenFile(IStorage::FormatTmpPath(aConfigFileTmp, sizeof(aConfigFileTmp), s_aConfigDomains[ConfigDomain].m_aConfigPath), IOFLAG_WRITE, IStorage::TYPE_SAVE);
+
 	if(!m_aConfigFile[ConfigDomain])
 	{
 		log_error("config", "ERROR: opening %s failed", aConfigFileTmp);
-		m_aFailed[ConfigDomain] = true;
 		return false;
 	}
 
@@ -427,9 +427,11 @@ bool CConfigManager::SaveDomain(ConfigDomain ConfigDomain)
 		for(const auto &Callback : m_avCallbacks[ConfigDomain])
 			Callback.m_pfnFunc(this, Callback.m_pUserData);
 
-	if(!m_aFailed[ConfigDomain::DDNET] && m_aConfigFile[ConfigDomain::DDNET])
+	// Legacy behavior: unknown commands from every loaded config domain are
+	// retained globally and emitted into settings_ddnet.cfg on save.
+	if(ConfigDomain == ConfigDomain::DDNET && !m_aFailed[ConfigDomain])
 		for(const char *pCommand : m_vpUnknownCommands)
-			WriteLine(pCommand);
+			WriteLine(pCommand, ConfigDomain);
 
 	bool CloseAttempted = false;
 	if(m_aFailed[ConfigDomain])
@@ -438,21 +440,21 @@ bool CConfigManager::SaveDomain(ConfigDomain ConfigDomain)
 	}
 	else if(io_sync(m_aConfigFile[ConfigDomain]) != 0)
 	{
-		log_error("config", "ERROR: synchronizing %s failed", aConfigFileTmp);
 		m_aFailed[ConfigDomain] = true;
+		log_error("config", "ERROR: synchronizing %s failed", aConfigFileTmp);
 	}
 	else
 	{
 		CloseAttempted = true;
 		if(io_close(m_aConfigFile[ConfigDomain]) != 0)
 		{
-			log_error("config", "ERROR: closing %s failed", aConfigFileTmp);
 			m_aFailed[ConfigDomain] = true;
+			log_error("config", "ERROR: closing %s failed", aConfigFileTmp);
 		}
 		else if(!m_pStorage->RenameFile(aConfigFileTmp, s_aConfigDomains[ConfigDomain].m_aConfigPath, IStorage::TYPE_SAVE))
 		{
-			log_error("config", "ERROR: renaming %s to %s failed", aConfigFileTmp, s_aConfigDomains[ConfigDomain].m_aConfigPath);
 			m_aFailed[ConfigDomain] = true;
+			log_error("config", "ERROR: renaming %s to %s failed", aConfigFileTmp, s_aConfigDomains[ConfigDomain].m_aConfigPath);
 		}
 	}
 
@@ -495,9 +497,7 @@ void CConfigManager::WriteLine(const char *pLine, ConfigDomain ConfigDomain)
 	if(!m_aConfigFile[ConfigDomain] ||
 		io_write(m_aConfigFile[ConfigDomain], pLine, str_length(pLine)) != static_cast<unsigned>(str_length(pLine)) ||
 		!io_write_newline(m_aConfigFile[ConfigDomain]))
-	{
 		m_aFailed[ConfigDomain] = true;
-	}
 }
 
 void CConfigManager::StoreUnknownCommand(const char *pCommand)

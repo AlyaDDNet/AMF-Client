@@ -7,6 +7,7 @@
 #include <engine/font_icons.h>
 
 #include <game/client/components/binds.h>
+#include <game/client/components/tclient/amf_features/ui_theme/style.h>
 #include <game/client/gameclient.h>
 #include <game/client/ui.h>
 #include <game/localization.h>
@@ -85,7 +86,7 @@ CKeyBinder::CKeyReaderResult CKeyBinder::DoKeyReader(CButtonContainer *pReaderBu
 	}
 
 	const ColorRGBA Color = m_pKeyReaderId == pReaderButton && m_TakeKey ? ColorRGBA(0.0f, 1.0f, 0.0f, 0.4f) : ColorRGBA(1.0f, 1.0f, 1.0f, 0.5f * Ui()->ButtonColorMul(pReaderButton));
-	KeyReaderButton.Draw(Color, IGraphics::CORNER_L, 5.0f);
+	AmfUiTheme::DrawUiBind(&KeyReaderButton, Color, m_pKeyReaderId == pReaderButton && m_TakeKey, IGraphics::CORNER_L, 5.0f);
 	CUIRect Label;
 	KeyReaderButton.HMargin(1.0f, &Label);
 	Ui()->DoLabel(&Label, aBuf, Label.h * CUi::ms_FontmodHeight, TEXTALIGN_MC);

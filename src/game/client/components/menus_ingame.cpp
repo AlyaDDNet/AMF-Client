@@ -37,6 +37,7 @@
 #include <game/client/ui_scrollregion.h>
 #include <game/localization.h>
 
+#include <algorithm>
 #include <chrono>
 
 using namespace std::chrono_literals;
@@ -143,6 +144,7 @@ void CMenus::RenderGame(CUIRect MainView)
 		Paused = GameClient()->m_aClients[GameClient()->m_Snap.m_LocalClientId].m_Paused;
 		Spec = GameClient()->m_aClients[GameClient()->m_Snap.m_LocalClientId].m_Spec;
 	}
+
 	if(GameClient()->m_Snap.m_pLocalInfo && GameClient()->m_Snap.m_pGameInfoObj && !Paused && !Spec)
 	{
 		if(GameClient()->m_Snap.m_pLocalInfo->m_Team != TEAM_SPECTATORS)
@@ -217,22 +219,10 @@ void CMenus::RenderGame(CUIRect MainView)
 
 	if(GameClient()->m_ReceivedDDNetPlayer && GameClient()->m_Snap.m_pLocalInfo && (ShowDDRaceButtons || !GameClient()->IsTeamPlay()))
 	{
-		const bool ShowJoinGameButton = Paused || Spec;
-		if(ShowJoinGameButton)
+		if(GameClient()->m_Snap.m_pLocalInfo->m_Team != TEAM_SPECTATORS && !Paused && !Spec)
 		{
-			ButtonBar.VSplitLeft(120.0f, &Button, &ButtonBar);
-			ButtonBar.VSplitLeft(5.0f, nullptr, &ButtonBar);
-
-			static CButtonContainer s_PauseButton;
-			if(DoButton_Menu(&s_PauseButton, Localize("Join game"), 0, &Button))
-			{
-				Console()->ExecuteLine("say /pause", IConsole::CLIENT_ID_UNSPECIFIED);
-				SetActive(false);
-			}
-		}
-		else if(GameClient()->m_Snap.m_pLocalInfo->m_Team != TEAM_SPECTATORS)
-		{
-			// BestClient: fast practice button, shrinks when the button bar runs out of width.
+			// Preserve the AMF Fast Practice control in its legacy button-bar slot.
+			// Keep the native 20.1 Pause/Join control below it.
 			const bool ShowAutoCameraButton = GameClient()->m_Snap.m_pLocalInfo && (GameClient()->m_Snap.m_pLocalInfo->m_Team == TEAM_SPECTATORS || Paused || Spec);
 			constexpr float NormalPracticeButtonWidth = 120.0f;
 			constexpr float CompactPracticeButtonWidth = 52.0f;
@@ -255,17 +245,10 @@ void CMenus::RenderGame(CUIRect MainView)
 					ButtonBar.VSplitLeft(ButtonSpacing, nullptr, &ButtonBar);
 
 				static CButtonContainer s_FastPracticeButton;
-				// The menu normally consumes mouse events, but servers with the
-				// DDNet input compatibility flag keep the control state alive while
-				// the menu is open. Clear this button's press/release state at the
-				// control itself so it cannot become a gameplay fire edge after the
-				// menu closes.
+				// Consume this click at the button so it cannot leak into gameplay input.
 				const auto ConsumeFastPracticeMouseInput = [&]() {
 					const int Dummy = g_Config.m_ClDummy;
 					GameClient()->m_Controls.ResetInput(Dummy);
-					// ResetInput intentionally preserves hook for normal chat/menu
-					// semantics. A practice-button mouse click must consume both
-					// possible gameplay actions at this boundary.
 					GameClient()->m_Controls.m_aInputData[Dummy].m_Hook = 0;
 					GameClient()->m_Controls.m_aLastData[Dummy].m_Hook = 0;
 				};
@@ -279,6 +262,19 @@ void CMenus::RenderGame(CUIRect MainView)
 					ConsumeFastPracticeMouseInput();
 					Console()->ExecuteLine("fast_practice_toggle", IConsole::CLIENT_ID_UNSPECIFIED);
 				}
+			}
+		}
+
+		if(GameClient()->m_Snap.m_pLocalInfo->m_Team != TEAM_SPECTATORS || Paused || Spec)
+		{
+			ButtonBar.VSplitLeft((!Paused && !Spec) ? 65.0f : 120.0f, &Button, &ButtonBar);
+			ButtonBar.VSplitLeft(5.0f, nullptr, &ButtonBar);
+
+			static CButtonContainer s_PauseButton;
+			if(DoButton_Menu(&s_PauseButton, (!Paused && !Spec) ? Localize("Pause") : Localize("Join game"), 0, &Button))
+			{
+				Console()->ExecuteLine("say /pause", IConsole::CLIENT_ID_UNSPECIFIED);
+				SetActive(false);
 			}
 		}
 	}
@@ -630,12 +626,7 @@ void CMenus::RenderPlayers(CUIRect MainView)
 
 		CUIRect PlayerNameRect, PlayerIndicatorRect;
 		const bool ShowPlayerIndicator = GameClient()->m_AmfClientIndicator.LayoutName(
-			Player,
-			Index,
-			14.0f,
-			TextRender()->TextWidth(14.0f, CurrentClient.m_aName),
-			PlayerNameRect,
-			PlayerIndicatorRect);
+			Player, Index, 14.0f, TextRender()->TextWidth(14.0f, CurrentClient.m_aName), PlayerNameRect, PlayerIndicatorRect);
 		Ui()->DoLabel(&PlayerNameRect, CurrentClient.m_aName, 14.0f, TEXTALIGN_ML);
 		if(ShowPlayerIndicator)
 			GameClient()->m_AmfClientIndicator.RenderIcon(PlayerIndicatorRect);
@@ -688,8 +679,7 @@ void CMenus::RenderServerInfo(CUIRect MainView)
 	const float FontSizeTitle = 32.0f;
 	const float FontSizeBody = 20.0f;
 
-	CServerInfo CurrentServerInfo;
-	Client()->GetServerInfo(&CurrentServerInfo);
+	const CServerInfo &CurrentServerInfo = Client()->ServerInfo();
 
 	CUIRect ServerInfo, GameInfo, Motd;
 	MainView.Draw(ms_ColorTabbarActive, IGraphics::CORNER_B, 10.0f);
@@ -848,14 +838,16 @@ void CMenus::RenderServerInfo(CUIRect MainView)
 		default:
 			dbg_assert_failed("unknown team mode");
 		}
-		if((Config()->m_SvTeam == SV_TEAM_ALLOWED || Config()->m_SvTeam == SV_TEAM_MANDATORY) && (Config()->m_SvMinTeamSize != DefaultConfig::SvMinTeamSize || Config()->m_SvMaxTeamSize != DefaultConfig::SvMaxTeamSize))
+		int MinTeamSize = GameClient()->MinTeamSize();
+		int MaxTeamSize = GameClient()->MaxTeamSize();
+		if((Config()->m_SvTeam == SV_TEAM_ALLOWED || Config()->m_SvTeam == SV_TEAM_MANDATORY) && (MinTeamSize != DefaultConfig::SvMinTeamSize || MaxTeamSize != DefaultConfig::SvMaxTeamSize))
 		{
-			if(Config()->m_SvMinTeamSize != DefaultConfig::SvMinTeamSize && Config()->m_SvMaxTeamSize != DefaultConfig::SvMaxTeamSize)
-				str_format(aBuf, sizeof(aBuf), "%s: %s (%s %d, %s %d)", Localize("Teams"), pTeamMode, Localize("minimum", "Team size"), Config()->m_SvMinTeamSize, Localize("maximum", "Team size"), Config()->m_SvMaxTeamSize);
-			else if(Config()->m_SvMinTeamSize != DefaultConfig::SvMinTeamSize)
-				str_format(aBuf, sizeof(aBuf), "%s: %s (%s %d)", Localize("Teams"), pTeamMode, Localize("minimum", "Team size"), Config()->m_SvMinTeamSize);
+			if(MinTeamSize != DefaultConfig::SvMinTeamSize && MaxTeamSize != DefaultConfig::SvMaxTeamSize)
+				str_format(aBuf, sizeof(aBuf), "%s: %s (%s %d, %s %d)", Localize("Teams"), pTeamMode, Localize("minimum", "Team size"), MinTeamSize, Localize("maximum", "Team size"), MaxTeamSize);
+			else if(MinTeamSize != DefaultConfig::SvMinTeamSize)
+				str_format(aBuf, sizeof(aBuf), "%s: %s (%s %d)", Localize("Teams"), pTeamMode, Localize("minimum", "Team size"), MinTeamSize);
 			else
-				str_format(aBuf, sizeof(aBuf), "%s: %s (%s %d)", Localize("Teams"), pTeamMode, Localize("maximum", "Team size"), Config()->m_SvMaxTeamSize);
+				str_format(aBuf, sizeof(aBuf), "%s: %s (%s %d)", Localize("Teams"), pTeamMode, Localize("maximum", "Team size"), MaxTeamSize);
 		}
 		else
 			str_format(aBuf, sizeof(aBuf), "%s: %s", Localize("Teams"), pTeamMode);
@@ -1004,12 +996,7 @@ bool CMenus::RenderServerControlKick(CUIRect MainView, bool FilterSpectators, bo
 		const char *pPlayerName = GameClient()->m_aClients[aPlayerIds[i]].m_aName;
 		CUIRect PlayerNameRect, PlayerIndicatorRect;
 		const bool ShowPlayerIndicator = GameClient()->m_AmfClientIndicator.LayoutName(
-			Label,
-			aPlayerIds[i],
-			16.0f,
-			TextRender()->TextWidth(16.0f, pPlayerName),
-			PlayerNameRect,
-			PlayerIndicatorRect);
+			Label, aPlayerIds[i], 16.0f, TextRender()->TextWidth(16.0f, pPlayerName), PlayerNameRect, PlayerIndicatorRect);
 		Ui()->DoLabel(&PlayerNameRect, pPlayerName, 16.0f, TEXTALIGN_ML);
 		if(ShowPlayerIndicator)
 			GameClient()->m_AmfClientIndicator.RenderIcon(PlayerIndicatorRect);
@@ -1680,6 +1667,8 @@ void CMenus::RenderGhost(CUIRect MainView)
 		if(pGhost->Active())
 			GameClient()->m_Ghost.Unload(pGhost->m_Slot);
 		DeleteGhostItem(s_SelectedIndex);
+		s_SelectedIndex = std::min(s_SelectedIndex, (int)m_vGhosts.size() - 1);
+		return;
 	}
 
 	Status.VSplitRight(5.0f, &Status, nullptr);
@@ -1701,7 +1690,7 @@ void CMenus::RenderIngameHint()
 		return;
 
 	float Width = 300 * Graphics()->ScreenAspect();
-	Graphics()->MapScreen(0.0f, 0.0f, Width, 300);
+	Graphics()->MapScreenToSize(Width, 300);
 	TextRender()->TextColor(1, 1, 1, 1);
 	TextRender()->Text(5, 280, 5, Localize("Menu opened. Press Esc key again to close menu."), -1.0f);
 	Ui()->MapScreen();

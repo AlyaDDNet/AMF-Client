@@ -114,10 +114,11 @@ void ConvertToGrayscaleRect(const CImageInfo &Image, size_t StartX, size_t Start
 	}
 }
 
-void ColorizeWithHueRect(CImageInfo &Image, float Hue, float Sat, size_t StartX, size_t StartY, size_t Width, size_t Height)
+void ColorizeWithPresetRect(CImageInfo &Image, const ColorRGBA &PresetColor, size_t StartX, size_t StartY, size_t Width, size_t Height)
 {
-	dbg_assert(Hue >= 0.0f && Hue <= 1.0f, "Invalid hue");
-	dbg_assert(Sat >= 0.0f && Sat <= 1.0f, "Invalid saturation");
+	const ColorHSLA PresetHsla = color_cast<ColorHSLA>(PresetColor);
+	dbg_assert(PresetHsla.h >= 0.0f && PresetHsla.h <= 1.0f, "Invalid preset hue");
+	dbg_assert(PresetHsla.s >= 0.0f && PresetHsla.s <= 1.0f, "Invalid preset saturation");
 	dbg_assert(Image.m_Format == CImageInfo::FORMAT_RGB || Image.m_Format == CImageInfo::FORMAT_RGBA, "Invalid image format");
 	dbg_assert(StartX + Width <= Image.m_Width && StartY + Height <= Image.m_Height, "Image rect is out of range");
 
@@ -130,16 +131,21 @@ void ColorizeWithHueRect(CImageInfo &Image, float Hue, float Sat, size_t StartX,
 			uint8_t &R = Image.m_pData[PixelIndex * Step];
 			uint8_t &G = Image.m_pData[PixelIndex * Step + 1];
 			uint8_t &B = Image.m_pData[PixelIndex * Step + 2];
+			const float Alpha = Image.m_Format == CImageInfo::FORMAT_RGBA ? Image.m_pData[PixelIndex * Step + 3] / 255.0f : 1.0f;
 
-			ColorRGBA PixelColor(R / 255.0f, G / 255.0f, B / 255.0f, 1.0f);
+			ColorRGBA PixelColor(R / 255.0f, G / 255.0f, B / 255.0f, Alpha);
 			ColorHSLA PixelColorHSLA = color_cast<ColorHSLA>(PixelColor);
-			PixelColorHSLA.h = Hue;
-			PixelColorHSLA.s = Sat;
-			PixelColor = color_cast<ColorRGBA>(PixelColorHSLA);
+			PixelColorHSLA.h = PresetHsla.h;
+			PixelColorHSLA.s = PresetHsla.s;
+			if(PresetHsla.s == 0.0f)
+				PixelColorHSLA.l = PresetHsla.l;
+			PixelColor = color_cast<ColorRGBA>(PixelColorHSLA).Multiply(PresetColor);
 
 			R = static_cast<uint8_t>(PixelColor.r * 255.0f);
 			G = static_cast<uint8_t>(PixelColor.g * 255.0f);
 			B = static_cast<uint8_t>(PixelColor.b * 255.0f);
+			if(Image.m_Format == CImageInfo::FORMAT_RGBA)
+				Image.m_pData[PixelIndex * Step + 3] = static_cast<uint8_t>(PixelColor.a * 255.0f);
 		}
 	}
 }

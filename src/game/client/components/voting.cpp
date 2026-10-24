@@ -11,8 +11,8 @@
 #include <generated/protocol.h>
 
 #include <game/client/components/scoreboard.h>
-#include <game/client/components/tclient/amf_hud_editor.h>
 #include <game/client/components/sounds.h>
+#include <game/client/components/tclient/amf_hud_editor.h>
 #include <game/client/gameclient.h>
 #include <game/localization.h>
 
@@ -213,7 +213,7 @@ void CVoting::RemoveOption(const char *pDescription)
 				pOption->m_pPrev->m_pNext = pOption;
 			m_pRecycleLast = pOption;
 			if(!m_pRecycleFirst)
-				m_pRecycleLast = pOption;
+				m_pRecycleFirst = pOption;
 
 			break;
 		}
@@ -340,21 +340,27 @@ void CVoting::Render()
 {
 	m_HudBounds = {};
 	const bool EditorPreview = GameClient()->m_AmfHudEditor.IsActive();
-	if((!g_Config.m_ClShowVotesAfterVoting && !GameClient()->m_Scoreboard.IsActive() && TakenChoice()) || (!IsVoting() && !EditorPreview))
+	if(!EditorPreview && ((!g_Config.m_ClShowVotesAfterVoting && !GameClient()->m_Scoreboard.IsActive() && TakenChoice()) || !IsVoting()))
 		return;
-	if(!HudLayout::IsEnabled(HudLayout::MODULE_VOTES))
+	if(!EditorPreview && !HudLayout::IsEnabled(HudLayout::MODULE_VOTES))
 		return;
 	const int Seconds = EditorPreview && !IsVoting() ? 60 : SecondsLeft();
-	if(Seconds < 0)
+	if(Seconds < 0 && !EditorPreview)
 	{
 		OnReset();
 		return;
 	}
 
-	// TClient
-	if(g_Config.m_TcMiniVoteHud > 0 && !EditorPreview)
+	if(g_Config.m_TcMiniVoteHud > 0)
 	{
-		GameClient()->m_TClient.RenderMiniVoteHud();
+		const float HudHeight = 300.0f;
+		const float HudWidth = HudHeight * Graphics()->ScreenAspect();
+		const CUIRect View = GetHudRect(HudWidth, HudHeight, EditorPreview);
+		if(View.w <= 0.0f || View.h <= 0.0f)
+			return;
+		const float Scale = View.h / 35.0f;
+		m_HudBounds = {View.x, View.y, View.w, View.h, 3.0f * Scale};
+		GameClient()->m_TClient.RenderMiniVoteHud(EditorPreview);
 		return;
 	}
 
@@ -415,6 +421,25 @@ void CVoting::Render()
 	Ui()->DoLabel(&RightColumn, aBuf, 6.0f * Scale, TEXTALIGN_MR);
 
 	TextRender()->TextColor(TextRender()->DefaultTextColor());
+}
+
+CUIRect CVoting::GetHudRect(float HudWidth, float HudHeight, bool ForcePreview) const
+{
+	if(!ForcePreview && (!HudLayout::IsEnabled(HudLayout::MODULE_VOTES) || !IsVoting()))
+		return {0.0f, 0.0f, 0.0f, 0.0f};
+
+	const auto Layout = HudLayout::Get(HudLayout::MODULE_VOTES, HudWidth, HudHeight);
+	const float Scale = std::clamp(Layout.m_Scale / 100.0f, 0.25f, 3.0f);
+	const bool Mini = g_Config.m_TcMiniVoteHud > 0;
+	CUIRect Rect = {Layout.m_X, Layout.m_Y, (Mini ? 70.0f : 120.0f) * Scale, (Mini ? 35.0f : 38.0f) * Scale};
+	Rect.x = std::clamp(Rect.x, 0.0f, std::max(0.0f, HudWidth - Rect.w));
+	Rect.y = std::clamp(Rect.y, 0.0f, std::max(0.0f, HudHeight - Rect.h));
+	if(!ForcePreview)
+	{
+		Rect.x += GameClient()->m_MusicPlayer.GetHudPushOffsetForRect(Rect, HudWidth, 2.0f);
+		Rect.y += GameClient()->m_MusicPlayer.GetHudPushDownOffsetForRect(Rect, HudHeight, 2.0f);
+	}
+	return Rect;
 }
 
 void CVoting::RenderBars(CUIRect Bars) const

@@ -166,7 +166,6 @@ public:
 
 	bool IsHidden() const { return m_Hidden; }
 	void SetHidden(bool Hidden) { m_Hidden = Hidden; }
-	void SetHideCaret(bool HideCaret) { m_HideCaret = HideCaret; }
 
 	const char *GetEmptyText() const { return m_pEmptyText; }
 	void SetEmptyText(const char *pText) { m_pEmptyText = pText; }
@@ -174,6 +173,12 @@ public:
 	void SetClipboardLineCallback(const FClipboardLineCallback &pfnClipboardLineCallback) { m_pfnClipboardLineCallback = pfnClipboardLineCallback; }
 	void SetDisplayTextCallback(const FDisplayTextCallback &pfnDisplayTextCallback) { m_pfnDisplayTextCallback = pfnDisplayTextCallback; }
 	void SetCalculateOffsetCallback(const FCalculateOffsetCallback &pfnCalculateOffsetCallback) { m_pfnCalculateOffsetCallback = pfnCalculateOffsetCallback; }
+	bool SetHideCaret(bool HideCaret)
+	{
+		const bool Changed = m_HideCaret != HideCaret;
+		m_HideCaret = HideCaret;
+		return Changed;
+	}
 
 	bool ProcessInput(const IInput::CEvent &Event);
 	bool WasChanged()

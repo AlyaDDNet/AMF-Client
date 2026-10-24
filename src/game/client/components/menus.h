@@ -22,6 +22,7 @@
 #include <game/client/components/menus_settings_controls.h>
 #include <game/client/components/menus_start.h>
 #include <game/client/components/skins7.h>
+#include <game/client/components/tclient/amf_features/run_statistics_hold.h>
 #include <game/client/components/tclient/warlist.h>
 #include <game/client/lineinput.h>
 #include <game/client/ui.h>
@@ -51,11 +52,17 @@ class CMenus : public CComponent
 
 public:
 	void OpenAmfClientInfoPopup();
+	void NavigateToSettingsSearchResult(int SettingsPage, int Subpage);
 	void RenderAmfClientInfoOverlay();
 	void OpenAmfHudEditor();
+	void OpenAmfRunStatistics();
+	void ShowAmfRunStatisticsEnableWarning();
+
+	// Width of the image in DoButton_Menu, relative to the button height
+	static constexpr float BUTTON_IMAGE_WIDTH_FACTOR = 4.0f;
 
 	int DoButton_Toggle(const void *pId, int Checked, const CUIRect *pRect, bool Active, unsigned Flags = BUTTONFLAG_LEFT);
-	int DoButton_Menu(CButtonContainer *pButtonContainer, const char *pText, int Checked, const CUIRect *pRect, unsigned Flags = BUTTONFLAG_LEFT, const char *pImageName = nullptr, int Corners = IGraphics::CORNER_ALL, float Rounding = 5.0f, float FontFactor = 0.0f, ColorRGBA Color = ColorRGBA(1.0f, 1.0f, 1.0f, 0.5f), const CUIRect *pInteractionRect = nullptr);
+	int DoButton_Menu(CButtonContainer *pButtonContainer, const char *pText, int Checked, const CUIRect *pRect, unsigned Flags = BUTTONFLAG_LEFT, const char *pImageName = nullptr, int Corners = IGraphics::CORNER_ALL, float Rounding = 5.0f, float FontFactor = 0.0f, ColorRGBA Color = ColorRGBA(1.0f, 1.0f, 1.0f, 0.5f), const void *pImageHotId = nullptr, const CUIRect *pInteractionRect = nullptr, const char *pLeadingIcon = nullptr);
 	int DoButton_MenuTab(CButtonContainer *pButtonContainer, const char *pText, int Checked, const CUIRect *pRect, int Corners, SUIAnimator *pAnimator = nullptr, const ColorRGBA *pDefaultColor = nullptr, const ColorRGBA *pActiveColor = nullptr, const ColorRGBA *pHoverColor = nullptr, float EdgeRounding = 10.0f, const CCommunityIcon *pCommunityIcon = nullptr);
 
 	int DoButton_CheckBox_Common(const void *pId, const char *pText, const char *pBoxText, const CUIRect *pRect, unsigned Flags);
@@ -63,10 +70,10 @@ public:
 	int DoButton_CheckBoxAutoVMarginAndSet(const void *pId, const char *pText, int *pValue, CUIRect *pRect, float VMargin);
 	int DoButton_CheckBox_Number(const void *pId, const char *pText, int Checked, const CUIRect *pRect);
 
+	bool DoLine_RadioMenu(CUIRect &View, const char *pLabel, std::vector<CButtonContainer> &vButtonContainers, const std::vector<const char *> &vLabels, const std::vector<int> &vValues, int &Value);
 	bool DoSliderWithScaledValue(const void *pId, int *pOption, const CUIRect *pRect, const char *pStr, int Min, int Max, int Scale, const IScrollbarScale *pScale, unsigned Flags = 0u, const char *pSuffix = "");
 	bool DoSliderWithDividedValue(const void *pId, int *pOption, const CUIRect *pRect, const char *pStr, int Min, int Max, int Divisor, const IScrollbarScale *pScale, unsigned Flags = 0u, const char *pSuffix = "", bool DecimalDisplay = false);
 	bool DoEditBoxWithLabel(CLineInput *LineInput, const CUIRect *pRect, const char *pLabel, const char *pDefault, char *pBuf, size_t BufSize);
-	bool DoLine_RadioMenu(CUIRect &View, const char *pLabel, std::vector<CButtonContainer> &vButtonContainers, const std::vector<const char *> &vLabels, const std::vector<int> &vValues, int &Value);
 	bool DoLine_KeyReader(CUIRect &View, CButtonContainer &ReaderButton, CButtonContainer &ClearButton, const char *pName, const char *pCommand);
 
 private:
@@ -82,7 +89,7 @@ private:
 
 	int m_DirectionQuadContainerIndex;
 
-	// Asset settings section (implemented in menus_settings.cpp)
+	// menus_settings_assets.cpp
 public:
 	enum EAssetsSelectorTab
 	{
@@ -92,6 +99,7 @@ public:
 	};
 	void OpenAssetsSelector(EAssetsSelectorTab Tab);
 	void SetAssetOrganizerFavorite(int Tab, const char *pName, bool Favorite);
+	bool IsAssetOrganizerPageActive() const;
 	CUi *AssetOrganizerUi() { return Ui(); }
 
 	struct SCustomItem
@@ -99,10 +107,7 @@ public:
 		static constexpr int MAX_NAME_LENGTH = 50;
 
 		IGraphics::CTextureHandle m_RenderTexture;
-		// Read once while the selector scans its assets. Rendering only consumes
-		// this scalar, so contain-fit previews do not decode or inspect files per frame.
 		float m_PreviewAspect = 1.0f;
-
 		int m_FavoriteButtonId = 0;
 		int m_DeleteButtonId = 0;
 		int m_CardButtonId = 0;
@@ -144,7 +149,10 @@ public:
 	struct SCustomCursor : public SCustomItem {};
 	struct SCustomArrow : public SCustomItem {};
 	struct SCustomAudioPack : public SCustomItem {};
-	enum { NUM_ASSET_FAVORITE_TABS = 9 };
+	enum
+	{
+		NUM_ASSET_FAVORITE_TABS = 9,
+	};
 
 protected:
 	std::vector<SCustomEntities> m_vEntitiesList;
@@ -207,36 +215,6 @@ protected:
 	bool m_ShowStart;
 	bool m_MenuActive;
 
-	// Aspect-ratio confirmation is shared by the menu renderer and the AMF
-	// Visuals page. Keeping it on the CMenus instance avoids hidden state in
-	// separate translation-unit helpers and lets the page restore its exact
-	// scroll position after a rejected test.
-	bool m_AspectConfirmSeeded = false;
-	bool m_AspectConfirmActive = false;
-	int64_t m_AspectConfirmDeadline = 0;
-	int m_AspectPrevMode = 0;
-	int m_AspectPrevRatio = 0;
-	int m_AspectPrevApplyMode = 1;
-	int m_AspectPrevNum = 0;
-	int m_AspectPrevDen = 0;
-	int m_AspectLastMode = -99;
-	int m_AspectLastRatio = -99;
-	int m_AspectLastApplyMode = -99;
-	int m_AspectLastNum = -99;
-	int m_AspectLastDen = -99;
-	// Custom aspect settings are edited in the Visuals card before the user
-	// explicitly applies them. While this is set, the saved config continues to
-	// describe the currently active aspect and the test monitor must not start.
-	bool m_AspectCustomEditPending = false;
-
-	CScrollRegion m_AmfVisualScrollRegion;
-	bool m_AspectVisualScrollSnapshotValid = false;
-	float m_AspectVisualScrollBeforeTest = 0.0f;
-	bool m_AspectVisualScrollRestorePending = false;
-	float m_AspectVisualScrollRestorePosition = 0.0f;
-	bool m_AspectVisualScrollFocusPending = false;
-	bool m_AspectTestViewRendered = false;
-
 	bool m_DummyNamePlatePreview = false;
 
 	class CJoinTutorial
@@ -290,6 +268,41 @@ protected:
 	};
 	CLoadingState m_LoadingState;
 
+	int m_AmfSettingsPage = 0;
+	int m_AmfSettingsSearchTemporaryPage = -1;
+	bool m_AmfSettingsSearchNavigationActive = false;
+	int m_TClientSettingsSearchTemporaryTab = -1;
+	int m_TClientSettingsTab = 0;
+	bool m_AmfRunStatisticsOpen = false;
+	CAmfRunStatisticsHoldState m_AmfRunStatisticsHold;
+	bool m_AmfRunStatisticsDetail = false;
+	bool m_AmfImpactFullHistory = false;
+	int m_AmfRunStatisticsTab = 0;
+	uint64_t m_AmfImpactDeleteRunId = 0;
+	uint64_t m_AmfImpactDetailRunId = 0;
+
+	bool m_AspectConfirmSeeded = false;
+	bool m_AspectConfirmActive = false;
+	int64_t m_AspectConfirmDeadline = 0;
+	int m_AspectPrevMode = 0;
+	int m_AspectPrevRatio = 0;
+	int m_AspectPrevApplyMode = 1;
+	int m_AspectPrevNum = 0;
+	int m_AspectPrevDen = 0;
+	int m_AspectLastMode = -99;
+	int m_AspectLastRatio = -99;
+	int m_AspectLastApplyMode = -99;
+	int m_AspectLastNum = -99;
+	int m_AspectLastDen = -99;
+	bool m_AspectCustomEditPending = false;
+	CScrollRegion m_AmfVisualScrollRegion;
+	bool m_AspectVisualScrollSnapshotValid = false;
+	float m_AspectVisualScrollBeforeTest = 0.0f;
+	bool m_AspectVisualScrollRestorePending = false;
+	float m_AspectVisualScrollRestorePosition = 0.0f;
+	bool m_AspectVisualScrollFocusPending = false;
+	bool m_AspectTestViewRendered = false;
+
 	//
 	char m_aMessageTopic[512];
 	char m_aMessageBody[512];
@@ -334,6 +347,7 @@ protected:
 	// for settings
 	bool m_NeedRestartGraphics;
 	bool m_NeedRestartSound;
+	bool m_NeedRestartUpdate;
 	bool m_NeedSendinfo;
 	bool m_NeedSendDummyinfo;
 
@@ -445,6 +459,7 @@ protected:
 	std::chrono::nanoseconds m_DemoPopulateStartTime{0};
 
 	void DemolistOnUpdate(bool Reset);
+	void DemolistSelectNeighbor();
 	static int DemolistFetchCallback(const CFsFileInfo *pInfo, int IsDir, int StorageType, void *pUser);
 
 	// friends
@@ -612,7 +627,7 @@ protected:
 	std::vector<CUIElement *> m_avpServerBrowserUiElements[IServerBrowser::NUM_TYPES];
 	void RenderServerbrowserServerList(CUIRect View, bool &WasListboxItemActivated);
 	void RenderServerbrowserStatusBox(CUIRect StatusBox, bool WasListboxItemActivated);
-	void Connect(const char *pAddress);
+	void RenderServerbrowserAmfPresence(CUIRect View);
 	void PopupConfirmSwitchServer();
 	void RenderServerbrowserFilters(CUIRect View);
 	void ResetServerbrowserFilters();
@@ -650,50 +665,47 @@ protected:
 	static void ConchainUiPageUpdate(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
 	void UpdateCommunityCache(bool Force);
 
-	// implemented in menus_settings.cpp
+	// found in menus_settings.cpp
 	void RenderSettings(CUIRect MainView);
 	bool RenderHslaScrollbars(CUIRect *pRect, unsigned int *pColor, bool Alpha, float DarkestLight);
 
-	// implemented in menus_settings.cpp (assets section)
+	// found in menus_settings_assets.cpp
 	void RenderSettingsAssets(CUIRect MainView);
 
-	// implemented in menus_settings.cpp (appearance section)
+	// found in menus_settings_appearance.cpp
 	void RenderSettingsAppearance(CUIRect MainView);
 	void DoLaserPreview(const CUIRect *pRect, ColorHSLA OutlineColor, ColorHSLA InnerColor, int LaserType);
 
-	// implemented in menus_settings_controls.cpp
+	// found in menus_settings_controls.cpp
 	// TODO: Change PopupConfirm to avoid using a function pointer to a CMenus
 	//       member function, to move this function to CMenusSettingsControls
 	void ResetSettingsControls();
 
-	// implemented in menus_settings.cpp (credits section)
-	void RenderSettingsCredits(CUIRect MainView);
-
-	// implemented in menus_settings.cpp (DDNet section)
+	// found in menus_settings_ddnet.cpp
 	void RenderSettingsDDNet(CUIRect MainView);
 
-	// settings helpers implemented in menus_settings.cpp
+	// found in menus_settings_general.cpp
 	void RenderSettingsGeneral(CUIRect MainView);
 	void RenderThemeSelection(CUIRect MainView);
 
-	// implemented in menus_settings.cpp (graphics section)
+	// found in menus_settings_graphics.cpp
 	void RenderSettingsGraphics(CUIRect MainView);
 
-	// implemented in menus_settings.cpp (language section)
+	// found in menus_settings_language.cpp
 	void RenderLanguageSettings(CUIRect MainView);
 	bool RenderLanguageSelection(CUIRect MainView);
 
-	// implemented in menus_settings.cpp (player section)
+	// found in menus_settings_player.cpp
 	void RenderSettingsPlayer(CUIRect MainView);
 
-	// implemented in menus_settings.cpp (sound section)
+	// found in menus_settings_sound.cpp
 	void RenderSettingsSound(CUIRect MainView);
 
-	// implemented in menus_settings.cpp (tee section)
+	// found in menus_settings_tee.cpp
 	void RenderSettingsTee(CUIRect MainView);
 	bool m_SkinListScrollToSelected = false;
 
-	// implemented in menus_settings.cpp (tee7 section)
+	// found in menus_settings_tee7.cpp
 	void RenderSettingsTee7(CUIRect MainView);
 	void PopupConfirmDeleteSkin7();
 	void RenderSettingsTeeCustom7(CUIRect MainView);
@@ -702,6 +714,8 @@ protected:
 	bool m_CustomSkinMenu = false;
 	int m_TeePartSelected = protocol7::SKINPART_BODY;
 	const CSkins7::CSkin *m_pSelectedSkin = nullptr;
+	int m_SelectedSkinIndex7 = -1;
+	int m_DeletedSkinIndex7 = -1;
 	CLineInputBuffered<protocol7::MAX_SKIN_ARRAY_SIZE, protocol7::MAX_SKIN_LENGTH> m_SkinNameInput;
 	bool m_SkinPartListNeedsUpdate = false;
 
@@ -750,6 +764,7 @@ public:
 	CMenus();
 	int Sizeof() const override { return sizeof(*this); }
 
+	void RenderLoadingDirect(const char *pCaption, const char *pContent, std::optional<float> Progress);
 	void RenderLoading(const char *pCaption, const char *pContent, int IncreaseCounter);
 	void FinishLoading();
 
@@ -763,6 +778,7 @@ public:
 	void OnInit() override;
 
 	void OnStateChange(int NewState, int OldState) override;
+	void OnRelease() override;
 	void OnWindowResize() override;
 	void OnRender() override;
 	bool OnInput(const IInput::CEvent &Event) override;
@@ -838,6 +854,7 @@ public:
 		SMALL_TAB_SERVER,
 		SMALL_TAB_BROWSER_FILTER,
 		SMALL_TAB_BROWSER_INFO,
+		SMALL_TAB_BROWSER_AMF_PRESENCE,
 		SMALL_TAB_BROWSER_FRIENDS,
 
 		SMALL_TAB_LENGTH,
@@ -939,6 +956,7 @@ public:
 	void SetShowStart(bool ShowStart);
 	void ShowQuitPopup();
 	void JoinTutorial();
+	void Connect(const char *pAddress);
 
 private:
 	CCommunityIcons m_CommunityIcons;
@@ -949,14 +967,20 @@ private:
 	CMenusStart m_MenusStart;
 
 	static int GhostlistFetchCallback(const CFsFileInfo *pInfo, int IsDir, int StorageType, void *pUser);
+	static void ConKeyAmfRunStatistics(IConsole::IResult *pResult, void *pUserData);
 
 	// found in menus_ingame.cpp
 	void RenderInGameNetwork(CUIRect MainView);
 	void RenderGhost(CUIRect MainView);
-
-	// found in menus_tclient.cpp
 	void RenderSettingsTClient(CUIRect MainView);
 	void RenderSettingsAmfClient(CUIRect MainView);
+	void RenderSettingsAmfEnhancedWeapons(CUIRect &Column);
+	void DoRocketPreview(const CUIRect *pRect);
+	void RenderAmfRunStatistics(CUIRect MainView);
+	void RenderAmfRunStatisticsQuickOverlay(CUIRect Screen, float Progress);
+	void RenderAmfRunCompletionToast();
+	void ConfirmDeleteAmfImpactRun();
+	void CancelDeleteAmfImpactRun();
 	void RenderAspectRatioTestView(CUIRect MainView);
 	void DrawAspectRatioButton(const CUIRect &Rect, ColorRGBA NormalColor, ColorRGBA HoverColor, ColorRGBA PressedColor, bool Hovered, bool Pressed);
 	void ConfirmAspectRatioTest();
@@ -967,6 +991,7 @@ private:
 	void RestoreAmfVisualScrollPosition();
 	void DiscardAmfVisualScrollPosition();
 	void RenderSettingsTClientSettings(CUIRect MainView);
+	void RenderAmfBestFeatureVisuals(CUIRect &LeftColumn, CUIRect &RightColumn, bool TwoColumns, bool HeaderOnly);
 	void RenderSettingsTClientBindWheel(CUIRect MainView);
 	void RenderSettingsTClientChatBinds(CUIRect MainView);
 	void RenderSettingsTClientWarList(CUIRect MainView);
@@ -974,15 +999,14 @@ private:
 	void RenderSettingsTClientStatusBar(CUIRect MainView);
 	void RenderSettingsTClientProfiles(CUIRect MainView);
 	void RenderSettingsTClientConfigs(CUIRect MainView);
-	void RenderTeeCute(const CAnimState *pAnim, const CTeeRenderInfo *pInfo, int Emote, vec2 Dir, vec2 Pos, bool CuteEyes, float Alpha = 1.0f);
-
+	void RenderTeeCute(const CAnimState *pAnim, const CTeeRenderInfo *pInfo, int Emote, vec2 Dir, vec2 Pos, bool CuteEyes, float Alpha = 1.0f, bool HappyEyesOnHover = true);
 	const CWarType *m_pRemoveWarType = nullptr;
 	void PopupConfirmRemoveWarType();
 	void RenderDevSkin(vec2 RenderPos, float Size, const char *pSkinName, const char *pBackupSkin, bool CustomColors, int FeetColor, int BodyColor, int Emote, bool Rainbow, bool Cute,
-		ColorRGBA ColorFeet = ColorRGBA(0, 0, 0, 0), ColorRGBA ColorBody = ColorRGBA(0, 0, 0, 0));
+		ColorRGBA ColorFeet = ColorRGBA(0, 0, 0, 0), ColorRGBA ColorBody = ColorRGBA(0, 0, 0, 0), bool HappyEyesOnHover = true);
 	void RenderFontIcon(CUIRect Rect, const char *pText, float Size, int Align);
+	void RenderFontIcon(CUIRect Rect, const char *pText, float Size, int Align, const SLabelProperties &LabelProps);
 	int DoButtonNoRect_FontIcon(CButtonContainer *pButtonContainer, const char *pText, int Checked, const CUIRect *pRect, int Corners = IGraphics::CORNER_ALL);
-
 	ColorHSLA RenderHSLColorPicker(const CUIRect *pRect, unsigned int *pColor, bool Alpha);
 	int DoButtonLineSize_Menu(CButtonContainer *pButtonContainer, const char *pText, int Checked, const CUIRect *pRect, float ButtonLineSize, bool Fake = false, const char *pImageName = nullptr, int Corners = IGraphics::CORNER_ALL, float Rounding = 5.0f, float FontFactor = 0.0f, ColorRGBA Color = ColorRGBA(1.0f, 1.0f, 1.0f, 0.5f));
 };

@@ -5,8 +5,6 @@
 
 #include "camera.h"
 
-#include <game/client/components/tclient/amf_gradient.h>
-
 #include <engine/graphics.h>
 #include <engine/shared/config.h>
 #include <engine/textrender.h>
@@ -14,13 +12,16 @@
 #include <generated/protocol.h>
 
 #include <game/client/animstate.h>
+#include <game/client/components/tclient/amf_gradient.h>
 #include <game/client/gameclient.h>
 #include <game/localization.h>
+#include <game/client/ui_rect.h>
 
 #include <limits>
 
 bool CSpectator::CanChangeSpectatorId()
 {
+	// don't change SpectatorId when not spectating
 	if(!GameClient()->m_Snap.m_SpecInfo.m_Active)
 		return false;
 
@@ -282,13 +283,23 @@ void CSpectator::OnRender()
 		++TotalPlayers;
 	}
 
-	if(TotalPlayers > 64)
+	if(TotalPlayers > 96)
 	{
-		FontSize = 12.0f;
+		FontSize = 15.0f;
 		LineHeight = 15.0f;
 		TeeSizeMod = 0.3f;
 		PerLine = 32;
 		RoundRadius = 5.0f;
+		BoxMove = 3.0f;
+		BoxOffset = 6.0f;
+	}
+	else if(TotalPlayers > 64)
+	{
+		FontSize = 16.0f;
+		LineHeight = 19.0f;
+		TeeSizeMod = 0.45f;
+		PerLine = 24;
+		RoundRadius = 6.0f;
 		BoxMove = 3.0f;
 		BoxOffset = 6.0f;
 	}
@@ -333,7 +344,7 @@ void CSpectator::OnRender()
 		}
 	}
 
-	Graphics()->MapScreen(0.0f, 0.0f, Width, Height);
+	Graphics()->MapScreenToSize(Width, Height);
 
 	SpectatorRect.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.3f), IGraphics::CORNER_ALL, 20.0f);
 
@@ -342,11 +353,10 @@ void CSpectator::OnRender()
 	m_SelectorMouse.y = std::clamp(m_SelectorMouse.y, -280.0f, 280.0f);
 
 	const bool MousePressed = Input()->KeyPress(KEY_MOUSE_1) || m_TouchState.m_PrimaryPressed;
-	const int CurrentSpectatorId = GameClient()->m_Snap.m_SpecInfo.m_SpectatorId;
 
 	// draw selections
 	if((Client()->State() == IClient::STATE_DEMOPLAYBACK && GameClient()->m_DemoSpecId == SPEC_FREEVIEW) ||
-		(Client()->State() != IClient::STATE_DEMOPLAYBACK && CurrentSpectatorId == SPEC_FREEVIEW))
+		(Client()->State() != IClient::STATE_DEMOPLAYBACK && GameClient()->m_Snap.m_SpecInfo.m_SpectatorId == SPEC_FREEVIEW))
 	{
 		Graphics()->DrawRect(Width / 2.0f - (ObjWidth - 20.0f), Height / 2.0f - 280.0f, ((ObjWidth * 2.0f) / 3.0f) - 40.0f, 60.0f, ColorRGBA(1.0f, 1.0f, 1.0f, 0.25f), IGraphics::CORNER_ALL, 20.0f);
 	}
@@ -476,7 +486,7 @@ void CSpectator::OnRender()
 
 		OldDDTeam = DDTeam;
 
-		if((Client()->State() == IClient::STATE_DEMOPLAYBACK && GameClient()->m_DemoSpecId == GameClient()->m_Snap.m_apInfoByDDTeamName[i]->m_ClientId) || (Client()->State() != IClient::STATE_DEMOPLAYBACK && CurrentSpectatorId == GameClient()->m_Snap.m_apInfoByDDTeamName[i]->m_ClientId))
+		if((Client()->State() == IClient::STATE_DEMOPLAYBACK && GameClient()->m_DemoSpecId == GameClient()->m_Snap.m_apInfoByDDTeamName[i]->m_ClientId) || (Client()->State() != IClient::STATE_DEMOPLAYBACK && GameClient()->m_Snap.m_SpecInfo.m_SpectatorId == GameClient()->m_Snap.m_apInfoByDDTeamName[i]->m_ClientId))
 		{
 			Graphics()->DrawRect(Width / 2.0f + x - 10.0f + BoxOffset, Height / 2.0f + y + BoxMove, 270.0f - BoxOffset, LineHeight, ColorRGBA(1.0f, 1.0f, 1.0f, 0.25f), IGraphics::CORNER_ALL, RoundRadius);
 		}
@@ -530,7 +540,7 @@ void CSpectator::OnRender()
 			TextRender()->TextColor(1.0f, 1.0f, 1.0f, PlayerSelected ? 1.0f : 0.5f);
 			TeeAlpha = 1.0f;
 		}
-		const int ClientId = GameClient()->m_Snap.m_apInfoByDDTeamName[i]->m_ClientId;
+		const int ClientId = pInfo->m_ClientId;
 		const char *pPlayerName = GameClient()->m_aClients[ClientId].m_aName;
 		const CUIRect NameAvailable = {
 			Width / 2.0f + x + 50.0f,
@@ -560,14 +570,9 @@ void CSpectator::OnRender()
 			GameClient()->FormatClientId(ClientId, aClientId, EClientIdFormat::INDENT_AUTO);
 			TextRender()->TextEx(&NameCursor, aClientId);
 		}
-
-		// TClient
-		if(pInfo && pInfo->m_ClientId > 0 && g_Config.m_TcWarList && g_Config.m_TcWarListSpectate && GameClient()->m_WarList.GetAnyWar(pInfo->m_ClientId))
-		{
-			TextRender()->TextColor(GameClient()->m_WarList.GetPriorityColor(pInfo->m_ClientId));
-		}
+		if(pInfo->m_ClientId > 0 && g_Config.m_TcWarList && g_Config.m_TcWarListSpectate && GameClient()->m_WarList.GetAnyWar(ClientId))
+			TextRender()->TextColor(GameClient()->m_WarList.GetPriorityColor(ClientId));
 		AmfGradient::AppendNicknameColorSplits(NameCursor, pPlayerName, ClientId, GameClient(), TextRender()->GetTextColor());
-
 		TextRender()->TextEx(&NameCursor, pPlayerName);
 		if(ShowAmfIndicator)
 			GameClient()->m_AmfClientIndicator.RenderIcon(IndicatorRect, PlayerSelected ? 1.0f : 0.5f);

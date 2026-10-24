@@ -13,6 +13,9 @@
 #include <game/client/gameclient.h>
 #include <game/client/ui.h>
 
+#include <array>
+#include <cmath>
+
 CEmoticon::CEmoticon()
 {
 	CEmoticon::OnReset();
@@ -232,7 +235,7 @@ void CEmoticon::OnRender()
 	{
 		float Angle = 2 * pi * Emote / (float)NUM_EMOTICONS;
 		if(Angle > pi)
-			Angle -= 2.0f * pi;
+			Angle -= 2 * pi;
 
 		Graphics()->TextureSet(GameClient()->m_EmoticonsSkin.m_aSpriteEmoticons[Emote]);
 		Graphics()->QuadsSetSubset(0, 0, 1, 1);
@@ -260,7 +263,7 @@ void CEmoticon::OnRender()
 		{
 			float Angle = 2 * pi * Emote / (float)NUM_EMOTES;
 			if(Angle > pi)
-				Angle -= 2.0f * pi;
+				Angle -= 2 * pi;
 
 			const vec2 Nudge = direction(Angle) * s_InnerItemRadius * aAnimationPhase[3];
 			const float Phase = ItemAnimationTime == 0.0f ? (Emote == m_SelectedEyeEmote ? 1.0f : 0.0f) : QuadEaseInOut(m_aAnimationTimeEyeEmotes[Emote] / ItemAnimationTime);

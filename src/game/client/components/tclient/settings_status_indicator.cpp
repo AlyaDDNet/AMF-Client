@@ -6,6 +6,7 @@
 #include <engine/shared/config.h>
 
 #include <game/client/components/menus.h>
+#include <game/client/components/player_render_state.h>
 #include <game/client/gameclient.h>
 
 namespace
@@ -148,6 +149,17 @@ void CSettingsStatusIndicator::OnRender()
 	{
 		const bool FastPracticeActive = IsFastPracticeActive(ClientId);
 		if((!FastPracticeActive && !IsSettingsOpen(ClientId)) || !GameClient()->m_Snap.m_aCharacters[ClientId].m_Active)
+		{
+			m_aDebugRendered[ClientId] = false;
+			continue;
+		}
+		const bool PracticeTeeVisible = GameClient()->m_FastPractice.Active() && GameClient()->m_FastPractice.IsPracticeParticipant(ClientId);
+		const bool ServerTeeVisible = PlayerRenderState::HasVisibleServerTee(
+			GameClient()->m_Snap.m_aCharacters[ClientId].m_Active,
+			GameClient()->m_Snap.m_apPrevPlayerInfos[ClientId] != nullptr,
+			GameClient()->m_Snap.m_apPlayerInfos[ClientId] != nullptr);
+		if(!PracticeTeeVisible && !PlayerRenderState::HasVisibleWorldTee(
+			ServerTeeVisible, GameClient()->IsOtherTeam(ClientId), g_Config.m_ClShowOthersAlpha))
 		{
 			m_aDebugRendered[ClientId] = false;
 			continue;

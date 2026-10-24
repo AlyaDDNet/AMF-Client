@@ -111,6 +111,7 @@ public:
 	int IsFrontTimeCheckpoint(int Index) const;
 
 	int MoverSpeed(int x, int y, vec2 *pSpeed) const;
+	bool HasHookTeleIns() const;
 
 	const CLayers *Layers() const { return m_pLayers; }
 	const CTile *GameLayer() const { return m_pTiles; }
@@ -142,6 +143,12 @@ public:
 
 	const std::vector<vec2> &TeleIns(int Number) { return m_TeleIns[Number]; }
 	const std::vector<vec2> &TeleOuts(int Number) { return m_TeleOuts[Number]; }
+	const std::vector<vec2> &TeleOuts(int Number) const
+	{
+		static const std::vector<vec2> Empty;
+		const auto It = m_TeleOuts.find(Number);
+		return It != m_TeleOuts.end() ? It->second : Empty;
+	}
 	const std::vector<vec2> &TeleCheckOuts(int Number) { return m_TeleCheckOuts[Number]; }
 	const std::vector<vec2> &TeleOthers(int Number) { return m_TeleOthers[Number]; }
 
@@ -165,8 +172,9 @@ private:
 	std::map<int, std::vector<vec2>> m_TeleOuts;
 	// TILE_TELECHECKOUT
 	std::map<int, std::vector<vec2>> m_TeleCheckOuts;
-	// TILE_TELEINEVIL, TILE_TELECHECK, TILE_TELECHECKIN, TILE_TELECHECKINEVIL
+	// TILE_TELEINEVIL, TILE_TELECHECK, TILE_TELECHECKIN, TILE_TELECHECKINEVIL, TILE_TELEINHOOK
 	std::map<int, std::vector<vec2>> m_TeleOthers;
+	bool m_HasHookTeleIns;
 };
 
 void ThroughOffset(vec2 Pos0, vec2 Pos1, int *pOffsetX, int *pOffsetY);

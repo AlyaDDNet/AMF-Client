@@ -126,3 +126,38 @@ bool CRaceHelper::IsStart(vec2 Prev, vec2 Pos) const
 	}
 	return false;
 }
+
+bool CRaceHelper::IsStart(int ClientId, vec2 Prev, vec2 Pos) const
+{
+	if(m_pGameClient->m_GameInfo.m_FlagStartsRace)
+	{
+		if(ClientId < 0 || ClientId >= MAX_CLIENTS)
+			return false;
+		const int Team = m_pGameClient->m_aClients[ClientId].m_Team;
+		if(Team != TEAM_RED && Team != TEAM_BLUE)
+			return false;
+		const int EnemyTeam = Team ^ 1;
+		return m_aFlagIndex[EnemyTeam] != -1 && distance(Pos, m_pGameClient->Collision()->GetPos(m_aFlagIndex[EnemyTeam])) < 32;
+	}
+
+	const std::vector<int> vIndices = m_pGameClient->Collision()->GetMapIndices(Prev, Pos);
+	if(!vIndices.empty())
+	{
+		for(const int Index : vIndices)
+		{
+			if(m_pGameClient->Collision()->GetTileIndex(Index) == TILE_START)
+				return true;
+			if(m_pGameClient->Collision()->GetFrontTileIndex(Index) == TILE_START)
+				return true;
+		}
+	}
+	else
+	{
+		const int Index = m_pGameClient->Collision()->GetPureMapIndex(Pos);
+		if(m_pGameClient->Collision()->GetTileIndex(Index) == TILE_START)
+			return true;
+		if(m_pGameClient->Collision()->GetFrontTileIndex(Index) == TILE_START)
+			return true;
+	}
+	return false;
+}

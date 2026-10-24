@@ -184,6 +184,7 @@ uint32_t Read32(const unsigned char *pData)
 struct SEntry
 {
 	std::string m_Name;
+	uint32_t m_Crc32 = 0;
 	uint64_t m_CompressedSize = 0;
 	uint64_t m_UncompressedSize = 0;
 	uint16_t m_Method = 0;
@@ -287,6 +288,7 @@ bool ReadCentralDirectory(const std::vector<unsigned char> &vZip, std::vector<SE
 			return false;
 		SEntry Entry;
 		Entry.m_Method = Read16(&vZip[Pos + 10]);
+		Entry.m_Crc32 = Read32(&vZip[Pos + 16]);
 		Entry.m_CompressedSize = Read32(&vZip[Pos + 20]);
 		Entry.m_UncompressedSize = Read32(&vZip[Pos + 24]);
 		const uint16_t NameLength = Read16(&vZip[Pos + 28]);
@@ -339,9 +341,17 @@ bool ExtractEntry(const std::vector<unsigned char> &vZip, const SEntry &Entry, c
 
 	const unsigned char *pSource = &vZip[static_cast<size_t>(DataOffset)];
 	bool Success = true;
+	uLong Crc = crc32(0L, Z_NULL, 0);
 	if(Entry.m_Method == 0)
 	{
-		Success = Entry.m_CompressedSize == Entry.m_UncompressedSize && WriteAll(File, pSource, static_cast<size_t>(Entry.m_CompressedSize));
+		Success = Entry.m_CompressedSize == Entry.m_UncompressedSize;
+		for(uint64_t Offset = 0; Success && Offset < Entry.m_UncompressedSize;)
+		{
+			const uInt Chunk = static_cast<uInt>(std::min<uint64_t>(Entry.m_UncompressedSize - Offset, 0x40000));
+			Crc = crc32(Crc, pSource + Offset, Chunk);
+			Success = WriteAll(File, pSource + Offset, Chunk);
+			Offset += Chunk;
+		}
 	}
 	else
 	{
@@ -373,15 +383,25 @@ bool ExtractEntry(const std::vector<unsigned char> &vZip, const SEntry &Entry, c
 				break;
 			}
 			Total += Produced;
-			if(Total > Entry.m_UncompressedSize || (Produced > 0 && !WriteAll(File, vOutput.data(), Produced)))
+			if(Total > Entry.m_UncompressedSize)
 			{
 				Success = false;
 				break;
+			}
+			if(Produced > 0)
+			{
+				Crc = crc32(Crc, vOutput.data(), static_cast<uInt>(Produced));
+				if(!WriteAll(File, vOutput.data(), Produced))
+				{
+					Success = false;
+					break;
+				}
 			}
 		} while(Result != Z_STREAM_END);
 		inflateEnd(&Stream);
 		Success &= Result == Z_STREAM_END && Total == Entry.m_UncompressedSize;
 	}
+	Success &= static_cast<uint32_t>(Crc) == Entry.m_Crc32;
 	CloseHandle(File);
 	if(!Success)
 		DeleteFileW(Destination.c_str());
@@ -616,7 +636,7 @@ bool CollectRelativeFiles(const std::wstring &Root, const std::wstring &Director
 	return Success;
 }
 
-bool CopyUserFilesNotInDistribution(const std::wstring &Source, const std::wstring &Destination, const std::wstring &InstallRoot, const std::set<std::wstring> &DistributionFiles)
+bool CopyUserFilesNotInDistribution(const std::wstring &Source, const std::wstring &Destination, const std::wstring &InstallRoot, const std::set<std::wstring> &OldDistributionFiles, const std::set<std::wstring> &NewDistributionFiles)
 {
 	const DWORD Attributes = GetFileAttributesW(Source.c_str());
 	if(Attributes == INVALID_FILE_ATTRIBUTES)
@@ -624,7 +644,7 @@ bool CopyUserFilesNotInDistribution(const std::wstring &Source, const std::wstri
 	if((Attributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
 	{
 		const std::wstring Relative = NormalizeRelativePath(RelativePath(InstallRoot, Source));
-		return !Relative.empty() && (DistributionFiles.contains(Relative) || CopyAny(Source, Destination));
+		return !Relative.empty() && (OldDistributionFiles.contains(Relative) || NewDistributionFiles.contains(Relative) || CopyAny(Source, Destination));
 	}
 
 	WIN32_FIND_DATAW FindData;
@@ -638,7 +658,7 @@ bool CopyUserFilesNotInDistribution(const std::wstring &Source, const std::wstri
 			continue;
 		const std::wstring SourcePath = JoinPath(Source, FindData.cFileName);
 		const std::wstring DestinationPath = JoinPath(Destination, FindData.cFileName);
-		Success &= CopyUserFilesNotInDistribution(SourcePath, DestinationPath, InstallRoot, DistributionFiles);
+		Success &= CopyUserFilesNotInDistribution(SourcePath, DestinationPath, InstallRoot, OldDistributionFiles, NewDistributionFiles);
 	} while(FindNextFileW(Find, &FindData));
 	FindClose(Find);
 	return Success;
@@ -656,7 +676,7 @@ const wchar_t *const USER_DATA_DIRECTORIES[] = {
 	L"demos", L"screenshots", L"editor", L"ghosts", L"downloadedmaps", L"downloadedskins",
 };
 
-bool PreserveUserData(const std::wstring &From, const std::wstring &To, const std::set<std::wstring> &DistributionFiles)
+bool PreserveUserData(const std::wstring &From, const std::wstring &To, const std::set<std::wstring> &OldDistributionFiles, const std::set<std::wstring> &NewDistributionFiles)
 {
 	for(const wchar_t *pRelative : USER_DATA_FILES)
 	{
@@ -667,7 +687,7 @@ bool PreserveUserData(const std::wstring &From, const std::wstring &To, const st
 	for(const wchar_t *pRelative : USER_DATA_DIRECTORIES)
 	{
 		const std::wstring Source = JoinPath(From, pRelative);
-		if(!CopyUserFilesNotInDistribution(Source, JoinPath(To, pRelative), From, DistributionFiles))
+		if(!CopyUserFilesNotInDistribution(Source, JoinPath(To, pRelative), From, OldDistributionFiles, NewDistributionFiles))
 			return false;
 	}
 	return true;
@@ -705,15 +725,16 @@ bool ReadDistributionManifest(const std::wstring &Path, std::set<std::wstring> &
 	return !Files.empty();
 }
 
-std::vector<std::wstring> FindObsoleteDistributionFiles(const std::wstring &Install, const std::set<std::wstring> &NewFiles)
+std::vector<std::wstring> FindObsoleteDistributionFiles(const std::wstring &Install, const std::set<std::wstring> &NewFiles, std::set<std::wstring> &OldFiles)
 {
-	std::set<std::wstring> OldFiles;
+	const std::wstring LegacyAmfLogo = L"data\\tclient\\gui_logo.png";
+	const std::wstring LegacyDiscordPriorityRestoreHelper = L"amfclient-discord-priority-restore.exe";
 	std::vector<std::wstring> Obsolete;
 	if(ReadDistributionManifest(JoinPath(Install, L"amf_distribution_manifest.txt"), OldFiles))
 	{
 		for(const std::wstring &Relative : OldFiles)
 		{
-			if(!NewFiles.contains(Relative))
+			if(!NewFiles.contains(Relative) && Relative != LegacyAmfLogo)
 				Obsolete.push_back(Relative);
 		}
 	}
@@ -723,7 +744,35 @@ std::vector<std::wstring> FindObsoleteDistributionFiles(const std::wstring &Inst
 		// It is not user data and is absent from the AMF 1.1 portable package.
 		Obsolete.emplace_back(L"steam_api.lib");
 	}
+	// This product logo was shipped before distribution manifests existed. Remove
+	// only this known AMF-owned path when updating older installs without a manifest.
+	if(!NewFiles.contains(LegacyAmfLogo))
+		Obsolete.push_back(LegacyAmfLogo);
+	// The restore helper is an AMF-owned executable, not user data. Remove this
+	// known legacy name even from installs that predate distribution manifests.
+	if(!NewFiles.contains(LegacyDiscordPriorityRestoreHelper) &&
+		std::find(Obsolete.begin(), Obsolete.end(), LegacyDiscordPriorityRestoreHelper) == Obsolete.end())
+		Obsolete.push_back(LegacyDiscordPriorityRestoreHelper);
 	return Obsolete;
+}
+
+bool ValidateStagedDistribution(const std::wstring &CopyRoot, const std::set<std::wstring> &ActualFiles)
+{
+	std::set<std::wstring> ManifestFiles;
+	if(!ReadDistributionManifest(JoinPath(CopyRoot, L"amf_distribution_manifest.txt"), ManifestFiles))
+		return false;
+	std::set<std::wstring> StagedFiles = ActualFiles;
+	StagedFiles.erase(L"amf_distribution_manifest.txt");
+	return ManifestFiles == StagedFiles && ManifestFiles.contains(L"ddnet.exe") &&
+		ManifestFiles.contains(L"amfclient-updater.exe") && ManifestFiles.contains(L"amfclient-install-helper.exe");
+}
+
+bool RestorePreviousInstall(const std::wstring &CopyRoot, const std::wstring &Install, const std::wstring &Rollback, const std::wstring &Preserve, const std::set<std::wstring> &OldFiles, const std::set<std::wstring> &NewFiles)
+{
+	bool Success = RemoveNewFiles(CopyRoot, Install, Rollback, CopyRoot);
+	Success = CopyTree(Rollback, Install, Rollback, false) && Success;
+	Success = PreserveUserData(Preserve, Install, OldFiles, NewFiles) && Success;
+	return Success;
 }
 
 bool BackupObsoleteDistributionFiles(const std::vector<std::wstring> &Obsolete, const std::wstring &Install, const std::wstring &Rollback)
@@ -1022,10 +1071,17 @@ DWORD WINAPI WorkerThread(LPVOID pUser)
 		Fail(L"Could not read the update file manifest.");
 		return 1;
 	}
-	const std::vector<std::wstring> ObsoleteDistributionFiles = FindObsoleteDistributionFiles(pArgs->m_InstallDirectory, NewDistributionFiles);
+	if(!ValidateStagedDistribution(CopyRoot, NewDistributionFiles))
+	{
+		DeleteTree(ExtractDirectory);
+		Fail(L"Update package contents do not match its distribution manifest.");
+		return 1;
+	}
+	std::set<std::wstring> OldDistributionFiles;
+	const std::vector<std::wstring> ObsoleteDistributionFiles = FindObsoleteDistributionFiles(pArgs->m_InstallDirectory, NewDistributionFiles, OldDistributionFiles);
 
 	SetStatus(L"Protecting AMF Client data...");
-	if(!PreserveUserData(pArgs->m_InstallDirectory, PreserveDirectory, NewDistributionFiles) ||
+	if(!PreserveUserData(pArgs->m_InstallDirectory, PreserveDirectory, OldDistributionFiles, NewDistributionFiles) ||
 		!BackupOverwrittenFiles(CopyRoot, pArgs->m_InstallDirectory, RollbackDirectory, CopyRoot) ||
 		!BackupObsoleteDistributionFiles(ObsoleteDistributionFiles, pArgs->m_InstallDirectory, RollbackDirectory))
 	{
@@ -1047,29 +1103,24 @@ DWORD WINAPI WorkerThread(LPVOID pUser)
 	if(!Installed)
 	{
 		SetStatus(L"Restoring previous AMF Client files...");
-		RemoveNewFiles(CopyRoot, pArgs->m_InstallDirectory, RollbackDirectory, CopyRoot);
-		CopyTree(RollbackDirectory, pArgs->m_InstallDirectory, RollbackDirectory, false);
-		PreserveUserData(PreserveDirectory, pArgs->m_InstallDirectory, NewDistributionFiles);
-		Fail(L"Could not replace all update files. The previous version was restored.");
+		const bool Restored = RestorePreviousInstall(CopyRoot, pArgs->m_InstallDirectory, RollbackDirectory, PreserveDirectory, OldDistributionFiles, NewDistributionFiles);
+		Fail(Restored ? L"Could not replace all update files. The previous version was restored." : L"Update failed and rollback was incomplete. Keep the update backup and repair the installation.");
 		return 1;
 	}
 
 	if(!RemoveObsoleteDistributionFiles(ObsoleteDistributionFiles, pArgs->m_InstallDirectory))
 	{
 		SetStatus(L"Restoring previous AMF Client files...");
-		RemoveNewFiles(CopyRoot, pArgs->m_InstallDirectory, RollbackDirectory, CopyRoot);
-		CopyTree(RollbackDirectory, pArgs->m_InstallDirectory, RollbackDirectory, false);
-		PreserveUserData(PreserveDirectory, pArgs->m_InstallDirectory, NewDistributionFiles);
-		Fail(L"Could not clean obsolete update files. The previous version was restored.");
+		const bool Restored = RestorePreviousInstall(CopyRoot, pArgs->m_InstallDirectory, RollbackDirectory, PreserveDirectory, OldDistributionFiles, NewDistributionFiles);
+		Fail(Restored ? L"Could not clean obsolete update files. The previous version was restored." : L"Cleanup failed and rollback was incomplete. Keep the update backup and repair the installation.");
 		return 1;
 	}
 
 	SetStatus(L"Restoring AMF Client data...");
-	if(!PreserveUserData(PreserveDirectory, pArgs->m_InstallDirectory, NewDistributionFiles))
+	if(!PreserveUserData(PreserveDirectory, pArgs->m_InstallDirectory, OldDistributionFiles, NewDistributionFiles))
 	{
-		RemoveNewFiles(CopyRoot, pArgs->m_InstallDirectory, RollbackDirectory, CopyRoot);
-		CopyTree(RollbackDirectory, pArgs->m_InstallDirectory, RollbackDirectory, false);
-		Fail(L"Could not restore AMF Client data. The previous version was restored.");
+		const bool Restored = RestorePreviousInstall(CopyRoot, pArgs->m_InstallDirectory, RollbackDirectory, PreserveDirectory, OldDistributionFiles, NewDistributionFiles);
+		Fail(Restored ? L"Could not restore AMF Client data. The previous version was restored." : L"Data restore failed and rollback was incomplete. Keep the update backup and repair the installation.");
 		return 1;
 	}
 	SetPercent(95);
@@ -1077,10 +1128,8 @@ DWORD WINAPI WorkerThread(LPVOID pUser)
 	if(!pArgs->m_NoLaunch && (!FileExists(pArgs->m_ClientExecutable) || !LaunchClient(*pArgs)))
 	{
 		SetStatus(L"Restoring previous AMF Client files...");
-		RemoveNewFiles(CopyRoot, pArgs->m_InstallDirectory, RollbackDirectory, CopyRoot);
-		CopyTree(RollbackDirectory, pArgs->m_InstallDirectory, RollbackDirectory, false);
-		PreserveUserData(PreserveDirectory, pArgs->m_InstallDirectory, NewDistributionFiles);
-		Fail(L"Updated AMF Client could not be launched. The previous version was restored.");
+		const bool Restored = RestorePreviousInstall(CopyRoot, pArgs->m_InstallDirectory, RollbackDirectory, PreserveDirectory, OldDistributionFiles, NewDistributionFiles);
+		Fail(Restored ? L"Updated AMF Client could not be launched. The previous version was restored." : L"Client launch failed and rollback was incomplete. Keep the update backup and repair the installation.");
 		return 1;
 	}
 

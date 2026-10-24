@@ -68,8 +68,7 @@ public:
 
 	void SetTextureScale(int Scale);
 	int GetTextureScale() const;
-	// Shared by the console command and AMF Visuals selector. This is the only
-	// mutation path for the persistent Tune Zone preset and its texture refresh.
+	void SetTuneZoneColorsEnabled(int Enabled);
 	void SetTuneZoneColorPreset(int Preset);
 
 	void ChangeEntitiesPath(const char *pPath);
@@ -88,8 +87,8 @@ private:
 
 	static void ConchainClTextEntitiesSize(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
 	static void ConTuneZoneColor(IConsole::IResult *pResult, void *pUserData);
-	void ReloadEntities();
 	void InitOverlayTextures();
+	void ReloadEntities();
 	IGraphics::CTextureHandle UploadEntityLayerText(int TextureSize, int MaxWidth, int YOffset);
 	void UpdateEntityLayerText(CImageInfo &TextImage, int TextureSize, int MaxWidth, int YOffset, int NumbersPower, int MaxNumber = -1);
 };

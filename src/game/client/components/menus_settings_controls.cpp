@@ -13,6 +13,7 @@
 #include <game/client/components/binds.h>
 #include <game/client/components/key_binder.h>
 #include <game/client/components/menus.h>
+#include <game/client/components/tclient/amf_features/run_statistics_hold.h>
 #include <game/client/gameclient.h>
 #include <game/client/ui.h>
 #include <game/client/ui_scrollregion.h>
@@ -40,8 +41,7 @@ bool CBindSlotUiElement::operator<(const CBindSlotUiElement &Other) const
 	{
 		return true;
 	}
-	return m_Bind.m_ModifierMask < Other.m_Bind.m_ModifierMask ||
-	       m_Bind.m_Key < Other.m_Bind.m_Key;
+	return (m_Bind.m_ModifierMask != Other.m_Bind.m_ModifierMask) ? (m_Bind.m_ModifierMask < Other.m_Bind.m_ModifierMask) : (m_Bind.m_Key < Other.m_Bind.m_Key);
 }
 
 std::vector<CBindSlotUiElement>::iterator CBindOption::GetBindSlotElement(const CBindSlot &BindSlot)

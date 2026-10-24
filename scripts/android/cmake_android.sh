@@ -133,11 +133,13 @@ fi
 function build_for_type() {
 	# Remove absolute build paths from binary
 	build_extra_cflags="-ffile-prefix-map=${ANDROID_TOOLCHAIN_ROOT}=ANDROID_TOOLCHAIN_ROOT"
+	build_ipo=OFF
 	if [[ "${BUILD_TYPE}" == "Release" ]]; then
 		build_extra_cflags="${build_extra_cflags} ${ANDROID_EXTRA_RELEASE_CFLAGS}"
+		build_ipo=ON
 	fi
 
-	# TClient
+	# Preserve the optional TClient version header when provided by the build environment.
 	if [ -f versioninfo.h ]; then
 		build_extra_cflags="${build_extra_cflags} -include$(pwd)/versioninfo.h"
 	fi
@@ -164,6 +166,7 @@ function build_for_type() {
 		-DCARGO_NDK_API="$ANDROID_API" \
 		-DANDROID_PACKAGE_NAME="${PACKAGE_NAME}" \
 		-DANDROID_PACKAGE_NAME_JNI="${PACKAGE_NAME//./_}" \
+		-DIPO="${build_ipo}" \
 		-DPREFER_BUNDLED_LIBS=ON \
 		-DSERVER=ON \
 		-DTOOLS=OFF \

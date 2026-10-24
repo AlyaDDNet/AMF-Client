@@ -48,6 +48,9 @@ class CGameConsole : public CComponent
 		int m_BacklogCurLine;
 		int m_BacklogLastActiveLine = -1;
 		int m_LinesRendered;
+		int m_BacklogTotalLines = 0;
+		bool m_ScrollbarDragging = false;
+		float m_ScrollbarDragOffset = 0.0f;
 
 		STextBoundingBox m_BoundingBox = {0.0f, 0.0f, 0.0f, 0.0f};
 		float m_LastInputHeight = 0.0f;
@@ -135,6 +138,7 @@ class CGameConsole : public CComponent
 		void GetCommand(const char *pInput, char (&aCmd)[IConsole::CMDLINE_LENGTH]);
 
 		void UpdateEntryTextAttributes(CBacklogEntry *pEntry) const;
+		float LogLineWidth() const;
 
 		bool IsInputHidden() const;
 		void UpdateCompletionSuggestions();
@@ -163,6 +167,11 @@ class CGameConsole : public CComponent
 
 	bool m_WantsSelectionCopy = false;
 	CUi::CTouchState m_TouchState;
+
+	vec2 m_ButtonPressPosition = vec2(0.0f, 0.0f);
+	bool m_ButtonPressed = false;
+
+	bool DoButton(const CUIRect &Rect, const char *pIcon, vec2 MousePosition, bool Released);
 
 	static constexpr ColorRGBA ms_SearchHighlightColor = ColorRGBA(1.0f, 0.0f, 0.0f, 1.0f);
 	static constexpr ColorRGBA ms_SearchSelectedColor = ColorRGBA(1.0f, 1.0f, 0.0f, 1.0f);

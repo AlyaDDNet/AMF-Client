@@ -5,6 +5,7 @@
 
 #include <game/client/component.h>
 #include <game/client/components/envelope_state.h>
+#include <game/client/components/tclient/moving_tiles_collision.h>
 #include <game/mapitems.h>
 
 #include <vector>
@@ -71,6 +72,7 @@ public:
 	void OnStateChange(int NewState, int OldState) override;
 	void OnMapLoad() override;
 	void OnRender() override;
+	void AccumulatePracticeCollision(int PracticeGameTick, vec2 Position, bool ResolveCurrentPosition, MovingTilesCollision::SOverride &Override) const;
 
 	int Sizeof() const override { return sizeof(*this); }
 };

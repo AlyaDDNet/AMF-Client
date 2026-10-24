@@ -1,7 +1,5 @@
 #include "nameplates.h"
 
-#include <base/str.h>
-
 #include <engine/font_icons.h>
 #include <engine/graphics.h>
 #include <engine/shared/config.h>
@@ -11,13 +9,13 @@
 #include <generated/client_data.h>
 
 #include <game/client/animstate.h>
+#include <game/client/components/player_render_state.h>
 #include <game/client/components/tclient/amf_gradient.h>
+#include <game/client/components/countryflags.h>
+#include <game/client/components/tclient/warlist.h>
 #include <game/client/gameclient.h>
 #include <game/client/prediction/entities/character.h>
-#include <game/client/ui_rect.h>
 
-#include <algorithm>
-#include <cmath>
 #include <memory>
 #include <vector>
 
@@ -31,18 +29,21 @@ enum class EHookStrongWeakState
 class CNamePlateData
 {
 public:
-	bool m_Local; // TClient
 	bool m_InGame;
 	ColorRGBA m_Color;
 	bool m_ShowName;
 	char m_aName[std::max((size_t)MAX_NAME_LENGTH, (size_t)protocol7::MAX_NAME_ARRAY_SIZE)];
 	bool m_ShowFriendMark;
 	bool m_ShowAmfClientIndicator;
+	bool m_ShowAmfClientVersion;
 	bool m_ShowClientId;
 	int m_ClientId;
 	float m_FontSizeClientId;
 	bool m_ClientIdSeparateLine;
 	float m_FontSize;
+	float m_FontSizeAmfClientVersion;
+	char m_aAmfClientVersion[128];
+	bool m_Local;
 	bool m_ShowClan;
 	char m_aClan[std::max((size_t)MAX_CLAN_LENGTH, (size_t)protocol7::MAX_CLAN_ARRAY_SIZE)];
 	float m_FontSizeClan;
@@ -61,6 +62,7 @@ public:
 // Part Types
 
 static constexpr float DEFAULT_PADDING = 5.0f;
+static constexpr int AMF_CLIENT_VERSION_LABEL_BUFFER_SIZE = 128;
 
 class CNamePlatePart
 {
@@ -115,12 +117,11 @@ public:
 		if(Data.m_InGame)
 		{
 			// Create text at standard zoom
-			float ScreenX0, ScreenY0, ScreenX1, ScreenY1;
-			This.Graphics()->GetScreen(&ScreenX0, &ScreenY0, &ScreenX1, &ScreenY1);
+			CScreenRect ScreenRect = This.Graphics()->GetScreen();
 			This.Graphics()->MapScreenToInterface(This.m_Camera.m_Center.x, This.m_Camera.m_Center.y);
 			This.TextRender()->DeleteTextContainer(m_TextContainerIndex);
 			UpdateText(This, Data);
-			This.Graphics()->MapScreen(ScreenX0, ScreenY0, ScreenX1, ScreenY1);
+			This.Graphics()->MapScreen(ScreenRect);
 		}
 		else
 		{
@@ -237,8 +238,6 @@ public:
 		if(m_LocalPlayer)
 		{
 			const vec2 Velocity = This.m_aClients[Data.m_ClientId].m_Predicted.m_Vel;
-			// DDNet's world Y axis points down: jumping has a negative Y velocity
-			// and falling a positive one, so this sign produces the desired motion.
 			m_TargetInertiaOffset = vec2(
 				std::clamp(Velocity.x * 0.35f, -2.5f, 2.5f),
 				std::clamp(Velocity.y * 0.25f, -2.5f, 2.5f));
@@ -249,8 +248,6 @@ public:
 			m_InertiaOffset = vec2(0.0f, 0.0f);
 			m_HasBasePosition = false;
 		}
-		// The icon is an overlay and must not influence the name line when the
-		// name is visible. With a hidden name it supplies a virtual name line.
 		m_Size = vec2(0.0f, m_NameVisible ? 0.0f : m_IconHeight);
 		m_Color = ColorRGBA(1.0f, 1.0f, 1.0f, Data.m_Color.a);
 	}
@@ -266,8 +263,6 @@ public:
 		vec2 RenderPosition = TargetPosition;
 		if(m_LocalPlayer)
 		{
-			// BasePosition is always current. Only this small, velocity-derived local
-			// offset is smoothed, so the marker cannot trail behind the nameplate.
 			if(!m_HasBasePosition || distance(m_PreviousBasePosition, TargetPosition) > 64.0f)
 			{
 				m_InertiaOffset = vec2(0.0f, 0.0f);
@@ -337,7 +332,6 @@ public:
 	CNamePlatePartDirection(CGameClient &This, Direction Dir) :
 		CNamePlatePartIcon(This)
 	{
-		// The default arrows use DDNet's original IMAGE_ARROW texture directly.
 		m_Texture = This.HasCustomArrowAsset() ? This.ArrowTexture() : g_pData->m_aImages[IMAGE_ARROW].m_Id;
 		m_Direction = Dir;
 		switch(m_Direction)
@@ -467,7 +461,6 @@ protected:
 		if(!m_Visible)
 			return false;
 		m_Color = Data.m_Color;
-		// TClient
 		if(g_Config.m_TcWarList)
 		{
 			if(This.m_WarList.GetWarData(Data.m_ClientId).m_WarName)
@@ -476,6 +469,11 @@ protected:
 				m_Color = This.m_WarList.GetClanColor(Data.m_ClientId).WithAlpha(Data.m_Color.a);
 		}
 		const bool Gradient = AmfGradient::NicknamesEnabled();
+		m_Color = AmfGradient::ResolveNameplateNicknameBaseColor(
+			m_Color,
+			This.TextRender()->DefaultTextColor(),
+			Gradient,
+			g_Config.m_AmfGradientNicknameSource);
 		ColorRGBA GradientLeft, GradientRight;
 		if(Gradient)
 			AmfGradient::GetNicknameColors(Data.m_ClientId, &This, m_Color, GradientLeft, GradientRight);
@@ -502,6 +500,37 @@ public:
 		CNamePlatePartText(This) {}
 };
 
+class CNamePlatePartAmfClientVersion : public CNamePlatePartText
+{
+private:
+	float m_FontSize = -INFINITY;
+	char m_aVersion[AMF_CLIENT_VERSION_LABEL_BUFFER_SIZE] = "";
+	char m_aText[AMF_CLIENT_VERSION_LABEL_BUFFER_SIZE + 3] = "";
+
+protected:
+	bool UpdateNeeded(CGameClient &This, const CNamePlateData &Data) override
+	{
+		m_Visible = Data.m_ShowAmfClientVersion;
+		if(!m_Visible)
+			return false;
+		m_Color = Data.m_Color;
+		return m_FontSize != Data.m_FontSizeAmfClientVersion || str_comp(m_aVersion, Data.m_aAmfClientVersion) != 0;
+	}
+	void UpdateText(CGameClient &This, const CNamePlateData &Data) override
+	{
+		m_FontSize = Data.m_FontSizeAmfClientVersion;
+		str_copy(m_aVersion, Data.m_aAmfClientVersion, sizeof(m_aVersion));
+		str_format(m_aText, sizeof(m_aText), "[%s]", Data.m_aAmfClientVersion);
+		CTextCursor Cursor;
+		Cursor.m_FontSize = m_FontSize;
+		This.TextRender()->CreateOrAppendTextContainer(m_TextContainerIndex, &Cursor, m_aText);
+	}
+
+public:
+	CNamePlatePartAmfClientVersion(CGameClient &This) :
+		CNamePlatePartText(This) {}
+};
+
 class CNamePlatePartClan : public CNamePlatePartText
 {
 private:
@@ -515,9 +544,6 @@ protected:
 		if(!m_Visible && Data.m_aClan[0] != '\0')
 			return false;
 		m_Color = Data.m_Color;
-		// TClient
-		if(This.m_WarList.GetWarData(Data.m_ClientId).m_WarClan)
-			m_Color = This.m_WarList.GetClanColor(Data.m_ClientId).WithAlpha(Data.m_Color.a);
 		return m_FontSize != Data.m_FontSizeClan || str_comp(m_aText, Data.m_aClan) != 0;
 	}
 	void UpdateText(CGameClient &This, const CNamePlateData &Data) override
@@ -614,11 +640,9 @@ public:
 		CNamePlatePartText(This) {}
 };
 
-// ***** TClient Parts *****
-
 class CNamePlatePartCountry : public CNamePlatePart
 {
-protected:
+private:
 	static constexpr float FLAG_WIDTH = 128.0f;
 	static constexpr float FLAG_HEIGHT = 64.0f;
 	static constexpr float FLAG_RATIO = FLAG_HEIGHT / FLAG_WIDTH;
@@ -626,18 +650,13 @@ protected:
 	float m_Alpha = 1.0f;
 
 public:
-	friend class CGameClient;
 	void Update(CGameClient &This, const CNamePlateData &Data) override
 	{
-		m_Visible = true;
-		if(g_Config.m_TcNameplateCountry == 0)
-		{
-			m_Visible = false;
+		m_Visible = g_Config.m_TcNameplateCountry != 0;
+		if(!m_Visible)
 			return;
-		}
 		if(Data.m_InGame)
 		{
-			// Check for us and dummy, Data.m_Local only does current char
 			for(const auto Id : This.m_aLocalIds)
 			{
 				if(Id == Data.m_ClientId)
@@ -649,13 +668,7 @@ public:
 			m_pCountryFlag = &This.m_CountryFlags.GetByCountryCode(This.m_aClients[Data.m_ClientId].m_Country);
 		}
 		else
-		{
-			if(Data.m_ClientId == 0)
-				m_pCountryFlag = &This.m_CountryFlags.GetByCountryCode(g_Config.m_PlayerCountry);
-			else
-				m_pCountryFlag = &This.m_CountryFlags.GetByCountryCode(g_Config.m_ClDummyCountry);
-		}
-		// Do not show default flags
+			m_pCountryFlag = &This.m_CountryFlags.GetByCountryCode(Data.m_ClientId == 0 ? g_Config.m_PlayerCountry : g_Config.m_ClDummyCountry);
 		if(m_pCountryFlag == &This.m_CountryFlags.GetByCountryCode(0))
 		{
 			m_Visible = false;
@@ -666,11 +679,8 @@ public:
 	}
 	void Render(CGameClient &This, vec2 Pos) const override
 	{
-		if(!m_pCountryFlag)
-			return;
-		This.m_CountryFlags.Render(*m_pCountryFlag, ColorRGBA(1.0f, 1.0f, 1.0f, m_Alpha),
-			Pos.x - m_Size.x / 2.0f, Pos.y - m_Size.y / 2.0f,
-			m_Size.x, m_Size.y);
+		if(m_pCountryFlag)
+			This.m_CountryFlags.Render(*m_pCountryFlag, ColorRGBA(1.0f, 1.0f, 1.0f, m_Alpha), Pos.x - m_Size.x / 2.0f, Pos.y - m_Size.y / 2.0f, m_Size.x, m_Size.y);
 	}
 	CNamePlatePartCountry(CGameClient &This) :
 		CNamePlatePart(This) {}
@@ -678,31 +688,21 @@ public:
 
 class CNamePlatePartPing : public CNamePlatePart
 {
-protected:
+private:
 	float m_Radius = 7.0f;
 	ColorRGBA m_Color;
 
 public:
-	friend class CGameClient;
 	void Update(CGameClient &This, const CNamePlateData &Data) override
 	{
-		/*
-			If in a real game,
-				Show other people's pings if in scoreboard
-				Or if ping circle and name enabled
-			If in preview
-				Show ping if ping circle and name enabled
-		*/
 		m_Radius = Data.m_FontSize / 3.0f;
 		m_Size = vec2(m_Radius, m_Radius) * 1.5f;
-		m_Visible = Data.m_InGame ? (
-						    ((Data.m_ShowName && g_Config.m_TcNameplatePingCircle > 0) ||
-							    (This.m_Scoreboard.IsActive() && !This.m_Snap.m_apPlayerInfos[Data.m_ClientId]->m_Local))) :
-					    (
-						    (Data.m_ShowName && g_Config.m_TcNameplatePingCircle > 0));
+		m_Visible = Data.m_InGame ?
+			((Data.m_ShowName && g_Config.m_TcNameplatePingCircle > 0) || (This.m_Scoreboard.IsActive() && !This.m_Snap.m_apPlayerInfos[Data.m_ClientId]->m_Local)) :
+			(Data.m_ShowName && g_Config.m_TcNameplatePingCircle > 0);
 		if(!m_Visible)
 			return;
-		int Ping = Data.m_InGame ? This.m_Snap.m_apPlayerInfos[Data.m_ClientId]->m_Latency : (1 + Data.m_ClientId) * 25;
+		const int Ping = Data.m_InGame ? This.m_Snap.m_apPlayerInfos[Data.m_ClientId]->m_Latency : (1 + Data.m_ClientId) * 25;
 		m_Color = color_cast<ColorRGBA>(ColorHSLA((float)(300 - std::clamp(Ping, 0, 300)) / 1000.0f, 1.0f, 0.5f, Data.m_Color.a));
 	}
 	void Render(CGameClient &This, vec2 Pos) const override
@@ -757,7 +757,7 @@ private:
 protected:
 	bool UpdateNeeded(CGameClient &This, const CNamePlateData &Data) override
 	{
-		m_Visible = Data.m_InGame;
+		m_Visible = Data.m_InGame && g_Config.m_TcWarListReason;
 		if(!m_Visible)
 			return false;
 		const char *pReason = This.m_WarList.GetWarData(Data.m_ClientId).m_aReason;
@@ -770,8 +770,7 @@ protected:
 	void UpdateText(CGameClient &This, const CNamePlateData &Data) override
 	{
 		m_FontSize = Data.m_FontSizeClan;
-		const char *pReason = This.m_WarList.GetWarData(Data.m_ClientId).m_aReason;
-		str_copy(m_aText, pReason, sizeof(m_aText));
+		str_copy(m_aText, This.m_WarList.GetWarData(Data.m_ClientId).m_aReason, sizeof(m_aText));
 		CTextCursor Cursor;
 		Cursor.m_FontSize = m_FontSize;
 		This.TextRender()->CreateOrAppendTextContainer(m_TextContainerIndex, &Cursor, m_aText);
@@ -790,7 +789,7 @@ private:
 protected:
 	bool UpdateNeeded(CGameClient &This, const CNamePlateData &Data) override
 	{
-		m_Visible = (Data.m_InGame && Data.m_ShowName && This.Client()->State() != IClient::STATE_DEMOPLAYBACK && (This.m_aClients[Data.m_ClientId].m_Foe || This.m_aClients[Data.m_ClientId].m_ChatIgnore));
+		m_Visible = Data.m_InGame && Data.m_ShowName && This.Client()->State() != IClient::STATE_DEMOPLAYBACK && (This.m_aClients[Data.m_ClientId].m_Foe || This.m_aClients[Data.m_ClientId].m_ChatIgnore);
 		if(!m_Visible)
 			return false;
 		m_Color = ColorRGBA(1.0f, 1.0f, 1.0f, Data.m_Color.a);
@@ -811,7 +810,7 @@ public:
 		CNamePlatePartText(This) {}
 };
 
-// ***** Name Plates *****
+// Name Plates
 
 class CNamePlate
 {
@@ -848,23 +847,29 @@ private:
 			return;
 		m_Inited = true;
 
-		AddPart<CNamePlatePartCountry>(This); // TClient
-		AddPart<CNamePlatePartPing>(This); // TClient
-		AddPart<CNamePlatePartIgnoreMark>(This); // TClient
+		AddPart<CNamePlatePartCountry>(This);
+		AddPart<CNamePlatePartPing>(This);
+		AddPart<CNamePlatePartIgnoreMark>(This);
+		AddPart<CNamePlatePartDirection>(This, DIRECTION_LEFT);
+		AddPart<CNamePlatePartDirection>(This, DIRECTION_UP);
+		AddPart<CNamePlatePartDirection>(This, DIRECTION_RIGHT);
+		AddPart<CNamePlatePartNewLine>(This);
+
 		AddPart<CNamePlatePartFriendMark>(This);
 		AddPart<CNamePlatePartClientId>(This, false);
 		AddPart<CNamePlatePartAmfClientIndicator>(This, false);
 		AddPart<CNamePlatePartName>(This);
 		AddPart<CNamePlatePartAmfClientIndicator>(This, true);
 		AddPart<CNamePlatePartNewLine>(This);
+		AddPart<CNamePlatePartAmfClientVersion>(This);
+		AddPart<CNamePlatePartNewLine>(This);
 
 		AddPart<CNamePlatePartClan>(This);
 		AddPart<CNamePlatePartNewLine>(This);
-
-		AddPart<CNamePlatePartReason>(This); // TClient
-		AddPart<CNamePlatePartNewLine>(This); // TClient
-		AddPart<CNamePlatePartSkin>(This); // TClient
-		AddPart<CNamePlatePartNewLine>(This); // TClient
+		AddPart<CNamePlatePartReason>(This);
+		AddPart<CNamePlatePartNewLine>(This);
+		AddPart<CNamePlatePartSkin>(This);
+		AddPart<CNamePlatePartNewLine>(This);
 
 		AddPart<CNamePlatePartClientId>(This, true);
 		AddPart<CNamePlatePartNewLine>(This);
@@ -872,10 +877,6 @@ private:
 		AddPart<CNamePlatePartHookStrongWeak>(This);
 		AddPart<CNamePlatePartHookStrongWeakId>(This);
 		AddPart<CNamePlatePartNewLine>(This);
-
-		AddPart<CNamePlatePartDirection>(This, DIRECTION_LEFT);
-		AddPart<CNamePlatePartDirection>(This, DIRECTION_UP);
-		AddPart<CNamePlatePartDirection>(This, DIRECTION_RIGHT);
 	}
 
 public:
@@ -972,14 +973,13 @@ public:
 void CNamePlates::RenderNamePlateGame(vec2 Position, const CNetObj_PlayerInfo *pPlayerInfo, float Alpha)
 {
 	// Get screen edges to avoid rendering offscreen
-	float ScreenX0, ScreenY0, ScreenX1, ScreenY1;
-	Graphics()->GetScreen(&ScreenX0, &ScreenY0, &ScreenX1, &ScreenY1);
+	CScreenRect ScreenRect = Graphics()->GetScreen();
 
 	// Assume that the name plate fits into a 800x800 box placed directly above the tee
-	ScreenX0 -= 400;
-	ScreenX1 += 400;
-	ScreenY1 += 800;
-	if(!in_range(Position.x, ScreenX0, ScreenX1) || !in_range(Position.y, ScreenY0, ScreenY1))
+	ScreenRect.m_TopLeft.x -= 400;
+	ScreenRect.m_BottomRight.x += 400;
+	ScreenRect.m_BottomRight.y += 800;
+	if(!ScreenRect.Inside(Position))
 		return;
 
 	CNamePlateData Data;
@@ -993,14 +993,22 @@ void CNamePlates::RenderNamePlateGame(vec2 Position, const CNetObj_PlayerInfo *p
 	str_copy(Data.m_aName, GameClient()->m_aClients[pPlayerInfo->m_ClientId].m_aName);
 	Data.m_ShowFriendMark = Data.m_ShowName && g_Config.m_ClNamePlatesFriendMark && GameClient()->m_aClients[pPlayerInfo->m_ClientId].m_Friend;
 	Data.m_ShowAmfClientIndicator = GameClient()->m_AmfClientIndicator.CanRenderInWorld(pPlayerInfo->m_ClientId);
+	Data.m_ShowAmfClientVersion = false;
+	Data.m_aAmfClientVersion[0] = '\0';
 	Data.m_ShowClientId = Data.m_ShowName && (g_Config.m_Debug || g_Config.m_ClNamePlatesIds);
 	Data.m_FontSize = 18.0f + 20.0f * g_Config.m_ClNamePlatesSize / 100.0f;
+	Data.m_FontSizeAmfClientVersion = std::max(10.0f, Data.m_FontSize * 0.75f);
+	if(g_Config.m_AmfIndicatorVersion)
+		Data.m_ShowAmfClientVersion = GameClient()->m_AmfClientIndicator.GetPlayerVersionLabel(pPlayerInfo->m_ClientId, Data.m_aAmfClientVersion, sizeof(Data.m_aAmfClientVersion));
+	Data.m_Local = pPlayerInfo->m_Local;
 
 	Data.m_ClientId = pPlayerInfo->m_ClientId;
 	Data.m_ClientIdSeparateLine = g_Config.m_ClNamePlatesIdsSeparateLine;
 	Data.m_FontSizeClientId = Data.m_ClientIdSeparateLine ? (18.0f + 20.0f * g_Config.m_ClNamePlatesIdsSize / 100.0f) : Data.m_FontSize;
 
 	Data.m_ShowClan = Data.m_ShowName && g_Config.m_ClNamePlatesClan;
+	if(g_Config.m_TcWarList && g_Config.m_TcWarListShowClan && GameClient()->m_WarList.GetWarData(pPlayerInfo->m_ClientId).m_WarClan)
+		Data.m_ShowClan = true;
 	str_copy(Data.m_aClan, GameClient()->m_aClients[pPlayerInfo->m_ClientId].m_aClan);
 	Data.m_FontSizeClan = 18.0f + 20.0f * g_Config.m_ClNamePlatesClanSize / 100.0f;
 
@@ -1032,6 +1040,8 @@ void CNamePlates::RenderNamePlateGame(vec2 Position, const CNetObj_PlayerInfo *p
 		}
 	}
 	Data.m_Color.a = Alpha;
+	if(Alpha <= 0.0f)
+		Data.m_ShowAmfClientIndicator = false;
 
 	int ShowDirectionConfig = g_Config.m_ClShowDirection;
 #if defined(CONF_VIDEORECORDER)
@@ -1111,15 +1121,15 @@ void CNamePlates::RenderNamePlateGame(vec2 Position, const CNetObj_PlayerInfo *p
 		}
 	}
 
-	// TClient
-	if(g_Config.m_TcWarList && g_Config.m_TcWarListShowClan && GameClient()->m_WarList.GetWarData(pPlayerInfo->m_ClientId).m_WarClan)
-		Data.m_ShowClan = true;
-	Data.m_Local = pPlayerInfo->m_Local;
-
 	// Check if the nameplate is actually on screen
 	CNamePlate &NamePlate = m_pData->m_aNamePlates[pPlayerInfo->m_ClientId];
 	NamePlate.Update(*GameClient(), Data);
-	NamePlate.Render(*GameClient(), Position - vec2(0.0f, (float)g_Config.m_ClNamePlatesOffset));
+	const int NamePlateOffset = g_Config.m_ClNamePlatesOffset;
+	GameClient()->m_AmfFlyingNamePlates.Update(pPlayerInfo->m_ClientId, Position, NamePlateOffset);
+	const vec2 RenderPos = GameClient()->m_AmfFlyingNamePlates.GetRenderPos(pPlayerInfo->m_ClientId, Position);
+	if(!GameClient()->OptimizerAllowRenderPos(RenderPos))
+		return;
+	NamePlate.Render(*GameClient(), RenderPos);
 }
 
 void CNamePlates::RenderNamePlatePreview(vec2 Position, int Dummy)
@@ -1141,9 +1151,15 @@ void CNamePlates::RenderNamePlatePreview(vec2 Position, int Dummy)
 	str_copy(Data.m_aName, str_utf8_skip_whitespaces(pName));
 	str_utf8_trim_right(Data.m_aName);
 	Data.m_FontSize = FontSize;
+	Data.m_ShowAmfClientVersion = false;
+	Data.m_FontSizeAmfClientVersion = std::max(10.0f, Data.m_FontSize * 0.75f);
+	Data.m_aAmfClientVersion[0] = '\0';
+	Data.m_Local = false;
 
 	Data.m_ShowFriendMark = Data.m_ShowName && g_Config.m_ClNamePlatesFriendMark;
 	Data.m_ShowAmfClientIndicator = false;
+	if(g_Config.m_AmfIndicatorVersion)
+		Data.m_ShowAmfClientVersion = GameClient()->m_AmfClientIndicator.GetPlayerVersionLabel(GameClient()->m_aLocalIds[Dummy], Data.m_aAmfClientVersion, sizeof(Data.m_aAmfClientVersion));
 
 	Data.m_ShowClientId = Data.m_ShowName && (g_Config.m_Debug || g_Config.m_ClNamePlatesIds);
 	Data.m_ClientId = Dummy;
@@ -1176,9 +1192,6 @@ void CNamePlates::RenderNamePlatePreview(vec2 Position, int Dummy)
 		Data.m_ShowHookStrongWeak = g_Config.m_ClNamePlatesStrong > 0;
 	}
 
-	// TClient
-	Data.m_Local = false;
-
 	CTeeRenderInfo TeeRenderInfo;
 	if(Dummy == 0)
 	{
@@ -1203,7 +1216,14 @@ void CNamePlates::RenderNamePlatePreview(vec2 Position, int Dummy)
 	const int TeeEmote = Distance < InteractionDistance ? EMOTE_HAPPY : (Dummy ? g_Config.m_ClDummyDefaultEyes : g_Config.m_ClPlayerDefaultEyes);
 	RenderTools()->RenderTee(CAnimState::GetIdle(), &TeeRenderInfo, TeeEmote, TeeDirection, Position);
 	Position.y -= (float)g_Config.m_ClNamePlatesOffset;
-	NamePlate.Render(*GameClient(), Position);
+	if(g_Config.m_AmfFlyingNamePlates)
+	{
+		const vec2 FlyingPos = GameClient()->m_AmfFlyingNamePlates.PreviewPos(Position, TeeDirection);
+		GameClient()->m_AmfFlyingNamePlates.RenderPreviewRope(Position, FlyingPos, Data.m_Color);
+		NamePlate.Render(*GameClient(), FlyingPos);
+	}
+	else
+		NamePlate.Render(*GameClient(), Position);
 	NamePlate.Reset(*GameClient());
 }
 
@@ -1225,7 +1245,7 @@ void CNamePlates::OnRender()
 	if(IVideo::Current())
 		ShowDirection = g_Config.m_ClVideoShowDirection;
 #endif
-	if(!g_Config.m_ClNamePlates && ShowDirection == 0 && !g_Config.m_AmfClientIndicator)
+	if(!g_Config.m_ClNamePlates && !g_Config.m_ClNamePlatesOwn && ShowDirection == 0 && !g_Config.m_AmfClientIndicator)
 		return;
 
 	for(int i = 0; i < MAX_CLIENTS; i++)
@@ -1241,13 +1261,14 @@ void CNamePlates::OnRender()
 			RenderNamePlateGame(RenderPos, pInfo, 0.4f);
 		}
 		// Only render name plates for active characters
-		if(GameClient()->m_Snap.m_aCharacters[i].m_Active)
+		const bool PracticeTeeVisible = GameClient()->m_FastPractice.Active() && GameClient()->m_FastPractice.IsPracticeParticipant(i) &&
+			GameClient()->m_FastPractice.PracticeWorld().GetCharacterById(i) != nullptr;
+		const bool ServerTeeVisible = PlayerRenderState::HasVisibleServerTee(
+			GameClient()->m_Snap.m_aCharacters[i].m_Active,
+			GameClient()->m_Snap.m_apPrevPlayerInfos[i] != nullptr,
+			pInfo != nullptr);
+		if(PracticeTeeVisible || ServerTeeVisible)
 		{
-			// TClient
-			if(GameClient()->m_aClients[i].m_IsVolleyBall)
-				continue;
-			// if(g_Config.m_TcRenderNameplateSpec > 0)
-			//	continue;
 			const vec2 RenderPos = GameClient()->m_aClients[i].m_RenderPos;
 			RenderNamePlateGame(RenderPos, pInfo, 1.0f);
 		}

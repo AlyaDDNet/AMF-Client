@@ -15,10 +15,15 @@
 #include <engine/shared/config.h>
 #include <engine/shared/snapshot.h>
 
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+
 #include <generated/protocol7.h>
 #include <generated/protocolglue.h>
 
 #include <game/client/prediction/gameworld.h>
+#include <game/client/raw_snapshot_adapter.h>
 #include <game/client/race.h>
 #include <game/collision.h>
 #include <game/gamecore.h>
@@ -66,15 +71,24 @@
 #include "components/sounds.h"
 #include "components/spectator.h"
 #include "components/statboard.h"
+#include "components/tclient/amf_auto_margin.h"
+#include "components/tclient/amf_client_indicator.h"
+#include "components/tclient/amf_presence_resolver.h"
+#include "components/tclient/amf_presence_transport.h"
+#include "components/tclient/amf_hud_editor.h"
 #include "components/tclient/bg_draw.h"
 #include "components/tclient/bindchat.h"
 #include "components/tclient/bindwheel.h"
-#include "components/tclient/custom_communities.h"
 #include "components/tclient/cloud_input.h"
-#include "components/tclient/cloud_input_old.h"
+#include "components/tclient/custom_communities.h"
 #include "components/tclient/fast_practice.h"
-#include "components/tclient/amf_hud_editor.h"
-#include "components/tclient/amf_auto_margin.h"
+#include "components/tclient/amf_features/finish_prediction.h"
+#include "components/tclient/amf_features/weapons/weapon_vfx.h"
+#include "components/tclient/amf_features/optimizer.h"
+#include "components/tclient/amf_features/physicball.h"
+#include "components/tclient/amf_features/flying_name_plates.h"
+#include "components/tclient/amf_features/fx/components.h"
+#include "components/tclient/impact/impact_system.h"
 #include "components/tclient/mod.h"
 #include "components/tclient/moving_tiles.h"
 #include "components/tclient/mumble.h"
@@ -82,9 +96,6 @@
 #include "components/tclient/outlines.h"
 #include "components/tclient/pet.h"
 #include "components/tclient/player_indicator.h"
-#include "components/tclient/amf_client_indicator.h"
-#include "components/tclient/amf_presence_resolver.h"
-#include "components/tclient/amf_presence_transport.h"
 #include "components/tclient/rainbow.h"
 #include "components/tclient/scripting.h"
 #include "components/tclient/settings_status_indicator.h"
@@ -99,6 +110,7 @@
 #include "components/voting.h"
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 class IMap;
@@ -106,7 +118,7 @@ class IMap;
 class CGameInfo
 {
 public:
-	char m_aGameType[16]; // TClient
+	char m_aGameType[16];
 
 	bool m_FlagStartsRace;
 	bool m_TimeScore;
@@ -154,6 +166,13 @@ public:
 
 	bool m_PredictEvents;
 
+	bool m_OldLaser;
+
+	// zero if the server does not send them
+	int m_MinTeamSize;
+	int m_MaxTeamSize;
+
+	int m_NumDDRaceTeams;
 };
 
 class CSnapEntities
@@ -172,9 +191,12 @@ enum class EClientIdFormat
 
 class CGameClient : public IGameClient
 {
+friend class CTClient;
+friend class CFastPractice;
+friend class CPlayers;
+
 public:
-	friend class CTClient;
-	friend class CFastPractice;
+	~CGameClient();
 
 	// all components
 	CInfoMessages m_InfoMessages;
@@ -193,21 +215,14 @@ public:
 	CCountryFlags m_CountryFlags;
 	CFlow m_Flow;
 	CHud m_Hud;
-	CMusicPlayer m_MusicPlayer;
-	CAmfHudEditor m_AmfHudEditor;
-	CAmfAutoMargin m_AmfAutoMargin;
 	CImportantAlert m_ImportantAlert;
 	CDebugHud m_DebugHud;
 	CControls m_Controls;
-	CCloudInput m_CloudInput;
-	CCloudInputOld m_CloudInputOld;
-	CFastPractice m_FastPractice;
 	CEffects m_Effects;
 	CScoreboard m_Scoreboard;
 	CStatboard m_Statboard;
 	CSounds m_Sounds;
 	CEmoticon m_Emoticon;
-
 	CDamageInd m_DamageInd;
 	CTouchControls m_TouchControls;
 	CVoting m_Voting;
@@ -228,12 +243,6 @@ public:
 
 	CRaceDemo m_RaceDemo;
 	CGhost m_Ghost;
-
-	CTooltips m_Tooltips;
-
-	CLocalServer m_LocalServer;
-
-	// TClient Components
 	CSkinProfiles m_SkinProfiles;
 	CStatusBar m_StatusBar;
 	CBindChat m_BindChat;
@@ -247,6 +256,7 @@ public:
 	CAmfClientIndicator m_AmfClientIndicator;
 	CAmfPresenceTransport m_AmfPresenceTransport;
 	CAmfPresenceResolver m_AmfPresenceResolver;
+	AmfImpact::CImpactSystem m_ImpactSystem;
 	CSettingsStatusIndicator m_SettingsStatusIndicator;
 	COutlines m_Outlines;
 	CMumble m_Mumble;
@@ -255,8 +265,35 @@ public:
 	CScripting m_Scripting;
 	CMod m_Mod;
 	CCustomCommunities m_CustomCommunities;
-	CMovingTiles m_MovingTilesBackground = CMovingTiles{ false };
-	CMovingTiles m_MovingTilesForeground = CMovingTiles{ true };
+	CMovingTiles m_MovingTilesBackground = CMovingTiles{false};
+	CMovingTiles m_MovingTilesForeground = CMovingTiles{true};
+	CMusicPlayer m_MusicPlayer;
+	CAmfHudEditor m_AmfHudEditor;
+	CAmfAutoMargin m_AmfAutoMargin;
+	CCloudInput m_CloudInput;
+	CFastPractice m_FastPractice;
+	CFlyingNamePlates m_AmfFlyingNamePlates;
+	COptimizer m_AmfOptimizer;
+	CFinishPrediction m_AmfFinishPrediction;
+	CFgfWeather m_AmfWeather;
+	CFgfIceWard m_AmfFreezeLifestyle;
+	CHookWind m_AmfHookWind;
+	CHookBlackHole m_AmfHookBlackHole;
+	CHookMagic m_AmfHookMagic;
+	CHookRainbow m_AmfHookRainbow;
+	CHookLightning m_AmfHookLightning;
+	CHookTentacle m_AmfHookTentacle;
+	CHookFire m_AmfHookFire;
+	CHookTroll m_AmfHookTroll;
+	CHookRope m_AmfHookRope;
+	CFgfActions m_AmfFxActions;
+	CFgfKi m_AmfGatheredEnergy;
+	CPhysicBalls m_AmfPhysicBalls;
+	CWeaponVfx m_WeaponVfx;
+
+	CTooltips m_Tooltips;
+
+	CLocalServer m_LocalServer;
 
 private:
 	std::vector<class CComponent *> m_vpAll;
@@ -309,6 +346,7 @@ private:
 	int m_aCheckInfo[NUM_DUMMIES];
 
 	char m_aDDNetVersionStr[64];
+
 	static void ConTeam(IConsole::IResult *pResult, void *pUserData);
 	static void ConKill(IConsole::IResult *pResult, void *pUserData);
 	static void ConReadyChange7(IConsole::IResult *pResult, void *pUserData);
@@ -316,6 +354,7 @@ private:
 	static void ConchainLanguageUpdate(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
 	static void ConchainAmfHighPriority(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
 	static void ConchainAmfDiscordLowPriority(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
+	static void ConchainAmfSpotifySoundCloudLowPriority(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
 	static void ConchainSpecialInfoupdate(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
 	static void ConchainSpecialDummyInfoupdate(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
 	static void ConchainRefreshSkins(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData);
@@ -473,6 +512,7 @@ public:
 	};
 
 	CSnapState m_Snap;
+	CRawAuthoritativeSnapshotAdapter m_RawAuthoritativeSnapshotAdapter;
 	int m_aLocalTuneZone[NUM_DUMMIES]; // current tunezone (0-255)
 	bool m_aReceivedTuning[NUM_DUMMIES]; // was tuning message received after zone change
 	int m_aExpectingTuningForZone[NUM_DUMMIES]; // tunezone changed, waiting for tuning for that zone
@@ -555,17 +595,10 @@ public:
 
 		CCharacterCore m_Predicted;
 		CCharacterCore m_PrevPredicted;
-
-		// TClient
 		CCharacterCore m_RegularPredicted;
-
-		// TClient
-		vec2 m_ImprovedPredPos = vec2(0, 0);
-		vec2 m_PrevImprovedPredPos = vec2(0, 0);
+		vec2 m_ImprovedPredPos = vec2(0.0f, 0.0f);
+		vec2 m_PrevImprovedPredPos = vec2(0.0f, 0.0f);
 		bool m_ValidAntipingSmooth = false;
-		//vec2 m_DebugVector = vec2(0, 0);
-		//vec2 m_DebugVector2 = vec2(0, 0);
-		//vec2 m_DebugVector3 = vec2(0, 0);
 		float m_Uncertainty = 0.0f;
 		float m_VolleyBallAngle = 0.0f;
 		bool m_IsVolleyBall = false;
@@ -675,6 +708,7 @@ public:
 
 	CRenderTools m_RenderTools;
 	CRenderMap m_RenderMap;
+
 	bool m_BackButtonHandledKeyBind = false;
 
 	void OnReset();
@@ -702,11 +736,18 @@ public:
 	void OnPredict() override;
 	void OnActivateEditor() override;
 	void OnDummySwap() override;
+	bool CheckNewInput() override;
 	int OnSnapInput(int *pData, bool Dummy, bool Force) override;
 	bool NeedsInputSanitization() const override { return m_FastPractice.Enabled(); }
+	bool OptimizerDisableParticles() const { return m_AmfOptimizer.DisableParticles(); }
+	bool OptimizerAllowRenderPos(vec2 WorldPos) const { return m_AmfOptimizer.AllowRenderPos(WorldPos); }
+	bool OptimizerFpsFogEnabled() const { return m_AmfOptimizer.FpsFogEnabled(); }
+	void OptimizerFpsFogHalfExtents(float &HalfW, float &HalfH) const { m_AmfOptimizer.FpsFogHalfExtents(HalfW, HalfH); }
+	bool OptimizerDisableQuads() const { return m_AmfOptimizer.DisableQuads(); }
+	bool OptimizerCullMapTiles() const { return m_AmfOptimizer.CullMapTiles(); }
 	void PrepareInputForSend(int *pData, int Size, bool Dummy) override;
-	void OnShutdown() override;
 	void OnBeforeHttpShutdown() override;
+	void OnShutdown() override;
 	void OnEnterGame() override;
 	void OnRconType(bool UsernameReq) override;
 	void OnRconLine(const char *pLine) override;
@@ -753,28 +794,10 @@ public:
 	void SendInfo(bool Start);
 	void SendDummyInfo(bool Start) override;
 	void SendKill();
-	void SendReadyChange7();
-	// UI controls write config fields directly. Invoke this immediately after a
-	// checkbox click instead of waiting for the next client update iteration.
-	void ApplyAmfProcessPriority();
-	void ApplyAmfDiscordProcessPriority(bool Force = false);
-	// Called by the AMF settings view after it has applied UI changes. This keeps
-	// config change detection out of the regular gameplay update path.
-	void NotifyAmfConfigChanged();
+	void SendReadyChange7(); // NOLINT(readability-make-member-function-const)
 
 	void ApplyPreInputs(int Tick, bool Direct, CGameWorld &GameWorld);
 	bool GetDummyFastInput(CNetObj_PlayerInput &DummyFastInput, const CNetObj_PlayerInput *pDummyInputData, const class CCharacter *pDummyChar, int LocalTee, int DummyTee) const;
-	bool IsCloudInputMode() const;
-	bool IsCloudInputOldMode() const;
-	bool CloudInputOthersEnabled() const;
-	int CloudInputSelfTickOffset() const;
-	int CloudInputOthersTickOffset() const;
-	CNetObj_PlayerInput &CloudInputInput(int Dummy);
-	const CNetObj_PlayerInput &CloudInputInput(int Dummy) const;
-	bool CheckCloudInputNewInput();
-	void ApplyCloudInputOffset(int ClientId, int &Tick, float &Intra) const;
-	bool TryGetCloudInputPredPos(int ClientId, int Tick, float Intra, vec2 &OutPos) const;
-	bool IsFastInputLocalClient(int ClientId) const;
 
 	int m_aNextChangeInfo[NUM_DUMMIES];
 
@@ -797,16 +820,29 @@ public:
 	int CurrentRaceTime() const;
 
 	bool IsTeamPlay() const;
+	int MinTeamSize() const;
+	int MaxTeamSize() const;
 	bool IsWorldPaused() const;
 	bool IsDemoPlaybackPaused() const;
 	float GetAnimationPlaybackSpeed() const;
 
-	bool AntiPingPlayers() const;
+	int AntiPingPlayers() const;
+	bool IsCloudInputMode() const;
+	bool CloudInputOthersEnabled() const;
+	int CloudInputSelfTickOffset() const;
+	int CloudInputOthersTickOffset() const;
+	CNetObj_PlayerInput &CloudInputInput(int Dummy);
+	const CNetObj_PlayerInput &CloudInputInput(int Dummy) const;
+	bool CheckCloudInputNewInput();
+	void ApplyCloudInputOffset(int ClientId, int &Tick, float &Intra) const;
+	bool TryGetCloudInputPredPos(int ClientId, int Tick, float Intra, vec2 &OutPos) const;
+	bool IsFastInputLocalClient(int ClientId) const;
 	bool AntiPingGrenade() const;
 	bool AntiPingWeapons() const;
 	bool AntiPingGunfire() const;
 	bool Predict() const;
 	bool PredictDummy() const;
+
 	const CTuningParams *GetTuning(int i) const { return &m_aTuningList[i]; }
 	ColorRGBA GetDDTeamColor(int DDTeam, float Lightness = 0.5f) const;
 	void FormatClientId(int ClientId, char (&aClientId)[16], EClientIdFormat Format) const;
@@ -814,11 +850,9 @@ public:
 	CGameWorld m_GameWorld;
 	CGameWorld m_PredictedWorld;
 	CGameWorld m_PrevPredictedWorld;
-
-	// TClient
+	CGameWorld m_FastPrevPredictedWorld;
 	CGameWorld m_RegularPredictedWorld;
 	CGameWorld m_PrevRegularPredictedWorld;
-	// TClient
 	CGameWorld m_ExtraPredictedWorld;
 	CGameWorld m_PredSmoothingWorld;
 
@@ -844,13 +878,15 @@ public:
 	void LoadExtrasSkin(const char *pPath, bool AsDir = false);
 	void LoadCursorAsset(const char *pPath, bool AsDir = false);
 	void LoadArrowAsset(const char *pPath, bool AsDir = false);
-	bool HasCustomCursorAsset() const;
-	bool HasCustomArrowAsset() const;
-	IGraphics::CTextureHandle CursorTexture() const;
-	IGraphics::CTextureHandle ArrowTexture() const;
+	void ApplyAmfProcessPriority();
+	void ApplyAmfProcessPrioritySettings();
+	void NotifyAmfConfigChanged();
 
-	struct SClientGameSkin
+	class CGameSkin
 	{
+	public:
+		bool m_Loaded = false;
+
 		// health armor hud
 		IGraphics::CTextureHandle m_SpriteHealthFull;
 		IGraphics::CTextureHandle m_SpriteHealthEmpty;
@@ -904,6 +940,7 @@ public:
 
 		// pickups
 		IGraphics::CTextureHandle m_SpritePickupHealth;
+		IGraphics::CTextureHandle m_SpritePickupFreeze;
 		IGraphics::CTextureHandle m_SpritePickupArmor;
 		IGraphics::CTextureHandle m_SpritePickupArmorShotgun;
 		IGraphics::CTextureHandle m_SpritePickupArmorGrenade;
@@ -934,12 +971,12 @@ public:
 			return m_SpriteNinjaBarFullLeft.IsValid();
 		}
 	};
+	CGameSkin m_GameSkin;
 
-	SClientGameSkin m_GameSkin;
-	bool m_GameSkinLoaded = false;
-
-	struct SClientParticlesSkin
+	class CParticlesSkin
 	{
+	public:
+		bool m_Loaded = false;
 		IGraphics::CTextureHandle m_SpriteParticleSlice;
 		IGraphics::CTextureHandle m_SpriteParticleBall;
 		IGraphics::CTextureHandle m_aSpriteParticleSplat[3];
@@ -950,20 +987,20 @@ public:
 		IGraphics::CTextureHandle m_SpriteParticleHit;
 		IGraphics::CTextureHandle m_aSpriteParticles[10];
 	};
+	CParticlesSkin m_ParticlesSkin;
 
-	SClientParticlesSkin m_ParticlesSkin;
-	bool m_ParticlesSkinLoaded = false;
-
-	struct SClientEmoticonsSkin
+	class CEmoticonsSkin
 	{
+	public:
+		bool m_Loaded = false;
 		IGraphics::CTextureHandle m_aSpriteEmoticons[16];
 	};
+	CEmoticonsSkin m_EmoticonsSkin;
 
-	SClientEmoticonsSkin m_EmoticonsSkin;
-	bool m_EmoticonsSkinLoaded = false;
-
-	struct SClientHudSkin
+	class CHudSkin
 	{
+	public:
+		bool m_Loaded = false;
 		IGraphics::CTextureHandle m_SpriteHudAirjump;
 		IGraphics::CTextureHandle m_SpriteHudAirjumpEmpty;
 		IGraphics::CTextureHandle m_SpriteHudSolo;
@@ -996,27 +1033,21 @@ public:
 		IGraphics::CTextureHandle m_SpriteHudDummyHammer;
 		IGraphics::CTextureHandle m_SpriteHudDummyCopy;
 	};
+	CHudSkin m_HudSkin;
 
-	SClientHudSkin m_HudSkin;
-	bool m_HudSkinLoaded = false;
-
-	struct SClientExtrasSkin
+	class CExtrasSkin
 	{
+	public:
+		bool m_Loaded = false;
 		IGraphics::CTextureHandle m_SpriteParticleSnowflake;
 		IGraphics::CTextureHandle m_SpriteParticleSparkle;
 		IGraphics::CTextureHandle m_SpritePulley;
 		IGraphics::CTextureHandle m_SpriteHectagon;
 		IGraphics::CTextureHandle m_aSpriteParticles[4];
 	};
-
-	SClientExtrasSkin m_ExtrasSkin;
-	bool m_ExtrasSkinLoaded = false;
+	CExtrasSkin m_ExtrasSkin;
 
 	const std::vector<CSnapEntities> &SnapEntities() { return m_vSnapEntities; }
-
-	vec2 GetSmoothPos(int ClientId);
-	vec2 GetFreezePos(int ClientId);
-	vec2 GetFastInputPos(int ClientId);
 
 	int m_MultiViewTeam;
 	float m_MultiViewPersonalZoom;
@@ -1033,10 +1064,6 @@ public:
 
 private:
 	std::unique_ptr<IMap> m_pMap;
-	IGraphics::CTextureHandle m_CursorTextureOverride;
-	bool m_CursorTextureOverrideLoaded = false;
-	IGraphics::CTextureHandle m_ArrowTextureOverride;
-	bool m_ArrowTextureOverrideLoaded = false;
 
 	std::vector<CSnapEntities> m_vSnapEntities;
 	void SnapCollectEntities();
@@ -1053,64 +1080,32 @@ private:
 		char m_aPath[IO_MAX_PATH_LENGTH];
 		bool m_IsDefault;
 		CImageInfo m_ImageInfo;
+		std::optional<CImageInfo> m_FallbackImageInfo;
 	};
 
 	CImageAsset LoadAssetFromPath(const char *pPath, bool AsDir, int AssetId, const char *pDirectory) const;
 
 	std::vector<std::shared_ptr<CManagedTeeRenderInfo>> m_vpManagedTeeRenderInfos;
 	void UpdateManagedTeeRenderInfos();
+	IGraphics::CTextureHandle m_CursorTextureOverride;
+	bool m_CursorTextureOverrideLoaded = false;
+	IGraphics::CTextureHandle m_ArrowTextureOverride;
+	bool m_ArrowTextureOverrideLoaded = false;
 
 	void UpdateLocalTuning();
 	void UpdatePrediction();
 	void UpdateSpectatorCursor();
 	void UpdateRenderedCharacters();
 	void HandlePredictedEvents(int Tick);
+
 	void OnInput(const IInput::CEvent &Event);
-	struct CAmfDiscordTrackedProcess
-	{
-		void *m_pProcess = nullptr;
-		unsigned long m_ProcessId = 0;
-		uint64_t m_CreationTime = 0;
-		bool m_PriorityChangedByAmf = false;
-		bool m_PriorityVerificationPending = false;
-		unsigned long m_ExpectedPriority = 0;
-		int64_t m_PriorityVerificationTime = 0;
-	};
-	void UpdateAmfConfigPersistence();
-	void UpdateAmfProcessPriority();
-	void VerifyAmfProcessPriority();
-	void UpdateAmfDiscordProcessPriority();
-	void ScheduleAmfDiscordPriorityVerification(CAmfDiscordTrackedProcess &Process, unsigned long ExpectedPriority);
-	void VerifyAmfDiscordProcessPriorities();
-	bool RestoreAmfDiscordProcessPriorities(bool OnShutdown);
-	bool EnsureAmfDiscordPriorityRestoreHelper();
-	bool PublishAmfDiscordPriorityRestoreState();
-	void CancelAmfDiscordPriorityRestoreHelper();
-	void ReleaseAmfDiscordProcessHandles(bool PreserveOwnedRestoreHelpers = false);
-	uint64_t m_AmfConfigObservedHash = 0;
-	int64_t m_AmfConfigLastSaveTime = 0;
-	int64_t m_AmfConfigSaveDeadline = 0;
-	bool m_AmfConfigPersistenceInitialized = false;
-	bool m_AmfConfigSavePending = false;
-	bool m_AmfPriorityVerificationPending = false;
-	unsigned long m_AmfExpectedPriority = 0;
-	int64_t m_AmfPriorityVerificationTime = 0;
-	bool m_AmfDiscordPriorityRequestInitialized = false;
-	bool m_AmfLastDiscordLowPriorityRequest = false;
-	bool m_AmfDiscordPriorityVerificationPending = false;
-	int64_t m_AmfDiscordPriorityVerificationTime = 0;
-	bool m_AmfDiscordPriorityRetryPending = false;
-	int64_t m_AmfDiscordPriorityRetryTime = 0;
-	int64_t m_AmfDiscordPriorityReconciliationTime = 0;
-	std::vector<CAmfDiscordTrackedProcess> m_vAmfDiscordProcesses;
-	void *m_pAmfDiscordRestoreMapping = nullptr;
-	void *m_pAmfDiscordRestoreState = nullptr;
-	void *m_pAmfDiscordRestoreCancelEvent = nullptr;
-	void *m_pAmfDiscordRestoreHelperProcess = nullptr;
-	bool m_AmfDiscordRestoreHelperLaunched = false;
 
 	int m_aLastUpdateTick[MAX_CLIENTS] = {0};
 	void DetectStrongHook();
+
+	vec2 GetSmoothPos(int ClientId);
+	vec2 GetFastInputPos(int ClientId);
+	vec2 GetFreezePos(int ClientId);
 
 	int m_IsDummySwapping;
 	int m_PredictedDummyId = -1;
@@ -1131,10 +1126,10 @@ private:
 	float m_LastFollowFactor;
 	bool m_LastDummyConnected;
 
+	bool InitMultiView(int Team);
 	void HandleMultiView();
 	bool IsMultiViewIdSet();
 	void CleanMultiViewIds();
-	bool InitMultiView(int Team);
 	float CalculateMultiViewMultiplier(vec2 TargetPos);
 	float CalculateMultiViewZoom(vec2 MinPos, vec2 MaxPos, float Vel);
 	float MapValue(float MaxValue, float MinValue, float MaxRange, float MinRange, float Value);
@@ -1156,15 +1151,67 @@ private:
 
 	void OnSaveCodeNetMessage(const CNetMsg_Sv_SaveCode *pMsg);
 	void StoreSave(const char *pTeamMembers, const char *pGeneratedCode) const;
+	struct CAmfPriorityTrackedProcess
+	{
+		void *m_pProcess = nullptr;
+		unsigned long m_ProcessId = 0;
+		uint64_t m_CreationTime = 0;
+		unsigned m_Target = 0;
+		bool m_PriorityChangedByAmf = false;
+		bool m_PriorityVerificationPending = false;
+		unsigned long m_ExpectedPriority = 0;
+		int64_t m_PriorityVerificationTime = 0;
+	};
+	void UpdateAmfConfigPersistence();
+	void UpdateAmfProcessPriority();
+	void VerifyAmfProcessPriority();
+	void UpdateAmfProcessPriorityTargets();
+	void AmfProcessPriorityWorker();
+	void StopAmfProcessPriorityWorker();
+	void UpdateAmfTrackedProcessPriorities(unsigned Targets, unsigned NewlyEnabledTargets);
+	void ScheduleAmfPriorityVerification(CAmfPriorityTrackedProcess &Process, unsigned long ExpectedPriority);
+	void VerifyAmfProcessPriorities();
+	bool RestoreAmfProcessPriorities(bool OnShutdown);
+	bool EnsureAmfPriorityRestoreHelper();
+	bool PublishAmfPriorityRestoreState();
+	void CancelAmfPriorityRestoreHelper();
+	void ReleaseAmfPriorityProcessHandles(bool PreserveOwnedRestoreHelpers = false);
+	uint64_t m_AmfConfigObservedHash = 0;
+	int64_t m_AmfConfigSaveDeadline = 0;
+	int64_t m_AmfConfigNextHashCheckTime = 0;
+	bool m_AmfConfigPersistenceInitialized = false;
+	bool m_AmfConfigHashCheckPending = false;
+	bool m_AmfConfigSavePending = false;
+	bool m_AmfPriorityVerificationPending = false;
+	unsigned long m_AmfExpectedPriority = 0;
+	int64_t m_AmfPriorityVerificationTime = 0;
+	std::mutex m_AmfPriorityWorkerMutex;
+	std::condition_variable m_AmfPriorityWorkerWake;
+	std::thread m_AmfPriorityWorkerThread;
+	unsigned m_AmfPriorityRequestedTargets = 0;
+	bool m_AmfPriorityWorkerStop = false;
+	bool m_AmfTrackedPriorityVerificationPending = false;
+	int64_t m_AmfTrackedPriorityVerificationTime = 0;
+	int64_t m_AmfPriorityRetryTime = 0;
+	int64_t m_AmfPriorityReconciliationTime = 0;
+	bool m_AmfLegacyPriorityHelperChecked = false;
+	std::vector<CAmfPriorityTrackedProcess> m_vAmfPriorityProcesses;
+	void *m_pAmfPriorityRestoreMapping = nullptr;
+	void *m_pAmfPriorityRestoreState = nullptr;
+	void *m_pAmfPriorityRestoreCancelEvent = nullptr;
+	void *m_pAmfPriorityRestoreHelperProcess = nullptr;
+	bool m_AmfPriorityRestoreHelperLaunched = false;
 
 public:
-	// TClient
 	int m_SmoothTick = 0;
-	float m_SmoothIntraTick = 0;
-	bool CheckNewInput() override;
+	float m_SmoothIntraTick = 0.0f;
+	std::optional<CServerInfo> m_ConnectServerInfo = std::nullopt;
+	bool HasCustomCursorAsset() const;
+	IGraphics::CTextureHandle CursorTexture() const;
+	bool HasCustomArrowAsset() const;
+	IGraphics::CTextureHandle ArrowTexture() const;
 	bool IsSnapTapBlockedByCommunity() const;
 	bool IsAspectRatioBlockedByFng() const;
-	std::optional<CServerInfo> m_ConnectServerInfo = std::nullopt;
 	void SetConnectInfo(const NETADDR *pAddress) override;
 };
 

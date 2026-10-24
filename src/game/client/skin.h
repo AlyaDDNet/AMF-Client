@@ -33,8 +33,6 @@ public:
 	CSkinTextures m_OriginalSkin;
 	CSkinTextures m_ColorableSkin;
 	ColorRGBA m_BloodColor;
-	// Cached from the original PNG while the skin is loaded. Unlike blood color,
-	// these preserve luminance and are suitable for UI color sources.
 	ColorRGBA m_OriginalBodyColor;
 	ColorRGBA m_OriginalFeetColor;
 

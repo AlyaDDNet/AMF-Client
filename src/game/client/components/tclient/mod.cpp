@@ -24,8 +24,8 @@ void CMod::OnRender()
 	if(Client()->State() != IClient::STATE_ONLINE && Client()->State() != IClient::STATE_DEMOPLAYBACK)
 		return;
 
-	float ScreenX0, ScreenY0, ScreenX1, ScreenY1;
-	Graphics()->GetScreen(&ScreenX0, &ScreenY0, &ScreenX1, &ScreenY1);
+	CScreenRect ScreenRect = Graphics()->GetScreen();
+	ScreenRect.Expand(64.0f);
 
 	Graphics()->TextureClear();
 
@@ -129,7 +129,7 @@ void CMod::OnRender()
 			if(Player.m_Team < 0)
 				continue;
 
-			if(!(in_range(Player.m_RenderPos.x, ScreenX0, ScreenX1) && in_range(Player.m_RenderPos.y, ScreenY0, ScreenY1)))
+			if(!ScreenRect.Inside(Player.m_RenderPos))
 				continue;
 
 			float Alpha = 1.0f;
@@ -165,7 +165,8 @@ void CMod::ModWeapon(int Id)
 	if(!Player.m_Active)
 		return;
 
-	str_format(aBuf, sizeof(aBuf), TCLocalize("Activating mod weapon on %d: %s\n"), Player.ClientId(), Player.m_aName);
+	str_format(aBuf, sizeof(aBuf), TCLocalize("Activating mod weapon on %d: %s"), Player.ClientId(), Player.m_aName);
+	str_append(aBuf, "\n", sizeof(aBuf));
 	GameClient()->Echo(aBuf);
 
 	str_format(aBuf, sizeof(aBuf), "%s %d", g_Config.m_TcModWeaponCommand, Id);

@@ -2,19 +2,30 @@
 
 #include <base/detect.h>
 #include <base/log.h>
+#include <base/time.h>
+
+#include <algorithm>
+#include <cmath>
 
 #if defined(BACKEND_AS_OPENGL_ES) || !defined(CONF_BACKEND_OPENGL_ES)
 
 #ifndef BACKEND_AS_OPENGL_ES
 #include <GL/glew.h>
 #else
+#if defined(CONF_PLATFORM_IOS)
+#include <OpenGLES/ES3/gl.h>
+#include <OpenGLES/ES3/glext.h>
+#else
 #include <GLES3/gl3.h>
+#endif
 #endif
 
 #include <engine/client/backend/glsl_shader_compiler.h>
 #include <engine/client/backend/opengl/opengl_sl.h>
 #include <engine/client/backend/opengl/opengl_sl_program.h>
+#ifndef BACKEND_NO_SDL
 #include <engine/client/backend_sdl.h>
+#endif
 #include <engine/gfx/image_manipulation.h>
 
 #if defined(CONF_PLATFORM_EMSCRIPTEN)
@@ -467,9 +478,149 @@ bool CCommandProcessorFragment_OpenGL3_3::Cmd_Init(const SCommand_Init *pCommand
 	return true;
 }
 
+void CCommandProcessorFragment_OpenGL3_3::EnsureAmfMotionBlurTexture()
+{
+	if(m_aAmfMotionBlurTextures[0] != 0 && m_aAmfMotionBlurTextures[1] != 0 &&
+		m_AmfMotionBlurTextureWidth == m_CanvasWidth && m_AmfMotionBlurTextureHeight == m_CanvasHeight)
+		return;
+
+	DestroyAmfMotionBlurTexture();
+	m_AmfMotionBlurTextureWidth = m_CanvasWidth;
+	m_AmfMotionBlurTextureHeight = m_CanvasHeight;
+	for(TWGLuint &Texture : m_aAmfMotionBlurTextures)
+	{
+		glGenTextures(1, &Texture);
+		glBindTexture(GL_TEXTURE_2D, Texture);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m_AmfMotionBlurTextureWidth, m_AmfMotionBlurTextureHeight, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+	}
+	glBindTexture(GL_TEXTURE_2D, 0);
+	m_AmfMotionBlurReadIndex = 0;
+}
+
+void CCommandProcessorFragment_OpenGL3_3::DestroyAmfMotionBlurTexture()
+{
+	for(TWGLuint &Texture : m_aAmfMotionBlurTextures)
+	{
+		if(Texture != 0)
+			glDeleteTextures(1, &Texture);
+		Texture = 0;
+	}
+	m_AmfMotionBlurTextureWidth = 0;
+	m_AmfMotionBlurTextureHeight = 0;
+	m_AmfMotionBlurReadIndex = 0;
+	m_AmfMotionBlurHistoryValid = false;
+	m_AmfMotionBlurLastTime = 0;
+}
+
+void CCommandProcessorFragment_OpenGL3_3::RenderAmfMotionBlur()
+{
+	const int ReadIndex = m_AmfMotionBlurReadIndex;
+	const int WriteIndex = 1 - ReadIndex;
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, m_aAmfMotionBlurTextures[ReadIndex]);
+
+	if(!m_AmfMotionBlurHistoryValid)
+	{
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, m_AmfMotionBlurTextureWidth, m_AmfMotionBlurTextureHeight);
+		glBindTexture(GL_TEXTURE_2D, m_aAmfMotionBlurTextures[WriteIndex]);
+		glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, m_AmfMotionBlurTextureWidth, m_AmfMotionBlurTextureHeight);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		m_AmfMotionBlurHistoryValid = true;
+		return;
+	}
+
+	const float StrengthT = g_Config.m_AmfMotionBlur / 95.0f;
+	const float RefAlpha60 = StrengthT * StrengthT * 0.58f;
+	const int64_t Now = time_get();
+	float FrameTime = 1.0f / 60.0f;
+	if(m_AmfMotionBlurLastTime != 0)
+		FrameTime = (Now - m_AmfMotionBlurLastTime) / (float)time_freq();
+	m_AmfMotionBlurLastTime = Now;
+	FrameTime = std::clamp(FrameTime, 0.001f, 0.1f);
+	const float BlendAlpha = std::pow(std::clamp(RefAlpha60, 0.0f, 0.999f), FrameTime * 60.0f);
+	if(BlendAlpha <= 0.0f)
+		return;
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glViewport(0, 0, m_CanvasWidth, m_CanvasHeight);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	if(m_LastClipEnable)
+	{
+		glDisable(GL_SCISSOR_TEST);
+		m_LastClipEnable = false;
+	}
+
+	UseProgram(m_pPrimitiveProgramTextured);
+	const float aIdentityPos[8] = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f};
+	glUniformMatrix4x2fv(m_pPrimitiveProgramTextured->m_LocPos, 1, true, aIdentityPos);
+	m_pPrimitiveProgramTextured->m_LastScreenTL = vec2(0.0f, 0.0f);
+	m_pPrimitiveProgramTextured->m_LastScreenBR = vec2(0.0f, 0.0f);
+	glBindSampler(0, 0);
+	glBindTexture(GL_TEXTURE_2D, m_aAmfMotionBlurTextures[ReadIndex]);
+	glUniform1i(m_pPrimitiveProgramTextured->m_LocTextureSampler, 0);
+	m_pPrimitiveProgramTextured->m_LastTextureSampler = -1;
+
+	const uint8_t Alpha = (uint8_t)std::round(BlendAlpha * 255.0f);
+	CCommandBuffer::SVertex aVertices[4];
+	aVertices[0].m_Pos = vec2(-1.0f, -1.0f);
+	aVertices[0].m_Tex = vec2(0.0f, 0.0f);
+	aVertices[1].m_Pos = vec2(1.0f, -1.0f);
+	aVertices[1].m_Tex = vec2(1.0f, 0.0f);
+	aVertices[2].m_Pos = vec2(1.0f, 1.0f);
+	aVertices[2].m_Tex = vec2(1.0f, 1.0f);
+	aVertices[3].m_Pos = vec2(-1.0f, 1.0f);
+	aVertices[3].m_Tex = vec2(0.0f, 1.0f);
+	for(auto &Vertex : aVertices)
+	{
+		Vertex.m_Color.r = 255;
+		Vertex.m_Color.g = 255;
+		Vertex.m_Color.b = 255;
+		Vertex.m_Color.a = Alpha;
+	}
+
+	UploadStreamBufferData(EPrimitiveType::QUADS, aVertices, sizeof(CCommandBuffer::SVertex), 1);
+	glBindVertexArray(m_aPrimitiveDrawVertexId[m_LastStreamBuffer]);
+	if(m_aLastIndexBufferBound[m_LastStreamBuffer] != m_QuadDrawIndexBufferId)
+	{
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_QuadDrawIndexBufferId);
+		m_aLastIndexBufferBound[m_LastStreamBuffer] = m_QuadDrawIndexBufferId;
+	}
+	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+	m_LastStreamBuffer = (m_LastStreamBuffer + 1 >= MAX_STREAM_BUFFER_COUNT ? 0 : m_LastStreamBuffer + 1);
+
+	glBindTexture(GL_TEXTURE_2D, m_aAmfMotionBlurTextures[WriteIndex]);
+	glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, m_AmfMotionBlurTextureWidth, m_AmfMotionBlurTextureHeight);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	m_AmfMotionBlurReadIndex = WriteIndex;
+	m_LastBlendMode = EBlendMode::NONE;
+}
+
+void CCommandProcessorFragment_OpenGL3_3::Cmd_BeforeSwap()
+{
+	const bool Enabled = g_Config.m_AmfMotionBlurEnabled != 0 && g_Config.m_AmfMotionBlur > 0;
+	if(Enabled != m_AmfMotionBlurEnabledLastFrame)
+	{
+		m_AmfMotionBlurHistoryValid = false;
+		m_AmfMotionBlurLastTime = 0;
+		m_AmfMotionBlurEnabledLastFrame = Enabled;
+	}
+	if(!Enabled || m_CanvasWidth == 0 || m_CanvasHeight == 0)
+		return;
+
+	EnsureAmfMotionBlurTexture();
+	RenderAmfMotionBlur();
+}
+
 void CCommandProcessorFragment_OpenGL3_3::Cmd_Shutdown(const SCommand_Shutdown *pCommand)
 {
 	glUseProgram(0);
+	DestroyAmfMotionBlurTexture();
 
 	m_pPrimitiveProgram->DeleteProgram();
 	m_pPrimitiveProgramTextured->DeleteProgram();
@@ -536,6 +687,8 @@ void CCommandProcessorFragment_OpenGL3_3::TextureUpdate(int Slot, int X, int Y, 
 
 	if(m_vTextures[Slot].m_RescaleCount > 0)
 	{
+		const int OldWidth = Width;
+		const int OldHeight = Height;
 		for(int i = 0; i < m_vTextures[Slot].m_RescaleCount; ++i)
 		{
 			Width >>= 1;
@@ -545,7 +698,7 @@ void CCommandProcessorFragment_OpenGL3_3::TextureUpdate(int Slot, int X, int Y, 
 			Y /= 2;
 		}
 
-		uint8_t *pTmpData = ResizeImage(pTexData, Width, Height, Width, Height, GLFormatToPixelSize(GLFormat));
+		uint8_t *pTmpData = ResizeImage(pTexData, OldWidth, OldHeight, Width, Height, GLFormatToPixelSize(GLFormat));
 		free(pTexData);
 		pTexData = pTmpData;
 	}
@@ -573,6 +726,8 @@ void CCommandProcessorFragment_OpenGL3_3::TextureCreate(int Slot, int Width, int
 	{
 		if(Width > m_MaxTexSize || Height > m_MaxTexSize)
 		{
+			const int OldWidth = Width;
+			const int OldHeight = Height;
 			do
 			{
 				Width >>= 1;
@@ -580,7 +735,7 @@ void CCommandProcessorFragment_OpenGL3_3::TextureCreate(int Slot, int Width, int
 				++RescaleCount;
 			} while(Width > m_MaxTexSize || Height > m_MaxTexSize);
 
-			uint8_t *pTmpData = ResizeImage(pTexData, Width, Height, Width, Height, GLFormatToPixelSize(GLFormat));
+			uint8_t *pTmpData = ResizeImage(pTexData, OldWidth, OldHeight, Width, Height, GLFormatToPixelSize(GLFormat));
 			free(pTexData);
 			pTexData = pTmpData;
 		}
@@ -727,6 +882,14 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_Clear(const CCommandBuffer::SComma
 	{
 		glDisable(GL_SCISSOR_TEST);
 	}
+	if(m_HasDisplayCutout)
+	{
+		glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+		m_ClearColor.r = m_ClearColor.g = m_ClearColor.b = 0.0f;
+		glClear(GL_COLOR_BUFFER_BIT);
+		glScissor(m_ViewportX, m_ViewportY, m_CanvasWidth, m_CanvasHeight);
+		glEnable(GL_SCISSOR_TEST);
+	}
 	if(pCommand->m_Color.r != m_ClearColor.r || pCommand->m_Color.g != m_ClearColor.g || pCommand->m_Color.b != m_ClearColor.b)
 	{
 		glClearColor(pCommand->m_Color.r, pCommand->m_Color.g, pCommand->m_Color.b, 0.0f);
@@ -736,6 +899,10 @@ void CCommandProcessorFragment_OpenGL3_3::Cmd_Clear(const CCommandBuffer::SComma
 	if(ClipWasEnabled)
 	{
 		glEnable(GL_SCISSOR_TEST);
+	}
+	else if(m_HasDisplayCutout)
+	{
+		glDisable(GL_SCISSOR_TEST);
 	}
 }
 

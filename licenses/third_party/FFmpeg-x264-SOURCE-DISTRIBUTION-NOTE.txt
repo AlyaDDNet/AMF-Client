@@ -1,0 +1,18 @@
+AMF Client 2.0.1 source archive — FFmpeg binary scope
+
+The AMF source archive retains only the Windows x64 FFmpeg runtime DLLs and
+import libraries used by this release. The five DLLs are byte-identical to
+those in the portable package and are covered by the sibling corresponding-
+source artifact. It omits other prebuilt FFmpeg binaries from ddnet-libs:
+Win32/ARM64 DLLs, macOS dylibs, Linux static archives, and non-x64 Windows
+import libraries. Those binaries are not part of this Windows x64 release
+and their individual build/source provenance was not established here.
+FFmpeg headers and build integration remain in the source snapshot.
+
+The five Windows x64 DLLs retained in this archive are identified in
+DISTRIBUTION-MANIFEST.txt and are accompanied by the separately distributed
+AMF-Client-2.0.1-FFmpeg-x264-Corresponding-Source.zip. That artifact contains
+the FFmpeg and x264 source inputs and build materials identified for those
+DLLs.
+
+This is a technical distribution note, not legal advice.

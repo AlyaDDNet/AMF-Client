@@ -1,16 +1,18 @@
 #ifndef GAME_CLIENT_COMPONENTS_COMMUNITY_ICONS_H
 #define GAME_CLIENT_COMPONENTS_COMMUNITY_ICONS_H
+
 #include <base/hash.h>
 
 #include <engine/graphics.h>
 #include <engine/serverbrowser.h>
-#include <engine/shared/http.h>
 #include <engine/shared/jobs.h>
 
 #include <game/client/component.h>
 #include <game/client/ui_rect.h>
 
 #include <optional>
+
+class IHttpRequest;
 
 class CCommunityIcon
 {
@@ -68,10 +70,13 @@ private:
 		CImageInfo &ImageInfoGrayscale() { return m_ImageInfoGrayscale; }
 	};
 
-	class CCommunityIconDownloadJob : public CHttpRequest, public CAbstractCommunityIconJob
+	class CCommunityIconDownloadJob : public CAbstractCommunityIconJob
 	{
+		std::shared_ptr<IHttpRequest> m_pHttpRequest;
+
 	public:
 		CCommunityIconDownloadJob(CCommunityIcons *pCommunityIcons, const char *pCommunityId, const char *pUrl, const SHA256_DIGEST &Sha256);
+		std::shared_ptr<IHttpRequest> HttpRequest() { return m_pHttpRequest; }
 	};
 
 	std::vector<CCommunityIcon> m_vCommunityIcons;

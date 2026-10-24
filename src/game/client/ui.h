@@ -10,7 +10,6 @@
 #include <engine/textrender.h>
 
 #include <chrono>
-#include <functional>
 #include <string>
 #include <vector>
 
@@ -300,9 +299,39 @@ struct SPopupMenuProperties
 	ColorRGBA m_BorderColor = ColorRGBA(0.5f, 0.5f, 0.5f, 0.75f);
 	ColorRGBA m_BackgroundColor = ColorRGBA(0.0f, 0.0f, 0.0f, 0.75f);
 	bool m_CloseOnClickOutside = true;
-	// Most popup menus keep the traditional Esc shortcut. Modal dialogs can opt
-	// out when their interaction contract uses another key.
 	bool m_CloseOnEscape = true;
+};
+
+/**
+ * Text that keeps its text container across frames and is only rebuilt when the text or
+ * its layout changes, for text that is rendered every frame. The color is applied when
+ * rendering, so changing it does not rebuild the container.
+ *
+ * The container must be released with @link Reset @endlink before the text render drops
+ * its containers, which happens on window resize and language change.
+ */
+class CCachedText
+{
+	STextContainerIndex m_TextContainerIndex;
+	std::string m_Text;
+	float m_FontSize = -1.0f;
+	float m_LineWidth = -1.0f;
+	int m_CursorFlags = 0;
+	STextBoundingBox m_BoundingBox = {0.0f, 0.0f, 0.0f, 0.0f};
+	float m_MaxCharacterHeight = 0.0f;
+
+public:
+	CCachedText() = default;
+	// Copying would leave two owners for the same text container.
+	CCachedText(const CCachedText &) = delete;
+	CCachedText &operator=(const CCachedText &) = delete;
+
+	void Update(ITextRender *pTextRender, const char *pText, float FontSize, float LineWidth = -1.0f, int CursorFlags = TEXTFLAG_RENDER);
+	void Render(ITextRender *pTextRender, vec2 Pos, ColorRGBA Color) const;
+	void Reset(ITextRender *pTextRender);
+
+	float Width() const { return m_BoundingBox.m_W; }
+	float MaxCharacterHeight() const { return m_MaxCharacterHeight; }
 };
 
 class CUi
@@ -428,23 +457,16 @@ private:
 	vec2 m_BackButtonInitialMouse = vec2(0.0f, 0.0f);
 	CUIRect m_BackButtonRect = {0.0f, 0.0f, 0.0f, 0.0f};
 	const char m_BackButtonId = 0;
+
 	std::function<void(const IInput::CEvent &Event)> m_DispatchInputFunction;
 	std::function<void()> m_OnBackButtonPressedFunction;
 
 	CUIRect m_Screen;
-	int m_LastUiScale = -1;
-	int m_LastScreenWidth = 0;
-	int m_LastScreenHeight = 0;
-	float m_LastScreenAspect = 0.0f;
-	// Menus normally follow the graphics aspect override. The game-no-HUD
-	// aspect mode temporarily opts the menu coordinate system back into the
-	// physical window aspect, matching the Best Client behavior.
 	bool m_UseGraphicsScreenAspect = true;
-
-	float EffectiveScreenAspect() const;
 
 	std::vector<CUIRect> m_vClips;
 	void UpdateClipping();
+	float EffectiveScreenAspect() const;
 
 	struct SPopupMenu
 	{
@@ -533,8 +555,8 @@ public:
 	float MouseDeltaY() const { return m_MouseDelta.y; }
 	vec2 UpdatedMousePos() const { return m_UpdatedMousePos; }
 	vec2 UpdatedMouseDelta() const { return m_UpdatedMouseDelta; }
-	int LastMouseButton(int Index) const { return (m_LastMouseButtons >> Index) & 1; } // TClient
 	int MouseButton(int Index) const { return (m_MouseButtons >> Index) & 1; }
+	int LastMouseButton(int Index) const { return (m_LastMouseButtons >> Index) & 1; }
 	int MouseButtonClicked(int Index) const { return MouseButton(Index) && !((m_LastMouseButtons >> Index) & 1); }
 	bool CheckMouseLock()
 	{
@@ -676,6 +698,7 @@ public:
 	bool DoEditBox_Search(CLineInput *pLineInput, const CUIRect *pRect, float FontSize, bool HotkeyEnabled);
 
 	int DoButton_Menu(CUIElement &UIElement, const CButtonContainer *pId, const std::function<const char *()> &GetTextLambda, const CUIRect *pRect, const SMenuButtonProperties &Props = {});
+	void DrawButton_FontIcon(const char *pText, const CUIRect *pRect, ColorRGBA Color, int Corners = IGraphics::CORNER_ALL, bool Enabled = true) const;
 	int DoButton_FontIcon(CButtonContainer *pButtonContainer, const char *pText, int Checked, const CUIRect *pRect, unsigned Flags, int Corners = IGraphics::CORNER_ALL, bool Enabled = true, std::optional<ColorRGBA> ButtonColor = std::nullopt);
 	// only used for popup menus
 	int DoButton_PopupMenu(CButtonContainer *pButtonContainer, const char *pText, const CUIRect *pRect, float Size, int Align, float Padding = 0.0f, bool TransparentInactive = false, bool Enabled = true, std::optional<ColorRGBA> ButtonColor = std::nullopt);
@@ -700,19 +723,30 @@ public:
 	void RenderProgressBar(CUIRect ProgressBar, float Progress);
 
 	// render time with hundredths or thousands aligned to the right of the UIRect
-	void RenderTime(CUIRect TimeRect, float FontSize, int Seconds, bool NotFinished, int Millis, bool TrueMilliseconds) const;
+	void RenderTime(CUIRect TimeRect, float FontSize, int Seconds, bool NotFinished, int Millis, bool TrueMilliseconds, CCachedText &SecondsText, CCachedText &MillisText, ColorRGBA Color) const;
 
 	// progress spinner
 	void RenderProgressSpinner(vec2 Center, float OuterRadius, const SProgressSpinnerProperties &Props = {}) const;
 
-	// Virtual back button for touch input.
+	// virtual back button
 	void DoBackButton();
 	void RenderBackButton();
 	void SetDispatchInputCallback(std::function<void(const IInput::CEvent &Event)> pfnCallback) { m_DispatchInputFunction = std::move(pfnCallback); }
+	// Fired the moment the back button transitions to active (mouse-down inside it).
 	void SetOnBackButtonPressedCallback(std::function<void()> pfnCallback) { m_OnBackButtonPressedFunction = std::move(pfnCallback); }
 
-	// popup menu
+	// found in ui_popups.cpp
 	void DoPopupMenu(const SPopupMenuId *pId, float X, float Y, float Width, float Height, void *pContext, FPopupMenuFunction pfnFunc, const SPopupMenuProperties &Props = {});
+	bool UpdatePopupMenuPosition(const SPopupMenuId *pId, float X, float Y, float Width, float Height);
+	static CUIRect CalculatePopupMenuRect(const CUIRect &Screen, float X, float Y, float Width, float Height)
+	{
+		constexpr float Margin = SPopupMenu::POPUP_BORDER + SPopupMenu::POPUP_MARGIN;
+		if(X + Width > Screen.w - Margin)
+			X = std::max(X - Width, Margin);
+		if(Y + Height > Screen.h - Margin)
+			Y = std::max(Y - Height, Margin);
+		return {X, Y, Width, Height};
+	}
 	void RenderPopupMenus();
 	void ClosePopupMenu(const SPopupMenuId *pId, bool IncludeDescendants = false);
 	void ClosePopupMenus();
@@ -780,8 +814,7 @@ public:
 		float m_Width;
 		float m_AlignmentHeight;
 		bool m_TransparentButtons;
-
-		bool m_SpecialFontRenderMode = false; // TClient
+		bool m_SpecialFontRenderMode = false;
 
 		SSelectionPopupContext();
 		void Reset();

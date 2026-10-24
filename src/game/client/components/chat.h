@@ -15,8 +15,11 @@
 #include <game/client/component.h>
 #include <game/client/lineinput.h>
 #include <game/client/render.h>
+#include <game/client/ui_rect.h>
 
 #include <vector>
+
+constexpr auto SAVES_FILE = "ddnet-saves.txt";
 
 class CTranslateResponse
 {
@@ -25,8 +28,6 @@ public:
 	char m_Text[1024] = "";
 	char m_Language[16] = "";
 };
-
-constexpr auto SAVES_FILE = "ddnet-saves.txt";
 
 class CChat : public CComponent
 {
@@ -37,10 +38,9 @@ class CChat : public CComponent
 	enum
 	{
 		MAX_LINES = 64,
-		MAX_LINE_LENGTH = 256,
 	};
 
-	CLineInputBuffered<MAX_LINE_LENGTH> m_Input;
+	CLineInputBuffered<MAX_CHAT_LENGTH> m_Input;
 	class CLine
 	{
 	public:
@@ -56,7 +56,7 @@ class CChat : public CComponent
 		bool m_Whisper;
 		int m_NameColor;
 		char m_aName[64];
-		char m_aText[MAX_LINE_LENGTH];
+		char m_aText[MAX_CHAT_LENGTH];
 		bool m_Friend;
 		bool m_Highlighted;
 		std::optional<ColorRGBA> m_CustomColor;
@@ -69,7 +69,6 @@ class CChat : public CComponent
 		float m_TextYOffset;
 
 		int m_TimesRepeated;
-
 		std::shared_ptr<CTranslateResponse> m_pTranslateResponse;
 	};
 
@@ -109,10 +108,10 @@ class CChat : public CComponent
 	bool m_Show;
 	bool m_CompletionUsed;
 	int m_CompletionChosen;
-	char m_aCompletionBuffer[MAX_LINE_LENGTH];
+	char m_aCompletionBuffer[MAX_CHAT_LENGTH];
 	int m_PlaceholderOffset;
 	int m_PlaceholderLength;
-	static char ms_aDisplayText[MAX_LINE_LENGTH];
+	static char ms_aDisplayText[MAX_CHAT_LENGTH];
 	class CRateablePlayer
 	{
 	public:
@@ -155,7 +154,7 @@ class CChat : public CComponent
 	int64_t m_LastChatSend;
 	int64_t m_aLastSoundPlayed[CHAT_NUM];
 	bool m_IsInputCensored;
-	char m_aCurrentInputText[MAX_LINE_LENGTH];
+	char m_aCurrentInputText[MAX_CHAT_LENGTH];
 	bool m_EditingNewLine;
 
 	bool m_ServerSupportsCommandInfo;
@@ -191,7 +190,7 @@ class CChat : public CComponent
 	};
 	std::vector<STypingGlyphAnim> m_vSmoothHudTypingGlyphAnims;
 	std::vector<STextColorSplit> m_vSmoothHudTypedCharacterColorSplits;
-	char m_aSmoothHudPreviousInputText[MAX_LINE_LENGTH] = "";
+	char m_aSmoothHudPreviousInputText[MAX_CHAT_LENGTH] = "";
 	int64_t m_SmoothHudNotificationTime = 0;
 	char m_aSmoothHudNotification[64] = "";
 
@@ -242,13 +241,13 @@ public:
 	void OnConsoleInit() override;
 	void OnStateChange(int NewState, int OldState) override;
 	void OnRender() override;
-	void OnPrepareLines(float x, float y);
+	bool OnCursorMove(float x, float y, IInput::ECursorType CursorType) override;
 	CUIRect GetHudRect(float HudWidth, float HudHeight, bool ForcePreview = false) const;
+	void OnPrepareLines(float x, float y);
 	void Reset();
 	void OnRelease() override;
 	void OnMessage(int MsgType, void *pRawMsg) override;
 	bool OnInput(const IInput::CEvent &Event) override;
-	bool OnCursorMove(float x, float y, IInput::ECursorType CursorType) override;
 	void OnInit() override;
 
 	void RebuildChat();
@@ -270,10 +269,8 @@ public:
 	// @param Team MODE_ALL=0 MODE_TEAM=1
 	// @param pLine the chat message
 	void SendChat(int Team, const char *pLine);
-
-	// Sends a chat message through a specific local connection. This uses the
-	// same normal chat path as SendChat above, which is needed for team actions
-	// initiated by the dummy while the main player is controlled.
+	// Sends chat through a specific local connection, preserving the legacy
+	// explicit-connection path used by Impact's main-connection map-info request.
 	void SendChat(int Team, const char *pLine, int Connection);
 
 	// Sends a chat message to the server.
@@ -284,5 +281,9 @@ public:
 	//
 	// It uses team or public chat depending on m_Mode.
 	void SendChatQueued(const char *pLine);
+
+	friend class CBindChat;
+	friend class CTranslate;
+	friend class CTClient;
 };
 #endif

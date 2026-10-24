@@ -14,12 +14,10 @@ class ColorRGBA;
 
 class CMapLayers : public CComponent
 {
-	// TClient
-	friend class CScriptRunner;
-	friend class COutlines;
-
 	friend class CBackground;
 	friend class CMenuBackground;
+	friend class COutlines;
+	friend class CScripting;
 
 	CLayers *m_pLayers;
 	CMapImages *m_pImages;
@@ -34,6 +32,7 @@ public:
 	void OnMapLoad() override;
 
 	virtual CCamera *GetCurCamera();
+	const CLayers *GetLayers() const { return m_pLayers; }
 
 	CEnvelopeState &EnvEvaluator() { return m_EnvEvaluator; }
 

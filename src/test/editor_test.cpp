@@ -1,10 +1,14 @@
 #include <base/str.h>
+#include <game/editor/proof_mode.h>
 
 #include <gtest/gtest.h>
 
-bool is_letter(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
+static bool IsLetter(char c)
+{
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
 
-bool IsValidEditorTooltip(const char *pTooltip, char *pErrorMsg, int ErrorMsgSize)
+static bool IsValidEditorTooltip(const char *pTooltip, char *pErrorMsg, int ErrorMsgSize)
 {
 	pErrorMsg[0] = '\0';
 	char aHotkey[512];
@@ -28,7 +32,7 @@ bool IsValidEditorTooltip(const char *pTooltip, char *pErrorMsg, int ErrorMsgSiz
 			{
 				ExpectLowerCase = false;
 			}
-			else if(!is_letter(aHotkey[i - 1]))
+			else if(!IsLetter(aHotkey[i - 1]))
 			{
 				// the first character of a word should be uppercase
 				ExpectLowerCase = false;
@@ -75,7 +79,7 @@ bool IsValidEditorTooltip(const char *pTooltip, char *pErrorMsg, int ErrorMsgSiz
 	return true;
 }
 
-void AssertTooltip(const char *pTooltip)
+static void AssertTooltip(const char *pTooltip)
 {
 	char aError[512];
 	EXPECT_TRUE(IsValidEditorTooltip(pTooltip, aError, sizeof(aError))) << "Invalid tooltip: " << pTooltip << "\nError: " << aError;
@@ -94,4 +98,36 @@ TEST(Editor, QuickActionNames)
 #define REGISTER_QUICK_ACTION(name, text, callback, disabled, active, button_color, description) AssertTooltip(description);
 #include <game/editor/quick_actions.h>
 #undef REGISTER_QUICK_ACTION
+}
+
+TEST(Editor, ProofMenuModeTransitionRequiresPositions)
+{
+	CProofMode::CState State;
+	State.Reset();
+	State.m_ProofBorders = CProofMode::EProofBorder::INGAME;
+	EXPECT_FALSE(State.EnterMenuMode([] {}));
+	EXPECT_EQ(State.m_ProofBorders, CProofMode::EProofBorder::INGAME);
+
+	for(int Transition = 0; Transition < 3; ++Transition)
+	{
+		State.Reset();
+		State.m_ProofBorders = CProofMode::EProofBorder::INGAME;
+		State.m_CurrentMenuProofIndex = 1;
+
+		EXPECT_TRUE(State.EnterMenuMode([&State] {
+			EXPECT_EQ(State.m_ProofBorders, CProofMode::EProofBorder::INGAME);
+			State.m_vMenuBackgroundPositions = {vec2(100.0f, 200.0f), vec2(300.0f, 400.0f)};
+			State.m_vvMenuBackgroundCollisions.resize(State.m_vMenuBackgroundPositions.size());
+		}));
+		EXPECT_EQ(State.m_ProofBorders, CProofMode::EProofBorder::MENU);
+		EXPECT_EQ(State.m_CurrentMenuProofIndex, 1);
+		EXPECT_EQ(State.m_vMenuBackgroundPositions.size(), State.m_vvMenuBackgroundCollisions.size());
+		const vec2 CurrentMenuPosition = State.m_vMenuBackgroundPositions[State.m_CurrentMenuProofIndex];
+		EXPECT_FLOAT_EQ(CurrentMenuPosition.x, 300.0f);
+		EXPECT_FLOAT_EQ(CurrentMenuPosition.y, 400.0f);
+
+		State.Reset();
+		EXPECT_EQ(State.m_ProofBorders, CProofMode::EProofBorder::OFF);
+		EXPECT_TRUE(State.m_vMenuBackgroundPositions.empty());
+	}
 }

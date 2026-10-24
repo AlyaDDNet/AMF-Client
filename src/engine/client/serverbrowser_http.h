@@ -12,6 +12,7 @@ class IServerBrowserHttp
 public:
 	virtual ~IServerBrowserHttp() = default;
 
+	virtual void Shutdown() = 0;
 	virtual void Update() = 0;
 
 	virtual bool IsRefreshing() const = 0;
@@ -19,8 +20,6 @@ public:
 	virtual void Refresh() = 0;
 
 	virtual bool GetBestUrl(const char **pBestUrl) const = 0;
-
-	// True only when the latest completed refresh delivered a new server-list payload.
 	virtual bool ServersDataChanged() const = 0;
 
 	virtual int NumServers() const = 0;

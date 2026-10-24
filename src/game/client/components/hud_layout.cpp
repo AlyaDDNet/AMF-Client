@@ -45,8 +45,8 @@ namespace HudLayout
 			{5.0f, 278.0f, 100, 0, true, false, 0x66000000U, STYLE_CLASSIC}, // CHAT
 			{0.0f, 71.190f, 100, 0, true, true, 0x66000000U, STYLE_CLASSIC}, // VOTES
 			{250.0f, 200.0f, 65, 0, true, true, 0x66000000U, STYLE_CLASSIC}, // LOCK_CAM
-			{490.0f, 5.0f, 100, 0, true, false, 0x66000000U, STYLE_CLASSIC}, // KILLFEED
-			{0.0f, 129.0f, 100, 0, true, true, 0x66000000U, STYLE_CLASSIC}, // FINISH_PREDICTION
+			{500.0f, 25.0f, 100, 0, true, false, 0x66000000U, STYLE_CLASSIC}, // KILLFEED
+			{105.158f, 0.0f, 100, 0, false, true, 0x66000000U, STYLE_CLASSIC}, // FINISH_PREDICTION
 			{457.186f, KEY_INDICATOR_DEFAULT_Y, 70, 0, true, false, 0x66000000U, STYLE_CLASSIC}, // KEYSTROKES_KEYBOARD
 			// KEYSTROKES_MOUSE: X/Y here are unused - see HasDynamicDefault()/DynamicDefaultLayout()
 			// below, which computes its default position directly in HUD-pixel space (not
@@ -85,6 +85,7 @@ namespace HudLayout
 
 		static SModuleLayout gs_aRuntimeModuleLayouts[MODULE_COUNT];
 		static bool gs_RuntimeLayoutsInitialized = false;
+		static bool gs_NotifyLastLegacyPositionMigrated = false;
 		static bool gs_ConfigCallbackRegistered = false;
 		static bool gs_ConsoleCommandRegistered = false;
 
@@ -108,6 +109,7 @@ namespace HudLayout
 			case MODULE_MOVEMENT_INFO:
 			case MODULE_PLAYER_STATE:
 			case MODULE_KILLFEED:
+			case MODULE_FINISH_PREDICTION:
 				return true;
 			default:
 				return false;
@@ -144,6 +146,8 @@ namespace HudLayout
 				return g_Config.m_ClShowhudHealthAmmo != 0 || g_Config.m_ClShowhudDDRace != 0;
 			case MODULE_KILLFEED:
 				return g_Config.m_ClShowKillMessages != 0 || g_Config.m_ClShowFinishMessages != 0;
+			case MODULE_FINISH_PREDICTION:
+				return g_Config.m_AmfFinishPrediction != 0;
 			default:
 				return LayoutEnabled;
 			}
@@ -199,8 +203,11 @@ namespace HudLayout
 			case MODULE_PLAYER_STATE:
 				if(Enabled)
 				{
-					if(!CanonicalEnabled(Module, false))
-						g_Config.m_ClShowhudHealthAmmo = 1;
+					// The editor module represents the complete DDNet Player HUD.
+					// Its renderer has two independent DDNet gates (health/ammo and
+					// extended DDRace state), so restore both on enable/reset.
+					g_Config.m_ClShowhudHealthAmmo = 1;
+					g_Config.m_ClShowhudDDRace = 1;
 				}
 				else
 				{
@@ -220,6 +227,9 @@ namespace HudLayout
 					g_Config.m_ClShowFinishMessages = 0;
 				}
 				break;
+			case MODULE_FINISH_PREDICTION:
+				g_Config.m_AmfFinishPrediction = Enabled;
+				break;
 			default:
 				break;
 			}
@@ -232,6 +242,22 @@ namespace HudLayout
 			for(int i = 0; i < MODULE_COUNT; ++i)
 				gs_aRuntimeModuleLayouts[i] = gs_aModuleLayouts[i];
 			gs_RuntimeLayoutsInitialized = true;
+		}
+
+		bool HasPositionOverrideInternal(EModule Module);
+
+		void EnsureNotifyLastLegacyPositionMigrated()
+		{
+			if(gs_NotifyLastLegacyPositionMigrated)
+				return;
+			EnsureRuntimeLayouts();
+			if(!HasPositionOverrideInternal(MODULE_NOTIFY_LAST))
+			{
+				SModuleLayout &Layout = gs_aRuntimeModuleLayouts[MODULE_NOTIFY_LAST];
+				Layout.m_X = (g_Config.m_TcNotifyWhenLastX / 100.0f) * CANVAS_WIDTH;
+				Layout.m_Y = (g_Config.m_TcNotifyWhenLastY / 100.0f) * CANVAS_HEIGHT;
+			}
+			gs_NotifyLastLegacyPositionMigrated = true;
 		}
 
 		bool HasRuntimeOverrideInternal(EModule Module)
@@ -402,9 +428,6 @@ namespace HudLayout
 			const int ModuleIndex = pResult->GetInteger(0);
 			if(ModuleIndex < 0 || ModuleIndex >= MODULE_COUNT)
 				return;
-			if(ModuleIndex == MODULE_GAME_TIMER)
-				return;
-
 			EnsureRuntimeLayouts();
 			const EModule Module = (EModule)ModuleIndex;
 			SModuleLayout Layout = gs_aRuntimeModuleLayouts[Module];
@@ -430,8 +453,6 @@ namespace HudLayout
 			char aLine[256];
 			for(int Module = 0; Module < MODULE_COUNT; ++Module)
 			{
-				if(Module == MODULE_GAME_TIMER)
-					continue;
 				const SModuleLayout &Layout = gs_aRuntimeModuleLayouts[Module];
 				str_format(
 					aLine,
@@ -454,6 +475,8 @@ namespace HudLayout
 
 	SModuleLayout Get(EModule Module, float HudWidth, float HudHeight)
 	{
+		if(Module == MODULE_NOTIFY_LAST)
+			EnsureNotifyLastLegacyPositionMigrated();
 		SModuleLayout Layout = ResolveBaseLayout(Module, HudWidth, HudHeight);
 		// Per-module scale is already stored in the AMF layout entry.
 		return Layout;
@@ -461,6 +484,8 @@ namespace HudLayout
 
 	SModuleLayout GetDefault(EModule Module, float HudWidth, float HudHeight)
 	{
+		if(Module == MODULE_NOTIFY_LAST)
+			EnsureNotifyLastLegacyPositionMigrated();
 		SModuleLayout Layout = DynamicDefaultLayout(Module, HudWidth, HudHeight);
 		if(!HasDynamicDefault(Module))
 			Layout.m_X = CanvasXToHud(Layout.m_X, HudWidth);
@@ -566,6 +591,8 @@ namespace HudLayout
 	{
 		EnsureRuntimeLayouts();
 		gs_aRuntimeModuleLayouts[Module] = gs_aModuleLayouts[Module];
+		if(HasCanonicalEnableConfig(Module))
+			SetCanonicalEnabled(Module, gs_aModuleLayouts[Module].m_Enabled);
 	}
 
 	void ResetEditableModules()

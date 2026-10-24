@@ -8,6 +8,7 @@
 #include <engine/external/spt.h>
 #include <engine/graphics.h>
 #include <engine/shared/config.h>
+#include <engine/shared/linereader.h>
 
 #include <game/client/animstate.h>
 #include <game/client/components/tclient/bg_draw_file.h>
@@ -383,12 +384,18 @@ bool CBgDraw::Save(const char *pFilename, bool Verbose)
 	IOHANDLE Handle = BgDrawOpenFile(*GameClient(), pFilename, IOFLAG_WRITE);
 	if(!Handle)
 		return false;
+
+	auto WriteLine = [&Handle](const char *pLine) -> bool {
+		const unsigned Length = str_length(pLine);
+		return io_write(Handle, pLine, Length) == Length && io_write_newline(Handle);
+	};
+
 	int Written = 0;
 	bool Success = true;
 	char aMsg[256];
 	for(const CBgDrawItem &Item : *m_pvItems)
 	{
-		if(!BgDrawFile::Write(static_cast<FILE *>(Handle), Item.Data()))
+		if(!BgDrawFile::Write(WriteLine, Item.Data()))
 		{
 			str_format(aMsg, sizeof(aMsg), TCLocalize("Writing item %d failed", "bgdraw"), Written);
 			GameClient()->Echo(aMsg);
@@ -413,12 +420,22 @@ bool CBgDraw::Load(const char *pFilename, bool Verbose)
 	IOHANDLE Handle = BgDrawOpenFile(*GameClient(), pFilename, IOFLAG_READ);
 	if(!Handle)
 		return false;
+	CLineReader LineReader;
+	if(!LineReader.OpenFile(Handle))
+		return false;
+	auto ReadLine = [&LineReader](char *pBuf, int Length) -> bool {
+		const char *pLine = LineReader.Get();
+		if(!pLine)
+			return false;
+		str_copy(pBuf, pLine, Length);
+		return true;
+	};
 	std::deque<CBgDrawItemData> Queue;
 	int ItemsLoaded = 0;
 	int ItemsDiscarded = 0;
 	{
 		CBgDrawItemData Data;
-		while(BgDrawFile::Read(static_cast<FILE *>(Handle), Data) && (ItemsLoaded++) < MAX_ITEMS_TO_LOAD)
+		while(BgDrawFile::Read(ReadLine, Data) && (ItemsLoaded++) < MAX_ITEMS_TO_LOAD)
 		{
 			if((int)Queue.size() > g_Config.m_TcBgDrawMaxItems)
 			{
@@ -428,7 +445,6 @@ bool CBgDraw::Load(const char *pFilename, bool Verbose)
 			Queue.push_back(Data);
 		}
 	}
-	io_close(Handle);
 	MakeSpaceFor(Queue.size());
 	for(const CBgDrawItemData &Data : Queue)
 		AddItem(*GameClient(), Data);
@@ -551,8 +567,7 @@ void CBgDraw::OnRender()
 	// Remove extra items
 	MakeSpaceFor(0);
 	// Update age of items, delete old items, render items
-	float ScreenX0, ScreenY0, ScreenX1, ScreenY1;
-	Graphics()->GetScreen(&ScreenX0, &ScreenY0, &ScreenX1, &ScreenY1);
+	const CScreenRect ScreenRect = Graphics()->GetScreen();
 	for(CBgDrawItem &Item : *m_pvItems)
 	{
 		// If this item is currently active
@@ -568,9 +583,10 @@ void CBgDraw::OnRender()
 			if(g_Config.m_TcBgDrawFadeTime > 0 && Item.m_SecondsAge > (float)g_Config.m_TcBgDrawFadeTime)
 				Item.m_Killed = true;
 		}
-		const bool InRangeX = Item.BoundingBox().m_Min.x < ScreenX1 || Item.BoundingBox().m_Max.x > ScreenX0;
-		const bool InRangeY = Item.BoundingBox().m_Min.y < ScreenY1 || Item.BoundingBox().m_Max.y > ScreenY0;
-		if(InRangeX && InRangeY)
+		if(Item.BoundingBox().m_Min.x < ScreenRect.m_BottomRight.x &&
+			Item.BoundingBox().m_Max.x > ScreenRect.m_TopLeft.x &&
+			Item.BoundingBox().m_Min.y < ScreenRect.m_BottomRight.y &&
+			Item.BoundingBox().m_Max.y > ScreenRect.m_TopLeft.y)
 			Item.Render();
 	}
 	// Remove killed items

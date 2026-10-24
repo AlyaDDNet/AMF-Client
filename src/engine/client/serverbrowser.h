@@ -8,8 +8,8 @@
 
 #include <engine/console.h>
 #include <engine/serverbrowser.h>
-#include <engine/shared/memheap.h>
 
+#include <deque>
 #include <functional>
 #include <map>
 #include <optional>
@@ -26,6 +26,7 @@ class IServerBrowserHttp;
 class IServerBrowserPingCache;
 class IStorage;
 class IHttp;
+class CCustomCommunities;
 
 class CCommunityId
 {
@@ -249,11 +250,13 @@ public:
 
 class CServerBrowser : public IServerBrowser
 {
+friend class CCustomCommunities;
 public:
 	CServerBrowser();
 	~CServerBrowser() override;
 
 	// interface functions
+	void Shutdown() override;
 	void Refresh(int Type, bool Force = false) override;
 	bool IsRefreshing() const override;
 	bool IsGettingServerlist() const override;
@@ -337,24 +340,24 @@ private:
 	char m_aNetVersion[128];
 
 	bool m_RefreshingHttp = false;
-	bool m_PingCacheLoaded = false;
-	// Whether the current non-LAN HTTP data has been materialized into the
-	// browser entries. This is separate from m_RefreshingHttp because the HTTP
-	// client can finish its initial request before the browser tab is opened.
 	bool m_HttpDataApplied = false;
 	IServerBrowserHttp *m_pHttp = nullptr;
 	IServerBrowserPingCache *m_pPingCache = nullptr;
 	const char *m_pHttpPrevBestUrl = nullptr;
 
-	CHeap m_ServerlistHeap;
+	// Entries are owned by m_ServerlistStorage; m_vpServerlist holds non-owning
+	// pointers into it. std::deque keeps element pointers stable across growth,
+	// which the request list (m_pPrevReq/m_pNextReq) and m_vpServerlist rely on.
+	std::deque<CServerEntry> m_ServerlistStorage;
 	std::vector<CServerEntry *> m_vpServerlist;
 	std::vector<int> m_vSortedServerlist;
 	std::unordered_map<NETADDR, int> m_ByAddr;
-	std::unordered_map<NETADDR, int> m_AmfClientCountsByAddr;
-	std::unordered_map<NETADDR, std::vector<std::string>> m_AmfClientPlayerNamesByAddr;
 
 	std::vector<CCommunity> m_vCommunities;
 	std::unordered_map<NETADDR, CCommunityServer> m_CommunityServersByAddr;
+	std::unordered_map<NETADDR, int> m_AmfClientCountsByAddr;
+	std::unordered_map<NETADDR, std::vector<std::string>> m_AmfClientPlayerNamesByAddr;
+	std::function<void(std::vector<json_value *> &)> m_CustomCommunitiesFunction;
 
 	int m_OwnLocation = CServerInfo::LOC_UNKNOWN;
 
@@ -435,10 +438,6 @@ private:
 
 	static bool ParseCommunityFinishes(CCommunity *pCommunity, const json_value &Finishes);
 	static bool ParseCommunityServers(CCommunity *pCommunity, const json_value &Servers);
-
-	// TClient
-	std::function<void(std::vector<json_value *> &)> m_CustomCommunitiesFunction = nullptr;
-	friend class CCustomCommunities;
 };
 
 #endif

@@ -78,7 +78,7 @@ void CListBox::DoStart(float RowHeight, int NumItems, int ItemsPerRow, int RowsP
 	m_ListBoxRowHeight = RowHeight;
 	m_ListBoxNumItems = NumItems;
 	m_ListBoxItemsPerRow = ItemsPerRow;
-	m_ColumnSpacing = std::max(0.0f, ColumnSpacing);
+	m_ColumnSpacing = ColumnSpacing;
 	m_ListBoxItemActivated = false;
 	m_ListBoxItemSelected = false;
 

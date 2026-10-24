@@ -13,7 +13,7 @@
 #if defined(CONF_DISCORD)
 #include <discord_game_sdk.h>
 
-constexpr const char *AMF_DISCORD_LARGE_IMAGE_KEY = "ascension_edition_logo_discord";
+constexpr const char *AMF_DISCORD_LARGE_IMAGE_KEY = "discord_logo_nova_edition";
 
 typedef enum EDiscordResult(DISCORD_API *FDiscordCreate)(DiscordVersion, struct DiscordCreateParams *, struct IDiscordCore **);
 

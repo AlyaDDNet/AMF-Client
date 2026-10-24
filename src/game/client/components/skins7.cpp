@@ -24,7 +24,7 @@
 #include <game/client/gameclient.h>
 #include <game/localization.h>
 
-#include <cstdint>
+#include <algorithm>
 
 const char *const CSkins7::ms_apSkinPartNames[protocol7::NUM_SKINPARTS] = {"body", "marking", "decoration", "hands", "feet", "eyes"};
 const char *const CSkins7::ms_apSkinPartNamesLocalized[protocol7::NUM_SKINPARTS] = {Localizable("Body", "skins"), Localizable("Marking", "skins"), Localizable("Decoration", "skins"), Localizable("Hands", "skins"), Localizable("Feet", "skins"), Localizable("Eyes", "skins")};
@@ -44,7 +44,6 @@ void CSkins7::CSkinPart::ApplyTo(CTeeRenderInfo::CSixup &SixupRenderInfo) const
 {
 	SixupRenderInfo.m_aOriginalTextures[m_Type] = m_OriginalTexture;
 	SixupRenderInfo.m_aColorableTextures[m_Type] = m_ColorableTexture;
-	SixupRenderInfo.m_aOriginalColors[m_Type] = m_OriginalColor;
 	if(m_Type == protocol7::SKINPART_BODY)
 	{
 		SixupRenderInfo.m_BloodColor = m_BloodColor;

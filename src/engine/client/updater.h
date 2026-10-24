@@ -4,6 +4,7 @@
 #include <base/lock.h>
 #include <base/types.h>
 
+#include <engine/http.h>
 #include <engine/updater.h>
 
 #include <memory>
@@ -20,9 +21,6 @@
 #define PLAT_CLIENT_EXEC CLIENT_EXEC PLAT_EXT
 #define PLAT_SERVER_EXEC SERVER_EXEC PLAT_EXT
 
-class IEngineHttp;
-class CHttpRequest;
-
 class CUpdater : public IUpdater
 {
 	enum class ETaskKind
@@ -34,7 +32,7 @@ class CUpdater : public IUpdater
 
 	class IClient *m_pClient;
 	class IStorage *m_pStorage;
-	IEngineHttp *m_pHttp;
+	IHttp *m_pHttp;
 
 	CLock m_Lock;
 
@@ -42,7 +40,7 @@ class CUpdater : public IUpdater
 	char m_aStatus[256] GUARDED_BY(m_Lock);
 	int m_Percent GUARDED_BY(m_Lock);
 
-	std::shared_ptr<CHttpRequest> m_pCurrentTask;
+	std::shared_ptr<IHttpRequest> m_pCurrentTask;
 	ETaskKind m_TaskKind = ETaskKind::NONE;
 	bool m_bAutoCheckPending = false;
 	bool m_bHasCheckedForUpdate = false;

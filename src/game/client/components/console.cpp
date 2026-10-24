@@ -12,8 +12,10 @@
 #include <base/str.h>
 #include <base/time.h>
 
+#include <engine/client/keyboard.h>
 #include <engine/console.h>
 #include <engine/engine.h>
+#include <engine/font_icons.h>
 #include <engine/graphics.h>
 #include <engine/keys.h>
 #include <engine/shared/config.h>
@@ -24,6 +26,7 @@
 #include <generated/client_data.h>
 
 #include <game/client/components/tclient/colored_parts.h>
+#include <game/client/components/console_scrollbar.h>
 #include <game/client/gameclient.h>
 #include <game/client/render.h>
 #include <game/client/ui.h>
@@ -34,6 +37,10 @@
 
 static constexpr float FONT_SIZE = 10.0f;
 static constexpr float LINE_SPACING = 1.0f;
+static constexpr float CONSOLE_SCROLLBAR_WIDTH = 18.0f;
+static constexpr float CONSOLE_SCROLLBAR_OUTER_MARGIN = 5.0f;
+static constexpr float CONSOLE_SCROLLBAR_RAIL_MARGIN = 5.0f;
+static constexpr float CONSOLE_SCROLLBAR_MIN_THUMB_HEIGHT = 33.0f;
 
 class CConsoleLogger : public ILogger
 {
@@ -177,7 +184,7 @@ static int PossibleKeys(const char *pStr, IInput *pInput, IConsole::FPossibleCal
 			continue;
 		}
 		// Ignore unnamed keys starting with '&'
-		const char *pKeyName = pInput->KeyName(Key);
+		const char *pKeyName = KeyName(Key);
 		if(pKeyName[0] != '&' && str_find_nocase(pKeyName, pStr))
 		{
 			pfnCallback(Index, pKeyName, pUser);
@@ -260,7 +267,10 @@ CGameConsole::CInstance::CInstance(int Type)
 		}
 	});
 
-	m_Input.SetClipboardLineCallback([this](const char *pStr) { ExecuteLine(pStr); });
+	m_Input.SetClipboardLineCallback([this](const char *pStr) {
+		if(pStr[0] != '\0')
+			ExecuteLine(pStr);
+	});
 
 	m_CurrentMatchIndex = -1;
 	m_aCurrentSearchString[0] = '\0';
@@ -282,15 +292,18 @@ void CGameConsole::CInstance::ClearBacklog()
 
 	m_Backlog.Init();
 	m_BacklogCurLine = 0;
+	m_BacklogTotalLines = 0;
 	ClearSearch();
 }
 
 void CGameConsole::CInstance::UpdateBacklogTextAttributes()
 {
+	m_BacklogTotalLines = 0;
 	// Pending backlog entries are not handled because they don't have text attributes yet.
 	for(CBacklogEntry *pEntry = m_Backlog.First(); pEntry; pEntry = m_Backlog.Next(pEntry))
 	{
 		UpdateEntryTextAttributes(pEntry);
+		m_BacklogTotalLines += pEntry->m_LineCount;
 	}
 }
 
@@ -312,6 +325,7 @@ void CGameConsole::CInstance::PumpBacklogPending()
 
 	// Update text attributes and count number of added lines
 	m_pGameConsole->Ui()->MapScreen();
+	m_BacklogTotalLines = 0;
 	for(CBacklogEntry *pEntry = m_Backlog.First(); pEntry; pEntry = m_Backlog.Next(pEntry))
 	{
 		if(pEntry->m_LineCount == -1)
@@ -319,6 +333,7 @@ void CGameConsole::CInstance::PumpBacklogPending()
 			UpdateEntryTextAttributes(pEntry);
 			m_NewLineCounter += pEntry->m_LineCount;
 		}
+		m_BacklogTotalLines += pEntry->m_LineCount;
 	}
 }
 
@@ -822,12 +837,18 @@ void CGameConsole::CInstance::UpdateEntryTextAttributes(CBacklogEntry *pEntry) c
 	CTextCursor Cursor;
 	Cursor.m_FontSize = FONT_SIZE;
 	Cursor.m_Flags = 0;
-	Cursor.m_LineWidth = m_pGameConsole->Ui()->Screen()->w - 10;
+	Cursor.m_LineWidth = LogLineWidth();
 	Cursor.m_MaxLines = 10;
 	Cursor.m_LineSpacing = LINE_SPACING;
 	m_pGameConsole->TextRender()->TextEx(&Cursor, pEntry->m_aText, -1);
 	pEntry->m_YOffset = Cursor.Height();
 	pEntry->m_LineCount = Cursor.m_LineCount;
+}
+
+float CGameConsole::CInstance::LogLineWidth() const
+{
+	const float ScrollbarReservation = CONSOLE_SCROLLBAR_WIDTH + CONSOLE_SCROLLBAR_OUTER_MARGIN;
+	return std::max(0.0f, m_pGameConsole->Ui()->Screen()->w - 10.0f - ScrollbarReservation);
 }
 
 bool CGameConsole::CInstance::IsInputHidden() const
@@ -891,7 +912,7 @@ void CGameConsole::CInstance::UpdateSearch()
 	}
 
 	ITextRender *pTextRender = m_pGameConsole->Ui()->TextRender();
-	const int LineWidth = m_pGameConsole->Ui()->Screen()->w - 10.0f;
+	const int LineWidth = (int)LogLineWidth();
 
 	CBacklogEntry *pEntry = m_Backlog.Last();
 	int EntryLine = 0, LineToScrollStart = 0, LineToScrollEnd = 0;
@@ -1139,6 +1160,20 @@ void CGameConsole::Prompt(char (&aPrompt)[32])
 	}
 }
 
+bool CGameConsole::DoButton(const CUIRect &Rect, const char *pIcon, vec2 MousePosition, bool Released)
+{
+	const bool PressedInside = Rect.Inside(m_ButtonPressPosition);
+	const bool MouseInside = Rect.Inside(MousePosition);
+	const bool Active = CurrentConsole()->m_MouseIsPress && PressedInside;
+	if(Active)
+		m_ButtonPressed = true;
+
+	const float ColorMul = Active ? Ui()->ButtonColorMulActive() : (MouseInside ? Ui()->ButtonColorMulHot() : Ui()->ButtonColorMulDefault());
+	Ui()->DrawButton_FontIcon(pIcon, &Rect, ColorRGBA(1.0f, 1.0f, 1.0f, 0.5f * ColorMul), IGraphics::CORNER_B);
+
+	return m_ConsoleState == CONSOLE_OPEN && Released && PressedInside && MouseInside;
+}
+
 void CGameConsole::OnRender()
 {
 	CUIRect Screen = *Ui()->Screen();
@@ -1172,8 +1207,6 @@ void CGameConsole::OnRender()
 	if(m_ConsoleState == CONSOLE_OPEN || m_ConsoleState == CONSOLE_OPENING)
 	{
 		Input()->MouseModeAbsolute();
-		// Console input is absolute, but uses DDNet's rendered UI cursor rather
-		// than a second platform cursor.
 		Input()->SetSystemCursorVisible(false);
 	}
 
@@ -1254,21 +1287,41 @@ void CGameConsole::OnRender()
 				return Input()->NativeMousePos() / WindowSize * ScreenSize;
 			}
 		};
+		bool ButtonReleased = false;
+		if(!pConsole->m_MouseIsPress)
+		{
+			// Keep the text selection suppressed until the frame after the buttons were released.
+			m_ButtonPressed = false;
+		}
 		if(!pConsole->m_MouseIsPress && (m_TouchState.m_PrimaryPressed || Input()->NativeMousePressed(1)))
 		{
 			pConsole->m_MouseIsPress = true;
 			pConsole->m_MousePress = GetMousePosition();
+			m_ButtonPressPosition = pConsole->m_MousePress;
 		}
-	if(pConsole->m_MouseIsPress && !m_TouchState.m_PrimaryPressed && !Input()->NativeMousePressed(1))
-	{
-		pConsole->m_MouseIsPress = false;
-		if(m_ConsoleState == CONSOLE_OPEN && pConsole->m_MousePress.y > ConsoleHeight + 1.0f && pConsole->m_MouseRelease.y > ConsoleHeight + 1.0f) // for border
-			Toggle(m_ConsoleType);
-	}
+		if(pConsole->m_MouseIsPress && !m_TouchState.m_PrimaryPressed && !Input()->NativeMousePressed(1))
+		{
+			pConsole->m_MouseIsPress = false;
+			ButtonReleased = m_ButtonPressed;
+			if(m_ConsoleState == CONSOLE_OPEN && pConsole->m_MousePress.y > ConsoleHeight + 1.0f && pConsole->m_MouseRelease.y > ConsoleHeight + 1.0f) // for border
+				Toggle(m_ConsoleType);
+		}
 		if(pConsole->m_MouseIsPress)
 		{
 			pConsole->m_MouseRelease = GetMousePosition();
 		}
+		// The touch fingers are already gone when the buttons are released, so use the last position while pressed.
+		const vec2 ButtonMousePosition = ButtonReleased ? pConsole->m_MouseRelease : GetMousePosition();
+
+		// Buttons in the top row of the console, handled before the text selection below.
+		// Add another button by splitting one more rect from the button bar.
+		CUIRect ButtonBar, Button;
+		Screen.HSplitTop(RowHeight, &ButtonBar, nullptr);
+		ButtonBar.VSplitRight(10.0f, &ButtonBar, nullptr);
+		ButtonBar.VSplitRight(RowHeight, &ButtonBar, &Button);
+		if(DoButton(Button, FontIcon::XMARK, ButtonMousePosition, ButtonReleased))
+			Toggle(m_ConsoleType);
+
 		const float ScaledLineHeight = LineHeight / ScreenSize.y;
 		if(absolute(m_TouchState.m_ScrollAmount.y) >= ScaledLineHeight)
 		{
@@ -1289,7 +1342,7 @@ void CGameConsole::OnRender()
 
 		x = PromptCursor.m_X;
 
-		if(m_ConsoleState == CONSOLE_OPEN)
+		if(m_ConsoleState == CONSOLE_OPEN && !m_ButtonPressed)
 		{
 			if(pConsole->m_MousePress.y >= pConsole->m_BoundingBox.m_Y && pConsole->m_MousePress.y < pConsole->m_BoundingBox.m_Y + pConsole->m_BoundingBox.m_H)
 			{
@@ -1431,6 +1484,68 @@ void CGameConsole::OnRender()
 				pConsole->m_NewLineCounter = 0;
 		}
 
+		bool ScrollbarCaptured = false;
+		if(m_ConsoleType == CONSOLETYPE_LOCAL || m_ConsoleType == CONSOLETYPE_REMOTE)
+		{
+			const float LogHeight = std::max(0.0f, y - RowHeight);
+			const int VisibleLines = std::max(1, (int)std::floor(LogHeight / LineHeight));
+			const int MaxScroll = std::max(0, pConsole->m_BacklogTotalLines - VisibleLines);
+			pConsole->m_BacklogCurLine = std::clamp(pConsole->m_BacklogCurLine, 0, MaxScroll);
+			pConsole->m_BacklogLastActiveLine = pConsole->m_BacklogCurLine;
+
+			CUIRect ScrollbarRect;
+			ScrollbarRect.x = std::max(0.0f, Screen.w - CONSOLE_SCROLLBAR_WIDTH - CONSOLE_SCROLLBAR_OUTER_MARGIN);
+			ScrollbarRect.y = RowHeight;
+			ScrollbarRect.w = CONSOLE_SCROLLBAR_WIDTH;
+			ScrollbarRect.h = LogHeight;
+			CUIRect Rail;
+			ScrollbarRect.Margin(CONSOLE_SCROLLBAR_RAIL_MARGIN, &Rail);
+
+			ConsoleScrollBar::SGeometry Geometry = ConsoleScrollBar::CalculateGeometry(
+				Rail.y, Rail.h, pConsole->m_BacklogTotalLines, VisibleLines, pConsole->m_BacklogCurLine,
+				CONSOLE_SCROLLBAR_MIN_THUMB_HEIGHT);
+			const CUIRect InitialThumb = {Rail.x, Geometry.m_ThumbTop, Rail.w, Geometry.m_ThumbHeight};
+			const vec2 MousePosition = GetMousePosition();
+			const bool MouseDown = m_ConsoleState == CONSOLE_OPEN && (m_TouchState.m_PrimaryPressed || Input()->NativeMousePressed(1));
+			const bool WasDragging = pConsole->m_ScrollbarDragging;
+
+			if(!MouseDown)
+				pConsole->m_ScrollbarDragging = false;
+			else if(!pConsole->m_ScrollbarDragging && Geometry.m_Visible && Rail.Inside(MousePosition))
+			{
+				pConsole->m_ScrollbarDragOffset = InitialThumb.Inside(MousePosition) ? MousePosition.y - InitialThumb.y : Geometry.m_ThumbHeight / 2.0f;
+				pConsole->m_ScrollbarDragging = true;
+			}
+
+			ScrollbarCaptured = WasDragging || pConsole->m_ScrollbarDragging;
+			if(MouseDown && pConsole->m_ScrollbarDragging)
+			{
+				pConsole->m_BacklogCurLine = ConsoleScrollBar::OffsetFromPointer(MousePosition.y, pConsole->m_ScrollbarDragOffset, Geometry);
+				pConsole->m_BacklogLastActiveLine = pConsole->m_BacklogCurLine;
+				pConsole->m_HasSelection = false;
+			}
+
+			if(ScrollbarCaptured)
+			{
+				pConsole->m_MouseIsPress = false;
+				pConsole->m_HasSelection = false;
+				pConsole->m_CurSelStart = pConsole->m_CurSelEnd;
+			}
+
+			if(Geometry.m_Visible)
+			{
+				Geometry = ConsoleScrollBar::CalculateGeometry(
+					Rail.y, Rail.h, pConsole->m_BacklogTotalLines, VisibleLines, pConsole->m_BacklogCurLine,
+					CONSOLE_SCROLLBAR_MIN_THUMB_HEIGHT);
+				const bool Hovered = Rail.Inside(MousePosition);
+				Rail.Draw(ColorRGBA(1.0f, 1.0f, 1.0f, 0.16f), IGraphics::CORNER_ALL, Rail.w / 2.0f);
+				const CUIRect Thumb = {Rail.x, Geometry.m_ThumbTop, Rail.w, Geometry.m_ThumbHeight};
+				const ColorRGBA ThumbColor = pConsole->m_ScrollbarDragging ? ColorRGBA(0.85f, 0.85f, 0.85f, 0.95f) :
+					(Hovered ? ColorRGBA(0.75f, 0.75f, 0.75f, 0.9f) : ColorRGBA(0.6f, 0.6f, 0.6f, 0.72f));
+				Thumb.Draw(ThumbColor, IGraphics::CORNER_ALL, Rail.w / 2.0f);
+			}
+		}
+
 		// render console log (current entry, status, wrap lines)
 		CInstance::CBacklogEntry *pEntry = pConsole->m_Backlog.Last();
 		float OffsetY = 0.0f;
@@ -1494,15 +1609,32 @@ void CGameConsole::OnRender()
 			CTextCursor EntryCursor;
 			EntryCursor.SetPosition(vec2(0.0f, y - OffsetY));
 			EntryCursor.m_FontSize = FONT_SIZE;
-			EntryCursor.m_LineWidth = Screen.w - 10.0f;
+			EntryCursor.m_LineWidth = pConsole->LogLineWidth();
 			EntryCursor.m_MaxLines = pEntry->m_LineCount;
 			EntryCursor.m_LineSpacing = LINE_SPACING;
-			EntryCursor.m_CalculateSelectionMode = (m_ConsoleState == CONSOLE_OPEN && pConsole->m_MousePress.y < pConsole->m_BoundingBox.m_Y && (pConsole->m_MouseIsPress || (pConsole->m_CurSelStart != pConsole->m_CurSelEnd) || pConsole->m_HasSelection)) ? TEXT_CURSOR_SELECTION_MODE_CALCULATE : TEXT_CURSOR_SELECTION_MODE_NONE;
+			EntryCursor.m_CalculateSelectionMode = (m_ConsoleState == CONSOLE_OPEN && !m_ButtonPressed && !ScrollbarCaptured && pConsole->m_MousePress.y < pConsole->m_BoundingBox.m_Y && (pConsole->m_MouseIsPress || (pConsole->m_CurSelStart != pConsole->m_CurSelEnd) || pConsole->m_HasSelection)) ? TEXT_CURSOR_SELECTION_MODE_CALCULATE : TEXT_CURSOR_SELECTION_MODE_NONE;
 			EntryCursor.m_PressMouse = pConsole->m_MousePress;
 			EntryCursor.m_ReleaseMouse = pConsole->m_MouseRelease;
 
-			bool ParseColors = false; // TClient
+			if(pConsole->m_Searching && pConsole->m_CurrentMatchIndex != -1)
+			{
+				std::vector<CInstance::SSearchMatch> vMatches;
+				std::copy_if(pConsole->m_vSearchMatches.begin(), pConsole->m_vSearchMatches.end(), std::back_inserter(vMatches), [&](const CInstance::SSearchMatch &Match) { return Match.m_EntryLine == LineNum + 1 - pEntry->m_LineCount; });
 
+				auto CurrentSelectedOccurrence = pConsole->m_vSearchMatches[pConsole->m_CurrentMatchIndex];
+
+				EntryCursor.m_vColorSplits.reserve(vMatches.size());
+				for(const auto &Match : vMatches)
+				{
+					bool IsSelected = CurrentSelectedOccurrence.m_EntryLine == Match.m_EntryLine && CurrentSelectedOccurrence.m_Pos == Match.m_Pos;
+					EntryCursor.m_vColorSplits.emplace_back(
+						Match.m_Pos,
+						pConsole->m_Input.GetLength(),
+						IsSelected ? ms_SearchSelectedColor : ms_SearchHighlightColor);
+				}
+			}
+
+			bool ParseColors = false;
 			if(pConsole->m_Searching && pConsole->m_CurrentMatchIndex != -1)
 			{
 				std::vector<CInstance::SSearchMatch> vMatches;
@@ -1525,8 +1657,6 @@ void CGameConsole::OnRender()
 				ParseColors = true;
 			}
 
-			// TODO don't recalculate every frame
-			// TODO less jank way of detecting echo
 			CColoredParts ColoredParts(pEntry->m_aText, ParseColors);
 			ColoredParts.AddSplitsToCursor(EntryCursor);
 			if(!ColoredParts.Colors().empty() && ColoredParts.Colors()[0].m_Index == str_length("xxxx-xx-xx xx:xx:xx x chat/client: - "))
@@ -1534,9 +1664,7 @@ void CGameConsole::OnRender()
 				EntryCursor.m_vColorSplits[0].m_CharIndex -= str_length("- ");
 				EntryCursor.m_vColorSplits[0].m_Length += str_length("- ");
 			}
-			const char *pText = ColoredParts.Text();
-
-			TextRender()->TextEx(&EntryCursor, pText, -1); // TClient
+			TextRender()->TextEx(&EntryCursor, ColoredParts.Text(), -1);
 			EntryCursor.m_vColorSplits = {};
 
 			if(EntryCursor.m_CalculateSelectionMode == TEXT_CURSOR_SELECTION_MODE_CALCULATE)
@@ -1619,11 +1747,11 @@ void CGameConsole::OnRender()
 
 		// render version
 		str_copy(aBuf, "v" GAME_VERSION " on " CONF_PLATFORM_STRING " " CONF_ARCH_STRING);
-		TextRender()->Text(Screen.w - TextRender()->TextWidth(FONT_SIZE, aBuf) - 10.0f, FONT_SIZE / 2.f, FONT_SIZE, aBuf);
+		const float VersionTextX = ButtonBar.x + ButtonBar.w - TextRender()->TextWidth(FONT_SIZE, aBuf) - 10.0f;
+		TextRender()->Text(VersionTextX, FONT_SIZE / 2.f, FONT_SIZE, aBuf);
 
-		// AMF Client: render client version
 		const char *pClientVersion = CLIENT_NAME " " CLIENT_RELEASE_VERSION_DISPLAY;
-		TextRender()->Text(Screen.w - TextRender()->TextWidth(FONT_SIZE, pClientVersion) - 10.0f, FONT_SIZE / 2.0f + FONT_SIZE * 1.5f, FONT_SIZE, pClientVersion);
+		TextRender()->Text(VersionTextX, FONT_SIZE / 2.0f + FONT_SIZE * 1.5f, FONT_SIZE, pClientVersion);
 	}
 
 	if(m_ConsoleState == CONSOLE_OPEN || m_ConsoleState == CONSOLE_OPENING)
@@ -1791,9 +1919,7 @@ void CGameConsole::OnConsoleInit()
 
 	m_pConsole = Kernel()->RequestInterface<IConsole>();
 
-	// TClient
 	Console()->Register("clear", "", CFGFLAG_CLIENT, ConClearLocalConsole, this, "Clear local console");
-
 	Console()->Register("toggle_local_console", "", CFGFLAG_CLIENT, ConToggleLocalConsole, this, "Toggle local console");
 	Console()->Register("toggle_remote_console", "", CFGFLAG_CLIENT, ConToggleRemoteConsole, this, "Toggle remote console");
 	Console()->Register("clear_local_console", "", CFGFLAG_CLIENT, ConClearLocalConsole, this, "Clear local console");

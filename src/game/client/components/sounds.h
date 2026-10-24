@@ -3,6 +3,9 @@
 #ifndef GAME_CLIENT_COMPONENTS_SOUNDS_H
 #define GAME_CLIENT_COMPONENTS_SOUNDS_H
 
+#include <condition_variable>
+#include <mutex>
+
 #include <base/vmath.h>
 
 #include <engine/shared/jobs.h>
@@ -14,10 +17,14 @@ class CSoundLoading : public IJob
 {
 	CGameClient *m_pGameClient;
 	bool m_Render;
+	std::mutex m_Mutex;
+	std::condition_variable m_Condition;
+	bool m_Running = false;
 
 public:
 	CSoundLoading(CGameClient *pGameClient, bool Render);
 	void Run() override;
+	void AbortAndWait();
 };
 
 class CSounds : public CComponent
@@ -63,9 +70,8 @@ public:
 	void OnStateChange(int NewState, int OldState) override;
 	void OnRender() override;
 
-	// Reload the current sound pack after a runtime selector change.
-	void Clear();
 	void ClearQueue();
+	void Clear();
 	void Enqueue(int Channel, int SetId);
 	void Play(int Channel, int SetId, float Volume);
 	void PlayAt(int Channel, int SetId, float Volume, vec2 Position);

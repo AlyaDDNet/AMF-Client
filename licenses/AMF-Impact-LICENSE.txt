@@ -1,0 +1,140 @@
+AMF IMPACT LICENSE
+Version 1.0
+
+Copyright (c) 2026 alya?
+
+AMF Impact / Run Statistics was originally developed for AMF Client.
+
+1. DEFINITIONS AND SCOPE
+
+“Covered Material” means only the original AMF-authored copyrightable source
+expression in the following files:
+
+  src/game/client/components/tclient/impact/impact_context_policy.h
+  src/game/client/components/tclient/impact/impact_episode_resolver.cpp
+  src/game/client/components/tclient/impact/impact_episode_resolver.h
+  src/game/client/components/tclient/impact/impact_event_ledger.cpp
+  src/game/client/components/tclient/impact/impact_event_ledger.h
+  src/game/client/components/tclient/impact/impact_impact.cpp
+  src/game/client/components/tclient/impact/impact_impact.h
+  src/game/client/components/tclient/impact/impact_persistence.cpp
+  src/game/client/components/tclient/impact/impact_persistence.h
+  src/game/client/components/tclient/impact/impact_phase2.cpp
+  src/game/client/components/tclient/impact/impact_phase2.h
+  src/game/client/components/tclient/impact/impact_presentation.cpp
+  src/game/client/components/tclient/impact/impact_presentation.h
+  src/game/client/components/tclient/impact/impact_rating.cpp
+  src/game/client/components/tclient/impact/impact_rating.h
+  src/game/client/components/tclient/impact/impact_rating_presentation.h
+  src/game/client/components/tclient/impact/impact_replay.cpp
+  src/game/client/components/tclient/impact/impact_replay.h
+  src/game/client/components/tclient/impact/impact_run.cpp
+  src/game/client/components/tclient/impact/impact_run.h
+  src/game/client/components/tclient/impact/impact_scoring_features.cpp
+  src/game/client/components/tclient/impact/impact_scoring_features.h
+  src/game/client/components/tclient/impact/impact_stability.cpp
+  src/game/client/components/tclient/impact/impact_stability.h
+  src/game/client/components/tclient/impact/impact_system.cpp
+  src/game/client/components/tclient/impact/impact_system.h
+  src/game/client/components/tclient/impact/impact_types.h
+  src/game/client/components/tclient/impact/impact_view.h
+  src/test/impact_test.cpp
+
+In src/game/client/components/tclient/menus_tclient.cpp, Covered Material is
+limited to the original AMF-authored copyrightable expression within these
+two function definitions only:
+
+  CMenus::RenderAmfRunStatisticsQuickOverlay
+  CMenus::RenderAmfRunStatistics
+
+The remainder of menus_tclient.cpp is not Covered Material. This license does
+not grant rights in any upstream, third-party, or independently authored
+material that may appear in or be used by the listed files.
+
+“Derivative” means a work that copies, adapts, or is based on copyrightable
+expression in the Covered Material. “Larger Work” means a client, application,
+or other work that combines Covered Material or a Derivative with independent
+material.
+
+2. PERMISSION
+
+Subject to the conditions in this license, alya? grants a worldwide,
+non-exclusive, royalty-free permission to use, study, reproduce, modify, port,
+create Derivatives from, and distribute the Covered Material and Derivatives
+in source or binary form, including for commercial use and as part of a Larger
+Work.
+
+Recipients may pass on the permissions granted here only subject to the
+conditions of this license. This license does not require independent
+components of a Larger Work to be licensed under this license.
+
+3. REQUIRED NOTICES AND ATTRIBUTION
+
+For each distribution of Covered Material or a Derivative:
+
+a. Source distributions must retain the copyright notice, the statement that
+   Impact / Run Statistics was originally developed for AMF Client, and a
+   copy of this license.
+
+b. Binary distributions must include this license and the applicable
+   copyright and origin notices in accompanying notices, documentation, or
+   another reasonable location provided with the binary.
+
+c. Modified Covered Material must be clearly marked as modified. The modified
+   version must not be represented as the original AMF implementation or as
+   endorsed by AMF Client.
+
+d. When a user-facing client presents an Impact / Run Statistics feature
+   that includes or is based on Covered Material, the client must display a
+   legible attribution in or immediately adjacent to that feature's user
+   interface. The attribution must identify AMF Client as the original
+   developer. “Impact System by AMF Client”, “Система Impact от AMF Client”,
+   “Система Impact від AMF Client”, or an accurate localized equivalent that
+   communicates the same attribution satisfies this condition.
+
+e. The full text of this license must accompany every distribution of
+   Covered Material or a Derivative.
+
+These conditions apply to the Covered Material and Derivatives, not to
+independent implementations or unrelated components of a Larger Work.
+
+4. LIMITS
+
+This license covers only copyrightable expression in the Covered Material and
+Derivatives. It does not claim rights over DDNet, TClient, BestClient,
+third-party code, the abstract idea of Impact or Rating, general methods or
+algorithms, or an independently written implementation that does not copy or
+adapt expression from the Covered Material.
+
+No permission to use AMF Client names, logos, or other marks is granted
+except as reasonably necessary to provide the factual attribution required by
+this license. No endorsement is implied.
+
+5. TERMINATION AND CURE
+
+If a recipient materially violates a condition of this license, the
+permission granted to that recipient terminates after written notice
+describing the violation and a 30-day opportunity to cure it, if the
+violation remains uncured at the end of that period. If the violation is
+cured within that period, the permission is not terminated for that
+violation. Operation and effect of this clause are subject to applicable law.
+
+6. DISCLAIMER
+
+THE COVERED MATERIAL IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE, AND NON-INFRINGEMENT. TO THE MAXIMUM EXTENT PERMITTED BY
+APPLICABLE LAW, THE COPYRIGHT HOLDER WILL NOT BE LIABLE FOR ANY CLAIM,
+DAMAGES, OR OTHER LIABILITY ARISING FROM THE COVERED MATERIAL OR ITS USE.
+
+7. RELATION TO OTHER LICENSES AND PRIOR PERMISSIONS
+
+This license applies only to Covered Material and Derivatives. Other files
+and portions of the repository remain under their otherwise applicable
+licenses. Applicable upstream and third-party licenses continue to govern
+the material they cover.
+
+For this repository, the root license expressly excludes Covered Material
+from its general grant for distributions made under this license. This
+license does not purport to revoke or limit rights that a recipient already
+received under a valid prior license.

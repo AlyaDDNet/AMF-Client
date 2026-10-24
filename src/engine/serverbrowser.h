@@ -15,6 +15,7 @@
 #include <generated/protocol7.h>
 
 #include <optional>
+#include <string>
 #include <unordered_set>
 #include <vector>
 
@@ -93,7 +94,6 @@ public:
 
 	int m_Type;
 	uint64_t m_ReceivedPackets;
-	int m_NumReceivedClients;
 
 	int m_NumAddresses;
 	NETADDR m_aAddresses[MAX_SERVER_ADDRESSES];
@@ -104,9 +104,10 @@ public:
 
 	int m_MaxClients;
 	int m_NumClients;
-	int m_AmfClientCount;
+	int m_NumReceivedClients;
 	int m_MaxPlayers;
 	int m_NumPlayers;
+	int m_AmfClientCount;
 	int m_Flags;
 	EClientScoreKind m_ClientScoreKind;
 	TRISTATE m_Favorite;
@@ -126,7 +127,7 @@ public:
 	int m_MapSize;
 	char m_aVersion[32];
 	char m_aAddress[MAX_SERVER_ADDRESSES * NETADDR_MAXSTRSIZE];
-	CClient m_aClients[SERVERINFO_MAX_CLIENTS];
+	std::vector<CClient> m_vClients;
 	int m_NumFilteredPlayers;
 	bool m_RequiresLogin;
 
@@ -289,7 +290,6 @@ public:
 		SORT_GAMETYPE - Sort by game type. DM, TDM etc.
 		SORT_NUMPLAYERS - Sort after how many players there are on the server.
 		SORT_NUMFRIENDS - Sort after how many friends there are on the server.
-		SORT_NUMAMFCLIENTS - Sort by active AMF Client users.
 		SORT_FAVORITES - Sort by favorite status, number of players and then ping.
 	*/
 	enum

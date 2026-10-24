@@ -459,19 +459,8 @@ void CInfoMessages::OnRender()
 	const float Width = Height * Graphics()->ScreenAspect();
 	const auto Layout = HudLayout::Get(HudLayout::MODULE_KILLFEED, Width / 6.0f, Height / 6.0f);
 	const float ModuleScale = std::clamp(Layout.m_Scale / 100.0f, 0.25f, 3.0f);
-
-	int Showfps = g_Config.m_ClShowfps;
-#if defined(CONF_VIDEORECORDER)
-	if(IVideo::Current())
-		Showfps = 0;
-#endif
-	float StartX = Width - 10.0f;
-	float StartY = 30.0f + (Showfps ? 100.0f : 0.0f) + (g_Config.m_ClShowpred && Client()->State() != IClient::STATE_DEMOPLAYBACK ? 100.0f : 0.0f);
-	if(HudLayout::HasPositionOverride(HudLayout::MODULE_KILLFEED))
-	{
-		StartX = Layout.m_X * 6.0f;
-		StartY = Layout.m_Y * 6.0f;
-	}
+	const float StartX = Layout.m_X * 6.0f;
+	const float StartY = Layout.m_Y * 6.0f;
 
 	// Editor geometry is a fixed compact base rect, just like the Key Indicator:
 	// position selects its anchor and Scale changes only width/height. Rendering

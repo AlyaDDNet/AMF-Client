@@ -8,7 +8,6 @@
 #include <base/str.h>
 
 #include <engine/graphics.h>
-#include <engine/map.h>
 #include <engine/shared/config.h>
 
 #include <generated/client_data.h>
@@ -135,8 +134,6 @@ void CRenderTools::Init(IGraphics *pGraphics, ITextRender *pTextRender, CGameCli
 void CRenderTools::RenderCursor(vec2 Center, float Size, float Alpha) const
 {
 	Graphics()->WrapClamp();
-	// Preserve DDNet's original native resource path for Default. Custom packs
-	// opt in explicitly and never replace the default texture handle.
 	Graphics()->TextureSet(m_pGameClient->HasCustomCursorAsset() ? m_pGameClient->CursorTexture() : g_pData->m_aImages[IMAGE_CURSOR].m_Id);
 	Graphics()->QuadsBegin();
 	Graphics()->SetColor(1.0f, 1.0f, 1.0f, Alpha);
@@ -492,11 +489,10 @@ void CRenderTools::RenderTee6(const CAnimState *pAnim, const CTeeRenderInfo *pIn
 {
 	vec2 Direction = Dir;
 	vec2 Position = Pos;
-
-	const float TinyBodyScale = 0.7f;
-	const float TinyFeetScale = 0.85f;
-	float SizeMultiplier = (g_Config.m_TcTinyTeeSize / 100.0f);
-	bool TinyTee = g_Config.m_TcTinyTees;
+	constexpr float TinyBodyScale = 0.7f;
+	constexpr float TinyFeetScale = 0.85f;
+	const float SizeMultiplier = g_Config.m_TcTinyTeeSize / 100.0f;
+	bool TinyTee = g_Config.m_TcTinyTees != 0;
 	if(!m_LocalTeeRender && !g_Config.m_TcTinyTeesOthers)
 		TinyTee = false;
 
@@ -512,13 +508,11 @@ void CRenderTools::RenderTee6(const CAnimState *pAnim, const CTeeRenderInfo *pIn
 		{
 			float AnimScale, BaseSize;
 			GetRenderTeeAnimScaleAndBaseSize(pInfo, AnimScale, BaseSize);
-
 			if(TinyTee)
 			{
 				BaseSize *= TinyBodyScale * SizeMultiplier;
 				AnimScale *= TinyBodyScale * SizeMultiplier;
 			}
-
 			if(Filling == 1)
 			{
 				Graphics()->QuadsSetRotation(pAnim->GetBody()->m_Angle * pi * 2);
@@ -583,7 +577,6 @@ void CRenderTools::RenderTee6(const CAnimState *pAnim, const CTeeRenderInfo *pIn
 
 			float w = BaseSize;
 			float h = BaseSize / 2;
-
 			if(TinyTee)
 			{
 				w *= TinyFeetScale * SizeMultiplier;
@@ -612,18 +605,13 @@ void CRenderTools::RenderTee6(const CAnimState *pAnim, const CTeeRenderInfo *pIn
 
 			if(g_Config.m_TcWhiteFeet && pInfo->m_CustomColoredSkin)
 			{
-				CTeeRenderInfo WhiteFeetInfo;
-				const CSkin *pSkin = GameClient()->m_Skins.Find(g_Config.m_TcWhiteFeetSkin);
-				WhiteFeetInfo.m_OriginalRenderSkin = pSkin->m_OriginalSkin;
-				WhiteFeetInfo.m_ColorFeet = ColorRGBA(1, 1, 1);
-				const CSkin::CSkinTextures *pWhiteFeetTextures = &WhiteFeetInfo.m_OriginalRenderSkin;
-				Graphics()->TextureSet(OutLine == 1 ? pWhiteFeetTextures->m_FeetOutline : pWhiteFeetTextures->m_Feet);
+				const CSkin *pWhiteFeetSkin = GameClient()->m_Skins.Find(g_Config.m_TcWhiteFeetSkin);
+				Graphics()->TextureSet(OutLine == 1 ? pWhiteFeetSkin->m_OriginalSkin.m_FeetOutline : pWhiteFeetSkin->m_OriginalSkin.m_Feet);
 			}
 			else
 			{
 				Graphics()->TextureSet(OutLine == 1 ? pSkinTextures->m_FeetOutline : pSkinTextures->m_Feet);
 			}
-
 			Graphics()->RenderQuadContainerAsSprite(m_TeeQuadContainerIndex, QuadOffset, Position.x + pFoot->m_X * AnimScale, Position.y + pFoot->m_Y * AnimScale, w / 64.f, h / 32.f);
 		}
 	}

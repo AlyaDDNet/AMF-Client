@@ -2,6 +2,7 @@
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
 #ifndef ENGINE_CLIENT_CLIENT_H
 #define ENGINE_CLIENT_CLIENT_H
+
 #include "graph.h"
 #include "smooth_time.h"
 
@@ -16,7 +17,7 @@
 #include <engine/client/updater.h>
 #include <engine/editor.h>
 #include <engine/graphics.h>
-#include <engine/shared/http.h>
+#include <engine/http.h>
 #include <engine/shared/config.h>
 #include <engine/shared/demo.h>
 #include <engine/shared/fifo.h>
@@ -24,6 +25,7 @@
 #include <engine/textrender.h>
 #include <engine/warning.h>
 
+#include <array>
 #include <chrono>
 #include <deque>
 #include <memory>
@@ -124,15 +126,16 @@ class CClient : public IClient, public CDemoPlayer::IListener
 	int m_ExpectedMaplistEntries = -1;
 	std::vector<std::string> m_vMaplistEntries;
 
+	// version-checking
+	char m_aVersionStr[10] = "0";
+
 	// pinging
 	int64_t m_PingStartTime = 0;
 
 	char m_aTimeoutCodes[NUM_DUMMIES][32] = {"", ""};
 	bool m_aDidPostConnect[NUM_DUMMIES] = {false, false};
-	bool m_GenerateTimeoutSeed = true;
-
-	// TClient
 	std::array<bool, NUM_DUMMIES> m_aExecuteOnJoinDone = {};
+	bool m_GenerateTimeoutSeed = true;
 
 	char m_aCmdConnect[256] = "";
 	char m_aCmdPlayDemo[IO_MAX_PATH_LENGTH] = "";
@@ -140,7 +143,7 @@ class CClient : public IClient, public CDemoPlayer::IListener
 
 	// map download
 	char m_aMapDownloadUrl[256] = "";
-	std::shared_ptr<CHttpRequest> m_pMapdownloadTask = nullptr;
+	std::shared_ptr<IHttpRequest> m_pMapdownloadTask = nullptr;
 	char m_aMapdownloadFilename[256] = "";
 	char m_aMapdownloadFilenameTemp[256] = "";
 	char m_aMapdownloadName[256] = "";
@@ -163,7 +166,7 @@ class CClient : public IClient, public CDemoPlayer::IListener
 	std::optional<CMapDetails> m_MapDetails;
 
 	EInfoState m_InfoState = EInfoState::ERROR;
-	std::shared_ptr<CHttpRequest> m_pDDNetInfoTask = nullptr;
+	std::shared_ptr<IHttpRequest> m_pDDNetInfoTask = nullptr;
 
 	// time
 	CSmoothTime m_aGameTime[NUM_DUMMIES];
@@ -187,6 +190,9 @@ class CClient : public IClient, public CDemoPlayer::IListener
 	float m_LastDummyConnectTime = 0.0f;
 	bool m_DummyReconnectOnReload = false;
 	bool m_DummyDeactivateOnReconnect = false;
+#if defined(CONF_PLATFORM_IOS)
+	bool m_DummyReconnectOnResume = false;
+#endif
 
 	// graphs
 	CGraph m_aInputtimeMarginGraphs[NUM_DUMMIES];
@@ -214,6 +220,7 @@ class CClient : public IClient, public CDemoPlayer::IListener
 	bool m_CanReceiveServerCapabilities = false;
 	bool m_ServerSentCapabilities = false;
 	CServerCapabilities m_ServerCapabilities;
+	int m_AutoPredictionMargin = -1;
 
 	bool ServerCapAnyPlayerFlag() const override { return m_ServerCapabilities.m_AnyPlayerFlag; }
 
@@ -261,6 +268,7 @@ class CClient : public IClient, public CDemoPlayer::IListener
 
 	void UpdateDemoIntraTimers();
 	int MaxLatencyTicks() const;
+	int PredictionMargin() const;
 
 	std::shared_ptr<ILogger> m_pFileLogger = nullptr;
 	std::shared_ptr<ILogger> m_pStdoutLogger = nullptr;
@@ -274,7 +282,7 @@ class CClient : public IClient, public CDemoPlayer::IListener
 	char m_aAutomaticDummyName[MAX_NAME_LENGTH];
 
 public:
-	int PredictionMargin() const override; // returns margin in 0.1 ms units
+	void SetAutoPredictionMargin(int Margin) override { m_AutoPredictionMargin = Margin; }
 	IConfigManager *ConfigManager() { return m_pConfigManager; }
 	CConfig *Config() { return m_pConfig; }
 	IDiscord *Discord() { return m_pDiscord; }
@@ -292,6 +300,9 @@ public:
 	IHttp *Http() { return m_pHttp; }
 
 	CClient();
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	bool DebugCheckSnapshotStorage(const char *pBoundary, int OnceSlot = -1) override;
+#endif
 
 	// ----- send functions -----
 	int SendMsg(int Conn, CMsgPacker *pMsg, int Flags) override;
@@ -324,6 +335,8 @@ public:
 	// TODO: OPT: do this a lot smarter!
 	int *GetInput(int Tick, int IsDummy) const override;
 
+	const char *LatestVersion() const override;
+
 	// ------ state handling -----
 	void SetState(EClientState State);
 
@@ -345,7 +358,7 @@ public:
 	bool DummyConnectingDelayed() const override;
 	bool DummyAllowed() const override;
 
-	void GetServerInfo(CServerInfo *pServerInfo) const override;
+	const CServerInfo &ServerInfo() const override;
 	void ServerInfoRequest();
 	void SetCurrentServerInfo(const CServerInfo &ServerInfo);
 
@@ -368,6 +381,9 @@ public:
 	void Restart() override;
 	void Quit() override;
 	void ResetSocket();
+#if defined(CONF_PLATFORM_IOS)
+	void RecreateBrokenSockets();
+#endif
 
 	const char *PlayerName() const override;
 	const char *DummyName() override;
@@ -378,7 +394,7 @@ public:
 
 	int TranslateSysMsg(int *pMsgId, bool System, CUnpacker *pUnpacker, CPacker *pPacker, CNetChunk *pPacket, bool *pIsExMsg);
 
-	void PreprocessConnlessPacket7(CNetChunk *pPacket);
+	bool PreprocessConnlessPacket7(CNetChunk *pPacket);
 	void ProcessConnlessPacket(CNetChunk *pPacket);
 	void ProcessServerInfo(int Type, NETADDR *pFrom, const void *pData, int DataSize);
 	void ProcessServerPacket(CNetChunk *pPacket, int Conn, bool Dummy);
@@ -525,8 +541,8 @@ public:
 
 	IFriends *Foes() override { return &m_Foes; }
 
-	void GetSmoothFreezeTick(int *pSmoothTick, float *pSmoothIntraTick, float MixAmount) override;
 	void GetSmoothTick(int *pSmoothTick, float *pSmoothIntraTick, float MixAmount) override;
+	void GetSmoothFreezeTick(int *pSmoothTick, float *pSmoothIntraTick, float MixAmount) override;
 
 	void AddWarning(const SWarning &Warning) override;
 	std::optional<SWarning> CurrentWarning() override;

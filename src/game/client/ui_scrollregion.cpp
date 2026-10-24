@@ -8,6 +8,8 @@
 #include <engine/keys.h>
 #include <engine/shared/config.h>
 
+#include <game/client/components/tclient/amf_settings_search.h>
+
 CScrollRegion::CScrollRegion()
 {
 	Reset();
@@ -35,6 +37,7 @@ void CScrollRegion::Reset()
 
 void CScrollRegion::Begin(CUIRect *pClipRect, const CScrollRegionParams *pParams)
 {
+	AmfSettingsSearch::SetActiveScrollRegion(this);
 	if(pParams)
 		m_Params = *pParams;
 	m_ContentAreaRect = *pClipRect;
@@ -57,6 +60,7 @@ void CScrollRegion::Begin(CUIRect *pClipRect, const CScrollRegionParams *pParams
 void CScrollRegion::End()
 {
 	Ui()->ClipDisable();
+	AmfSettingsSearch::ClearActiveScrollRegion(this);
 
 	// only show scrollbar if content overflows
 	if(!ContentOverflows())

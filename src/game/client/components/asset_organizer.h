@@ -29,6 +29,46 @@ namespace AssetOrganizer
 	constexpr const char *FOLDER_FAVORITES = "favorites";
 	constexpr const char *FOLDER_UNSORTED = "unsorted";
 
+	// State of the organizer's single reusable item-context popup. Retargeting an
+	// open popup updates its item without requesting another popup instance.
+	struct SItemContextPopupState
+	{
+		int m_Tab = -1;
+		std::string m_AssetId;
+		bool m_Visible = false;
+		float m_AnchorX = 0.0f;
+		float m_AnchorY = 0.0f;
+
+		bool Retarget(int Tab, const char *pAssetId, float AnchorX, float AnchorY)
+		{
+			m_Tab = Tab;
+			m_AssetId = pAssetId;
+			m_AnchorX = AnchorX;
+			m_AnchorY = AnchorY;
+			if(m_Visible)
+				return false;
+			m_Visible = true;
+			return true;
+		}
+
+		void SyncVisibility(bool PopupIsOpen)
+		{
+			if(PopupIsOpen)
+				m_Visible = true;
+			else
+				Clear();
+		}
+
+		void Clear()
+		{
+			m_Tab = -1;
+			m_AssetId.clear();
+			m_Visible = false;
+			m_AnchorX = 0.0f;
+			m_AnchorY = 0.0f;
+		}
+	};
+
 	struct SFolder
 	{
 		std::string m_Id;
@@ -60,7 +100,7 @@ namespace AssetOrganizer
 	int ItemCount(int AssetType, const char *pFolderId, int Page);
 	int FolderItemCount(int AssetType, const char *pFolderId);
 	bool IsFavorite(int AssetType, const char *pAssetId);
-	void SetFavorite(int AssetType, const char *pAssetId, bool Favorite);
+	void SetFavorite(int AssetType, const char *pAssetId, bool Favorite, bool Persist = true);
 
 	bool CreateFolder(int AssetType, const char *pName, std::string *pCreatedId = nullptr);
 	bool RenameFolder(int AssetType, const char *pFolderId, const char *pName);

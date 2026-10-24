@@ -1,0 +1,95 @@
+AMF Client 2.0.1 — FFmpeg/x264 corresponding source and build record
+
+Corresponding-source artifact to distribute with the Windows x64 portable:
+AMF-Client-2.0.1-FFmpeg-x264-Corresponding-Source.zip
+
+IDENTIFIED BINARIES
+
+The five DLLs in the portable are byte-identical to the files in
+ddnet-libs commit d5f0cd9194936d1ab5bd19952645b8dffe9ae06c and report FFmpeg
+7.0.1. Their SHA-256 values are:
+
+avcodec-61.dll    58C71BAA592DA746C9C5E30FDD41814A2736454B2B7168DA4AB88585758D4786
+avformat-61.dll   B72292ED8140957752E45880B597B6E1A673FB66E740379D29614DEE1454D3A2
+avutil-59.dll     CD256113D455D362D769A859D2214B9F672BE8D2692EEBD7539675D31620CA6B
+swresample-5.dll  011C439C98BE2FB44D0364D872BDA437E2A618E89594E60CA3E63A6FF5FB8FD2
+swscale-8.dll     6473E9D9D5A595A09205251D7B2FEA1C4111D8DCE98C55BC99A6EF4B88FE0BE8
+
+The avutil_configuration string embedded in the DLLs includes --enable-gpl,
+--enable-libx264, --enable-encoder='libx264,aac', and the Windows x64
+MinGW target. FFmpeg reports the libraries as GPL version 2 or later.
+
+SOURCE IDENTIFICATION
+
+FFmpeg source: official release ffmpeg-7.0.1.tar.gz, tag n7.0.1, peeled
+upstream commit af25a4bfd2503caf3ee485b27b99b620302f5718.
+SHA-256: E273EAE00B4F833595654C1EE2B2349240E0332F9DBF3C4CADD39DF9819FF052
+The upstream detached signature was verified with the FFmpeg release key
+fingerprint FCF986EA15E6E293A5644F10B4322F04D67658D8.
+
+x264 source: VideoLAN x264 commit
+4613ac3c15fd75cebc4b9f65b7fb95e70a3acce1.
+Source archive SHA-256:
+7C0E4A312075BBF0AC8AC1F23E8CC7F4A41B0EA5F934C9CF2D01A15FC4886ED0
+
+The x264 commit is not encoded in the DLL. Its identity was reconstructed
+from the binary's PE link timestamp (2024-07-16 17:44:53 UTC), the embedded
+x264-master build path, and the upstream DDNet dependency script at commit
+0f98f238f78bd106b40c9711e6d3e30a25e4ac66, which downloads the x264 master
+archive and FFmpeg 7.0.1 source. At the build-time cutoff, upstream x264
+master resolved to 4613ac3c15fd75cebc4b9f65b7fb95e70a3acce1; the next master
+commit is dated 2024-09-17 and has 4613ac3 as its parent. The subsequent
+DDNet script revision f2ac502f55ed652902aafc32dc7fa7aeff7a21cb corrected
+the FFmpeg 7.0.1 DLL output names to the 61/59/5/8 ABI names. The DLL
+configuration string matches the Windows x64 FFmpeg configure command in
+that script history. No FFmpeg or x264 source patches are recorded by that
+build script.
+
+This is a provenance reconstruction from the upstream source-acquisition
+procedure, PE timestamp, embedded configuration, and public upstream history;
+the x264 revision is not a value directly embedded in the binary.
+
+BUILD CONFIGURATION
+
+The historical dependency script describes a Debian 10 chroot with MinGW-w64
+cross-compilers. It does not record exact GCC, binutils, NASM, or MinGW package
+versions. Therefore the source inputs and configuration are identified, but
+bit-for-bit reproducibility of the existing DLLs is not claimed.
+
+x264 configure options used for Windows x64:
+  --enable-static --disable-cli --disable-gpl --disable-avs --disable-swscale
+  --disable-lavf --disable-ffms --disable-gpac --disable-lsmash
+  --disable-interlaced --host=x86_64-mingw32
+  --prefix=/usr/x86_64-w64-mingw32
+  --cross-prefix=x86_64-w64-mingw32-
+
+FFmpeg configure options recovered from the embedded configuration and the
+matching historical build recipe (paths below are the recorded builder paths):
+  --disable-all --disable-alsa --disable-iconv --disable-libxcb
+  --disable-libxcb-shape --disable-libxcb-xfixes --disable-sdl2 --disable-xlib
+  --disable-zlib --enable-avcodec --enable-avformat
+  --enable-encoder='libx264,aac' --enable-muxer='mp4,mov'
+  --enable-protocol=file --enable-libx264 --enable-swresample --enable-swscale
+  --enable-gpl
+  --extra-cflags='-I/home/deen/isos/ddnet/debian10/root/win64/x264-master'
+  --extra-cxxflags='-I/home/deen/isos/ddnet/debian10/root/win64/x264-master'
+  --extra-ldflags='-L/home/deen/isos/ddnet/debian10/root/win64/x264-master'
+  --arch=x86_64 --target_os=mingw32
+  --cross-prefix=x86_64-w64-mingw32- --disable-static --enable-shared
+  --extra-libs='-lpthread -lm' --pkg-config-flags='--static'
+
+The source artifact also contains the safe, focused rebuild script at
+licenses/third_party/FFmpeg-x264-build-win64.sh. It is provided as build
+guidance, not as evidence that the existing binaries can be reproduced
+byte-for-byte with an unpinned toolchain. SHA-256 values for the downloaded
+source archives, signature, and verification key are listed in
+licenses/third_party/FFmpeg-x264-SHA256SUMS.txt.
+
+LICENSES
+
+The FFmpeg source archive contains its upstream COPYING.LGPLv2.1,
+COPYING.GPLv2, and other license files. x264 source contains its upstream
+COPYING file. The corresponding-source artifact includes the relevant full
+GPLv2 and x264 license texts separately for convenient inspection. Preserve
+all upstream copyright and license notices in redistributed source and
+binaries. This record is technical provenance, not legal advice.

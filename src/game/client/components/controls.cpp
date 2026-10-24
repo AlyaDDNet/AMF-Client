@@ -24,11 +24,6 @@
 CControls::CControls()
 {
 	mem_zero(&m_aLastData, sizeof(m_aLastData));
-	mem_zero(m_aSnapTapAppliedDirection, sizeof(m_aSnapTapAppliedDirection));
-	mem_zero(m_aSnapTapLastPressedDirection, sizeof(m_aSnapTapLastPressedDirection));
-	mem_zero(m_aSnapTapLastPressedTime, sizeof(m_aSnapTapLastPressedTime));
-	mem_zero(m_aSnapTapPrevLeft, sizeof(m_aSnapTapPrevLeft));
-	mem_zero(m_aSnapTapPrevRight, sizeof(m_aSnapTapPrevRight));
 	std::fill(std::begin(m_aMousePos), std::end(m_aMousePos), vec2(0.0f, 0.0f));
 	std::fill(std::begin(m_aMousePosOnAction), std::end(m_aMousePosOnAction), vec2(0.0f, 0.0f));
 	std::fill(std::begin(m_aTargetPos), std::end(m_aTargetPos), vec2(0.0f, 0.0f));
@@ -40,8 +35,7 @@ void CControls::OnReset()
 	ResetInput(0);
 	ResetInput(1);
 
-	for(int &AmmoCount : m_aAmmoCount)
-		AmmoCount = 0;
+	std::fill(std::begin(m_aAmmoCount), std::end(m_aAmmoCount), 0);
 
 	m_LastSendTime = 0;
 }
@@ -67,8 +61,38 @@ void CControls::ResetInput(int Dummy)
 
 void CControls::OnPlayerDeath()
 {
-	for(int &AmmoCount : m_aAmmoCount)
-		AmmoCount = 0;
+	std::fill(std::begin(m_aAmmoCount), std::end(m_aAmmoCount), 0);
+}
+
+void CControls::UpdateGoresMode()
+{
+	if(!g_Config.m_AmfGoresMode || !GameClient()->m_Snap.m_pLocalCharacter)
+	{
+		m_AmfGoresHeavyWeapon = false;
+		return;
+	}
+
+	const int CurWeapon = GameClient()->m_Snap.m_pLocalCharacter->m_Weapon;
+	m_AmfGoresHeavyWeapon = CurWeapon == WEAPON_GRENADE || CurWeapon == WEAPON_LASER || CurWeapon == WEAPON_SHOTGUN;
+	if(g_Config.m_AmfGoresModeDisableIfWeapons && m_AmfGoresHeavyWeapon)
+		return;
+
+	if(CurWeapon == WEAPON_HAMMER)
+		m_aInputData[g_Config.m_ClDummy].m_WantedWeapon = WEAPON_GUN + 1;
+}
+
+void CControls::OnGoresFireInput(int Pressed)
+{
+	if(!g_Config.m_AmfGoresMode)
+		return;
+	if(g_Config.m_AmfGoresModeDisableIfWeapons && m_AmfGoresHeavyWeapon)
+		return;
+
+	int *pPrevWeapon = &m_aInputData[g_Config.m_ClDummy].m_PrevWeapon;
+	if(((*pPrevWeapon) & 1) != Pressed)
+		(*pPrevWeapon)++;
+	*pPrevWeapon &= INPUT_STATE_MASK;
+	m_aInputData[g_Config.m_ClDummy].m_WantedWeapon = 0;
 }
 
 struct CInputState
@@ -98,6 +122,8 @@ void CControls::ConKeyInputCounter(IConsole::IResult *pResult, void *pUserData)
 	if(((*pVariable) & 1) != pResult->GetInteger(0))
 		(*pVariable)++;
 	*pVariable &= INPUT_STATE_MASK;
+	if(pVariable == &pState->m_pControls->m_aInputData[g_Config.m_ClDummy].m_Fire)
+		pState->m_pControls->OnGoresFireInput(pResult->GetInteger(0));
 }
 
 struct CInputSet
@@ -196,6 +222,8 @@ void CControls::OnMessage(int Msg, void *pRawMsg)
 
 int CControls::SnapInput(int *pData)
 {
+	UpdateGoresMode();
+
 	// update player state
 	if(GameClient()->m_Chat.IsActive())
 		m_aInputData[g_Config.m_ClDummy].m_PlayerFlags = PLAYERFLAG_CHATTING;
@@ -226,7 +254,6 @@ int CControls::SnapInput(int *pData)
 		break;
 	}
 
-	// TClient
 	if(g_Config.m_TcHideChatBubbles && Client()->RconAuthed())
 		for(auto &InputData : m_aInputData)
 			InputData.m_PlayerFlags &= ~PLAYERFLAG_CHATTING;
@@ -238,6 +265,15 @@ int CControls::SnapInput(int *pData)
 	bool Send = m_aLastData[g_Config.m_ClDummy].m_PlayerFlags != m_aInputData[g_Config.m_ClDummy].m_PlayerFlags;
 
 	m_aLastData[g_Config.m_ClDummy].m_PlayerFlags = m_aInputData[g_Config.m_ClDummy].m_PlayerFlags;
+	const auto ScaleMouseDistance = [&](vec2 Pos) {
+		if(g_Config.m_TcScaleMouseDistance && !GameClient()->m_Snap.m_SpecInfo.m_Active)
+		{
+			const int MaxDistance = g_Config.m_ClDyncam ? g_Config.m_ClDyncamMaxDistance : g_Config.m_ClMouseMaxDistance;
+			if(MaxDistance > 5 && MaxDistance < 1000)
+				Pos *= 1000.0f / (float)MaxDistance;
+		}
+		return Pos;
+	};
 
 	// we freeze the input if chat or menu is activated
 	if(!(m_aInputData[g_Config.m_ClDummy].m_PlayerFlags & PLAYERFLAG_PLAYING))
@@ -249,16 +285,9 @@ int CControls::SnapInput(int *pData)
 
 		// set the target anyway though so that we can keep seeing our surroundings,
 		// even if chat or menu are activated
-		vec2 Pos = GameClient()->m_Controls.m_aMousePos[g_Config.m_ClDummy];
-		if(g_Config.m_TcScaleMouseDistance && !GameClient()->m_Snap.m_SpecInfo.m_Active)
-		{
-			const int MaxDistance = g_Config.m_ClDyncam ? g_Config.m_ClDyncamMaxDistance : g_Config.m_ClMouseMaxDistance;
-			if(MaxDistance > 5 && MaxDistance < 1000) // Don't scale if angle bind or reduces precision
-				Pos *= 1000.0f / (float)MaxDistance;
-		}
-		m_aInputData[g_Config.m_ClDummy].m_TargetX = (int)Pos.x;
-		m_aInputData[g_Config.m_ClDummy].m_TargetY = (int)Pos.y;
-
+		const vec2 Target = ScaleMouseDistance(m_aMousePos[g_Config.m_ClDummy]);
+		m_aInputData[g_Config.m_ClDummy].m_TargetX = (int)Target.x;
+		m_aInputData[g_Config.m_ClDummy].m_TargetY = (int)Target.y;
 		if(!m_aInputData[g_Config.m_ClDummy].m_TargetX && !m_aInputData[g_Config.m_ClDummy].m_TargetY)
 			m_aInputData[g_Config.m_ClDummy].m_TargetX = 1;
 
@@ -267,27 +296,16 @@ int CControls::SnapInput(int *pData)
 	}
 	else
 	{
-		// TClient
-		vec2 Pos;
+		vec2 Target = m_aMousePos[g_Config.m_ClDummy];
+
 		if(g_Config.m_ClSubTickAiming && m_aMousePosOnAction[g_Config.m_ClDummy] != vec2(0.0f, 0.0f))
 		{
-			Pos = GameClient()->m_Controls.m_aMousePosOnAction[g_Config.m_ClDummy];
+			Target = m_aMousePosOnAction[g_Config.m_ClDummy];
 			m_aMousePosOnAction[g_Config.m_ClDummy] = vec2(0.0f, 0.0f);
 		}
-		else
-			Pos = GameClient()->m_Controls.m_aMousePos[g_Config.m_ClDummy];
-
-		m_FastInputHookAction = false;
-		m_FastInputFireAction = false;
-
-		if(g_Config.m_TcScaleMouseDistance && !GameClient()->m_Snap.m_SpecInfo.m_Active)
-		{
-			const int MaxDistance = g_Config.m_ClDyncam ? g_Config.m_ClDyncamMaxDistance : g_Config.m_ClMouseMaxDistance;
-			if(MaxDistance > 5 && MaxDistance < 1000) // Don't scale if angle bind or reduces precision
-				Pos *= 1000.0f / (float)MaxDistance;
-		}
-		m_aInputData[g_Config.m_ClDummy].m_TargetX = (int)Pos.x;
-		m_aInputData[g_Config.m_ClDummy].m_TargetY = (int)Pos.y;
+		Target = ScaleMouseDistance(Target);
+		m_aInputData[g_Config.m_ClDummy].m_TargetX = (int)Target.x;
+		m_aInputData[g_Config.m_ClDummy].m_TargetY = (int)Target.y;
 
 		if(!m_aInputData[g_Config.m_ClDummy].m_TargetX && !m_aInputData[g_Config.m_ClDummy].m_TargetY)
 			m_aInputData[g_Config.m_ClDummy].m_TargetX = 1;
@@ -519,6 +537,22 @@ float CControls::GetMaxMouseDistance() const
 	return std::min(FollowFactor != 0.0f ? CameraMaxDistance / FollowFactor + DeadZone : MaxDistance, MaxDistance);
 }
 
+int CControls::ResolveMovementDirection(int Dummy, bool LeftPressed, bool RightPressed, bool UpdateState)
+{
+	if(UpdateState)
+		UpdateSnapTapState(Dummy, LeftPressed, RightPressed);
+
+	if(IsSnapTapActive() || !UseGammaInputMovement())
+		return ResolveSnapTapDirection(Dummy, LeftPressed, RightPressed);
+
+	int Direction = 0;
+	if(LeftPressed && !RightPressed)
+		Direction = -1;
+	if(!LeftPressed && RightPressed)
+		Direction = 1;
+	return Direction;
+}
+
 bool CControls::IsSnapTapActive() const
 {
 	return g_Config.m_AmfSnapTap != 0 &&
@@ -546,22 +580,6 @@ void CControls::UpdateSnapTapState(int Dummy, bool LeftPressed, bool RightPresse
 
 	m_aSnapTapPrevLeft[Dummy] = LeftPressed ? 1 : 0;
 	m_aSnapTapPrevRight[Dummy] = RightPressed ? 1 : 0;
-}
-
-int CControls::ResolveMovementDirection(int Dummy, bool LeftPressed, bool RightPressed, bool UpdateState)
-{
-	if(UpdateState)
-		UpdateSnapTapState(Dummy, LeftPressed, RightPressed);
-
-	if(IsSnapTapActive() || !UseGammaInputMovement())
-		return ResolveSnapTapDirection(Dummy, LeftPressed, RightPressed);
-
-	int Direction = 0;
-	if(LeftPressed && !RightPressed)
-		Direction = -1;
-	if(!LeftPressed && RightPressed)
-		Direction = 1;
-	return Direction;
 }
 
 int CControls::ResolveSnapTapDirection(int Dummy, bool LeftPressed, bool RightPressed)

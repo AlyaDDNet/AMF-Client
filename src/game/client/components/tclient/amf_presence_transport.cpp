@@ -17,6 +17,7 @@
 #include <engine/storage.h>
 
 #include <game/client/components/menus.h>
+#include <game/client/components/tclient/amf_presence_policy.h>
 #include <game/client/gameclient.h>
 #include <game/version.h>
 
@@ -242,13 +243,19 @@ const char *SafePlayerName(const std::string &PlayerName, char (&aBuffer)[MAX_NA
 	return aBuffer;
 }
 
-bool RegisterInstallation(std::string &ClientId, std::string &Token, const std::atomic<bool> &StopRequested)
+bool RegisterInstallation(std::string &ClientId, std::string &Token, const std::atomic<bool> &StopRequested, bool Debug)
 {
 	CURL *pCurl = curl_easy_init();
 	if(!pCurl)
+	{
+		if(Debug)
+			log_info("amf_presence", "registration failed: curl initialization failed");
 		return false;
+	}
 
-	const std::string Body = std::string("{\"clientVersion\":\"") + GAME_RELEASE_VERSION + "\",\"platform\":\"" + CONF_PLATFORM_STRING + "\"}";
+	const std::string Body = std::string("{\"clientVersion\":\"") + CLIENT_RELEASE_VERSION_DISPLAY + "\",\"platform\":\"" + CONF_PLATFORM_STRING + "\"}";
+	if(Debug)
+		log_info("amf_presence", "registration request endpoint=/v1/clients/register method=POST payload='%s'", Body.c_str());
 	std::string Response;
 	char aError[CURL_ERROR_SIZE] = {0};
 	curl_slist *pHeaders = nullptr;
@@ -274,13 +281,19 @@ bool RegisterInstallation(std::string &ClientId, std::string &Token, const std::
 	curl_slist_free_all(pHeaders);
 	curl_easy_cleanup(pCurl);
 	if(Result != CURLE_OK || StatusCode != 201 || Response.empty())
+	{
+		if(Debug)
+			log_info("amf_presence", "registration response curl=%d status=%ld bytes=%d accepted=0", (int)Result, StatusCode, (int)Response.size());
 		return false;
+	}
 
 	json_value *pJson = json_parse(Response.data(), Response.size());
 	if(!pJson || pJson->type != json_object)
 	{
 		if(pJson)
 			json_value_free(pJson);
+		if(Debug)
+			log_info("amf_presence", "registration response curl=%d status=%ld bytes=%d json_object=0", (int)Result, StatusCode, (int)Response.size());
 		return false;
 	}
 	const json_value *pClientId = json_object_get(pJson, "clientId");
@@ -292,19 +305,32 @@ bool RegisterInstallation(std::string &ClientId, std::string &Token, const std::
 		Token = pToken->u.string.ptr;
 	}
 	json_value_free(pJson);
-	return Valid && IsValidIdentity(ClientId, Token);
+	const bool IdentityValid = Valid && IsValidIdentity(ClientId, Token);
+	if(Debug)
+		log_info("amf_presence", "registration response curl=%d status=%ld accepted=%d identity_valid=%d installation_suffix=%s token_present=%d",
+			(int)Result, StatusCode, Valid, IdentityValid, IdentityValid ? InstallationIdSuffix(ClientId) : "-", Valid && !Token.empty());
+	return IdentityValid;
 }
 
 bool ParseBrowserSnapshotPayload(const std::string &Payload, CAmfPresenceTransport::SRemoteEvent &Event);
 
-bool FetchBrowserSnapshot(CAmfPresenceTransport::SRemoteEvent &Event, const std::atomic<bool> &StopRequested)
+bool FetchBrowserSnapshot(CAmfPresenceTransport::SRemoteEvent &Event, const std::atomic<bool> &StopRequested, bool Debug)
 {
 	CURL *pCurl = curl_easy_init();
 	if(!pCurl)
+	{
+		if(Debug)
+			log_info("amf_presence", "browser request failed: curl initialization failed");
 		return false;
+	}
 	std::string Response;
 	char aError[CURL_ERROR_SIZE] = {0};
-	curl_easy_setopt(pCurl, CURLOPT_URL, AMF_PRESENCE_BROWSER_URL);
+	// Browser snapshots are an aggregate that must include the just-published
+	// local presence. Avoid reusing a public CDN/browser cache entry from before
+	// the current WebSocket update.
+	const std::string Url = std::string(AMF_PRESENCE_BROWSER_URL) +
+		"?refresh=" + std::to_string(SteadyNowMs());
+	curl_easy_setopt(pCurl, CURLOPT_URL, Url.c_str());
 	curl_easy_setopt(pCurl, CURLOPT_PROTOCOLS_STR, "HTTPS");
 	curl_easy_setopt(pCurl, CURLOPT_CONNECTTIMEOUT_MS, static_cast<long>(BROWSER_SNAPSHOT_TIMEOUT_MS));
 	curl_easy_setopt(pCurl, CURLOPT_TIMEOUT_MS, static_cast<long>(BROWSER_SNAPSHOT_TIMEOUT_MS));
@@ -317,7 +343,32 @@ bool FetchBrowserSnapshot(CAmfPresenceTransport::SRemoteEvent &Event, const std:
 	long StatusCode = 0;
 	curl_easy_getinfo(pCurl, CURLINFO_RESPONSE_CODE, &StatusCode);
 	curl_easy_cleanup(pCurl);
-	return Result == CURLE_OK && StatusCode == 200 && ParseBrowserSnapshotPayload(Response, Event);
+	const bool Parsed = Result == CURLE_OK && StatusCode == 200 && ParseBrowserSnapshotPayload(Response, Event);
+	if(Debug)
+	{
+		log_info("amf_presence", "browser response endpoint=/v1/presence/browser method=GET curl=%d status=%ld bytes=%d parsed=%d",
+			(int)Result, StatusCode, (int)Response.size(), Parsed);
+		if(Parsed)
+		{
+			log_info("amf_presence", "browser raw fields total_active_users=%d servers=%d complete=%d",
+				Event.m_TotalActiveUsers, (int)Event.m_vBrowserServers.size(), Event.m_SnapshotComplete);
+			for(const auto &Server : Event.m_vBrowserServers)
+			{
+				char aServerKey[NETADDR_MAXSTRSIZE];
+				str_copy(aServerKey, Server.m_ServerKey.c_str());
+				str_sanitize_cc(aServerKey);
+				log_info("amf_presence", "browser raw server_key='%s' count=%d players=%d",
+					aServerKey, Server.m_ActiveCount, (int)Server.m_vPlayerNames.size());
+				for(const auto &PlayerName : Server.m_vPlayerNames)
+				{
+					char aPlayerName[MAX_NAME_LENGTH];
+					log_info("amf_presence", "browser raw player_name='%s' server_key='%s'",
+						SafePlayerName(PlayerName, aPlayerName), aServerKey);
+				}
+			}
+		}
+	}
+	return Parsed;
 }
 
 enum class EConnectResult
@@ -578,6 +629,9 @@ EConnectResult ConnectWebSocket(const std::string &ClientId, const std::string &
 		"\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: " + Key +
 		"\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: " + AMF_PRESENCE_PROTOCOL +
 		"\r\nAuthorization: Bearer " + Token + "\r\nUser-Agent: AMF Client Presence/1\r\n\r\n";
+	if(Debug)
+		log_info("amf_presence", "websocket request endpoint=%s path=/v1/presence/connect room_id=%s installation_suffix=%s instance_suffix=%s auth=present",
+			AMF_PRESENCE_WEBSOCKET_HOST, RoomId.c_str(), InstallationIdSuffix(ClientId), InstallationIdSuffix(InstanceId));
 	if(!SendRawBlocking(Connection.m_pCurl, Request.data(), Request.size(), StopRequested))
 	{
 		if(Debug)
@@ -680,6 +734,7 @@ bool ReadPackedColor(const json_value *pObject, const char *pName, unsigned &Col
 
 bool ParseRemoteConnection(const json_value *pConnections, const char *pName, CAmfPresenceTransport::SRemoteEvent::SConnection &Connection)
 {
+	constexpr size_t MAX_CLIENT_VERSION_LENGTH = 128;
 	if(!pConnections || pConnections->type != json_object)
 		return false;
 	const json_value *pConnection = json_object_get(pConnections, pName);
@@ -706,6 +761,20 @@ bool ParseRemoteConnection(const json_value *pConnections, const char *pName, CA
 	Connection.m_PlayerName.assign(pPlayerName->u.string.ptr, pPlayerName->u.string.length);
 	if(!str_utf8_check(Connection.m_PlayerName.c_str()))
 		return false;
+
+	// Version metadata is optional so clients from before this feature remain
+	// valid AMF Presence members. Invalid optional metadata is ignored instead
+	// of invalidating the already identity-validated Presence claim.
+	const json_value *pClientVersion = json_object_get(pConnection, "clientVersion");
+	if(pClientVersion != &json_value_none && pClientVersion->type == json_string &&
+		pClientVersion->u.string.length > 0 && pClientVersion->u.string.length < MAX_CLIENT_VERSION_LENGTH)
+	{
+		std::string ClientVersion(pClientVersion->u.string.ptr, pClientVersion->u.string.length);
+		if(str_utf8_check(ClientVersion.c_str()) && std::all_of(ClientVersion.begin(), ClientVersion.end(), [](unsigned char Character) {
+			return Character >= 0x20 && Character != 0x7f;
+		}))
+			Connection.m_ClientVersion = std::move(ClientVersion);
+	}
 
 	// Gradient fields are optional so older AMF clients remain fully valid.
 	// An incomplete or malformed optional gradient only disables that visual
@@ -1046,44 +1115,12 @@ std::string CAmfPresenceTransport::BuildRoomId()
 
 	char aAddress[NETADDR_MAXSTRSIZE];
 	net_addr_str(&Client()->ServerAddress(), aAddress, sizeof(aAddress), true);
-	CServerInfo ServerInfo;
-	Client()->GetServerInfo(&ServerInfo);
-
-	std::string RoomSource;
-	const bool HasStableServerInfo = ServerInfo.m_aName[0] != '\0' && ServerInfo.m_aMap[0] != '\0';
-	if(HasStableServerInfo)
-	{
-		// The endpoint is intentionally not part of this identity. One advertised
-		// DDNet server can be reached through IPv4, IPv6 or another address alias.
-		// Length prefixes avoid ambiguous concatenations of server-provided text.
-		const auto AppendField = [&](const char *pValue) {
-			RoomSource += std::to_string(str_length(pValue));
-			RoomSource += ':';
-			RoomSource += pValue;
-			RoomSource += '|';
-		};
-		RoomSource = "server-v2|port:" + std::to_string(Client()->ServerAddress().port) + '|';
-		AppendField(ServerInfo.m_aName);
-		AppendField(ServerInfo.m_aMap);
-		AppendField(ServerInfo.m_aGameType);
-		RoomSource += "crc:" + std::to_string(ServerInfo.m_MapCrc) + "|size:" + std::to_string(ServerInfo.m_MapSize);
-	}
-	else
-	{
-		// This fallback exists only during the very short interval before the
-		// connected server has supplied its info. It is replaced immediately when
-		// the stable identity above becomes available.
-		RoomSource = std::string("endpoint-v1|") + aAddress;
-	}
-
-	if(m_LastRoomSource == RoomSource)
+	if(m_LastRoomSource == aAddress)
 		return m_LastRoomId;
-	m_LastRoomSource = RoomSource;
-	char aHash[SHA256_MAXSTRSIZE];
-	sha256_str(sha256(RoomSource.data(), RoomSource.size()), aHash, sizeof(aHash));
-	m_LastRoomId = std::string("ddnet:") + aHash;
+	m_LastRoomSource = aAddress;
+	m_LastRoomId = AmfPresence::RoomIdForServer(Client()->ServerAddress());
 	if(g_Config.m_AmfPresenceDebug)
-		log_info("amf_presence", "room endpoint='%s' identity=%s room_id='%s'", aAddress, HasStableServerInfo ? "server-v2" : "endpoint-v1", m_LastRoomId.c_str());
+		log_info("amf_presence", "room endpoint='%s' identity=endpoint-v1 room_id='%s'", aAddress, m_LastRoomId.c_str());
 	return m_LastRoomId;
 }
 
@@ -1134,6 +1171,11 @@ std::string CAmfPresenceTransport::BuildStateJson(const SLocalState &State) cons
 		Json.WriteIntValue(ClientId);
 		Json.WriteAttribute("playerName");
 		Json.WriteStrValue(PlayerName.c_str());
+		if(Connected)
+		{
+			Json.WriteAttribute("clientVersion");
+			Json.WriteStrValue(CLIENT_RELEASE_VERSION_DISPLAY);
+		}
 		Json.EndObject();
 	};
 	Json.WriteAttribute("main");
@@ -1157,12 +1199,20 @@ std::string CAmfPresenceTransport::BuildStateJson(const SLocalState &State) cons
 void CAmfPresenceTransport::SubmitDesiredState(bool Enabled, bool BrowserSnapshotEnabled, const std::string &RoomId, const std::string &StateJson)
 {
 	std::lock_guard<std::mutex> Lock(m_Mutex);
-	if(m_Desired.m_Enabled == Enabled && m_Desired.m_BrowserSnapshotEnabled == BrowserSnapshotEnabled && m_Desired.m_RoomId == RoomId && m_Desired.m_StateJson == StateJson)
+	const bool BrowserSnapshotJustEnabled = BrowserSnapshotEnabled && !m_Desired.m_BrowserSnapshotEnabled;
+	const bool RequestFreshSnapshotAfterLocalPublish = AmfPresence::RequestBrowserSnapshotOnOpen(m_Desired.m_BrowserSnapshotEnabled, BrowserSnapshotEnabled, Enabled && !RoomId.empty());
+	if(!BrowserSnapshotJustEnabled && m_Desired.m_Enabled == Enabled && m_Desired.m_BrowserSnapshotEnabled == BrowserSnapshotEnabled && m_Desired.m_RoomId == RoomId && m_Desired.m_StateJson == StateJson)
 		return;
+	if(m_Debug.load(std::memory_order_relaxed))
+		log_info("amf_presence", "desired state enabled=%d browser_snapshot=%d room_id=%s payload_bytes=%d browser_request_serial=%llu",
+			Enabled, BrowserSnapshotEnabled, RoomId.empty() ? "-" : RoomId.c_str(), (int)StateJson.size(),
+			(unsigned long long)(m_Desired.m_BrowserSnapshotRequestSerial + (RequestFreshSnapshotAfterLocalPublish ? 1 : 0)));
 	m_Desired.m_Enabled = Enabled;
 	m_Desired.m_BrowserSnapshotEnabled = BrowserSnapshotEnabled;
 	m_Desired.m_RoomId = RoomId;
 	m_Desired.m_StateJson = StateJson;
+	if(RequestFreshSnapshotAfterLocalPublish)
+		++m_Desired.m_BrowserSnapshotRequestSerial;
 	++m_Desired.m_Revision;
 	m_Condition.notify_all();
 }
@@ -1217,14 +1267,27 @@ void CAmfPresenceTransport::OnUpdate()
 	State.m_ActiveDummy = g_Config.m_ClDummy != 0 && Client()->DummyConnected();
 	const int MainClientId = GameClient()->m_aLocalIds[IClient::CONN_MAIN];
 	const int DummyClientId = GameClient()->m_aLocalIds[IClient::CONN_DUMMY];
-	State.m_MainConnected = State.m_Online && MainClientId >= 0 && MainClientId < MAX_CLIENTS && GameClient()->m_aClients[MainClientId].m_Active;
-	State.m_DummyConnected = State.m_Online && Client()->DummyConnected() && DummyClientId >= 0 && DummyClientId < MAX_CLIENTS && GameClient()->m_aClients[DummyClientId].m_Active;
+	// The local connection identity is authoritative here. `m_aClients[id].m_Active`
+	// is rebuilt from the current snapshot and can be temporarily cleared when a
+	// snapshot omits PLAYERINFO while the client is still online. Publishing that
+	// transient slot gap as connected=false makes the presence backend broadcast a
+	// false disconnect and causes remote indicators to disappear until the next
+	// complete update. BestClient likewise has a dedicated local-name fallback
+	// instead of treating a missing current player-info record as a name change.
+	State.m_MainConnected = AmfPresence::LocalConnectionIsPublishable(State.m_Online, true, MainClientId, MAX_CLIENTS);
+	State.m_DummyConnected = AmfPresence::LocalConnectionIsPublishable(State.m_Online, Client()->DummyConnected(), DummyClientId, MAX_CLIENTS);
 	State.m_MainClientId = State.m_MainConnected ? MainClientId : -1;
 	State.m_DummyClientId = State.m_DummyConnected ? DummyClientId : -1;
 	if(State.m_MainConnected)
-		State.m_MainPlayerName = GameClient()->m_aClients[State.m_MainClientId].m_aName;
+	{
+		const auto &ClientData = GameClient()->m_aClients[State.m_MainClientId];
+		State.m_MainPlayerName = ClientData.m_Active && ClientData.m_aName[0] != '\0' ? ClientData.m_aName : Client()->PlayerName();
+	}
 	if(State.m_DummyConnected)
-		State.m_DummyPlayerName = GameClient()->m_aClients[State.m_DummyClientId].m_aName;
+	{
+		const auto &ClientData = GameClient()->m_aClients[State.m_DummyClientId];
+		State.m_DummyPlayerName = ClientData.m_Active && ClientData.m_aName[0] != '\0' ? ClientData.m_aName : Client()->DummyName();
+	}
 	State.m_EscOpen = State.m_Online && GameClient()->m_Menus.IsActive();
 	State.m_MainSettingsOpen = State.m_EscOpen && !State.m_ActiveDummy && State.m_MainConnected;
 	State.m_DummySettingsOpen = State.m_EscOpen && State.m_ActiveDummy && State.m_DummyConnected;
@@ -1266,11 +1329,12 @@ void CAmfPresenceTransport::OnUpdate()
 		{
 			char aMainName[MAX_NAME_LENGTH];
 			char aDummyName[MAX_NAME_LENGTH];
-			log_info("amf_presence", "local state installation_suffix=%s main={connected=%d client_id=%d name='%s' settings_open=%d fast_practice=%d} dummy={connected=%d client_id=%d name='%s' settings_open=%d fast_practice=%d} active=%s esc_open=%d",
+			log_info("amf_presence", "local state presence_enabled=%d online=%d server_key='%s' room_id=%s installation_suffix=%s main={connected=%d client_id=%d name='%s' settings_open=%d fast_practice=%d} dummy={connected=%d client_id=%d name='%s' settings_open=%d fast_practice=%d} active=%s esc_open=%d payload_bytes=%d",
+				Enabled, State.m_Online, State.m_ServerAddress.empty() ? "-" : State.m_ServerAddress.c_str(), RoomId.empty() ? "-" : RoomId.c_str(),
 				InstallationIdSuffix(g_Config.m_AmfPresenceClientId),
 				State.m_MainConnected, State.m_MainClientId, SafePlayerName(State.m_MainPlayerName, aMainName), State.m_MainSettingsOpen, State.m_MainFastPractice,
 				State.m_DummyConnected, State.m_DummyClientId, SafePlayerName(State.m_DummyPlayerName, aDummyName), State.m_DummySettingsOpen, State.m_DummyFastPractice,
-				State.m_ActiveDummy ? "dummy" : "main", State.m_EscOpen);
+				State.m_ActiveDummy ? "dummy" : "main", State.m_EscOpen, (int)m_LastStateJson.size());
 		}
 	}
 	const bool BrowserSnapshotEnabled = GameClient()->m_Menus.IsActive() &&
@@ -1296,12 +1360,19 @@ void CAmfPresenceTransport::WorkerLoop()
 	int64_t LastBrowserSnapshotAt = -BROWSER_SNAPSHOT_MANUAL_COOLDOWN_MS;
 	uint64_t CompletedBrowserSnapshotRequestSerial = 0;
 	uint64_t BrowserSnapshotAwaitingAckSequence = 0;
+	bool BrowserWasEnabled = false;
 
 	auto RefreshBrowserSnapshot = [&]() {
 		SRemoteEvent Event;
-		if(FetchBrowserSnapshot(Event, m_StopRequested))
+		const bool Fetched = FetchBrowserSnapshot(Event, m_StopRequested, m_Debug.load(std::memory_order_relaxed));
+		if(Fetched)
 			QueueRemoteEvent(std::move(Event));
+		if(m_Debug.load(std::memory_order_relaxed))
+			log_info("amf_presence", "browser snapshot refresh completed queued=%d", Fetched);
 		LastBrowserSnapshotAt = SteadyNowMs();
+		// A manual/open-triggered refresh also satisfies the initial scheduled
+		// refresh. Avoid issuing a second HTTP request immediately afterward.
+		NextBrowserSnapshotAt = LastBrowserSnapshotAt + BROWSER_SNAPSHOT_INTERVAL_MS;
 	};
 
 	auto CloseWebSocket = [&](bool SendOffline) {
@@ -1347,6 +1418,9 @@ void CAmfPresenceTransport::WorkerLoop()
 				break;
 			Desired = m_Desired;
 		}
+		if(Desired.m_BrowserSnapshotEnabled && !BrowserWasEnabled)
+			NextBrowserSnapshotAt = 0;
+		BrowserWasEnabled = Desired.m_BrowserSnapshotEnabled;
 
 		if(!Desired.m_ClientId.empty() && !Desired.m_Token.empty() && (ClientId.empty() || Token.empty()))
 		{
@@ -1398,7 +1472,10 @@ void CAmfPresenceTransport::WorkerLoop()
 			BrowserSnapshotAwaitingAckSequence = ++Sequence;
 			QueueWebSocketFrame(WebSocket, MakeUpdateMessage(BrowserSnapshotAwaitingAckSequence, Desired.m_StateJson), EWebSocketFrameType::TEXT);
 		}
-		if(ManualBrowserSnapshotPending && BrowserSnapshotAwaitingAckSequence == 0 && Now - LastBrowserSnapshotAt >= BROWSER_SNAPSHOT_MANUAL_COOLDOWN_MS)
+		const bool PresenceConnectionRequired = Desired.m_Enabled && !Desired.m_RoomId.empty();
+		if(ManualBrowserSnapshotPending && BrowserSnapshotAwaitingAckSequence == 0 &&
+			(!PresenceConnectionRequired || (WebSocket.m_pCurl && !Desired.m_StateJson.empty())) &&
+			Now - LastBrowserSnapshotAt >= BROWSER_SNAPSHOT_MANUAL_COOLDOWN_MS)
 		{
 			RefreshBrowserSnapshot();
 			CompletedBrowserSnapshotRequestSerial = Desired.m_BrowserSnapshotRequestSerial;
@@ -1407,7 +1484,6 @@ void CAmfPresenceTransport::WorkerLoop()
 		if(Desired.m_BrowserSnapshotEnabled && !ManualBrowserSnapshotPending && Now >= NextBrowserSnapshotAt)
 		{
 			RefreshBrowserSnapshot();
-			NextBrowserSnapshotAt = SteadyNowMs() + BROWSER_SNAPSHOT_INTERVAL_MS;
 		}
 		if(!WebSocket.m_pCurl && Now < NextAttemptAt)
 		{
@@ -1422,7 +1498,7 @@ void CAmfPresenceTransport::WorkerLoop()
 		{
 			ClientId.clear();
 			Token.clear();
-			if(!RegisterInstallation(ClientId, Token, m_StopRequested))
+			if(!RegisterInstallation(ClientId, Token, m_StopRequested, m_Debug.load(std::memory_order_relaxed)))
 			{
 				ScheduleReconnect();
 				continue;
@@ -1462,7 +1538,8 @@ void CAmfPresenceTransport::WorkerLoop()
 			QueueWebSocketFrame(WebSocket, MakeUpdateMessage(++Sequence, Desired.m_StateJson), EWebSocketFrameType::TEXT);
 			SentRevision = Desired.m_Revision;
 			if(m_Debug.load(std::memory_order_relaxed))
-				log_info("amf_presence", "presence update queued installation_suffix=%s seq=%llu bytes=%d", InstallationIdSuffix(ClientId), (unsigned long long)Sequence, (int)Desired.m_StateJson.size());
+				log_info("amf_presence", "presence update queued installation_suffix=%s instance_suffix=%s room_id=%s seq=%llu bytes=%d",
+					InstallationIdSuffix(ClientId), InstallationIdSuffix(m_InstanceId), ConnectedRoom.c_str(), (unsigned long long)Sequence, (int)Desired.m_StateJson.size());
 		}
 
 		if(SteadyNowMs() >= NextPresenceRefreshAt && !Desired.m_StateJson.empty())
@@ -1503,13 +1580,22 @@ void CAmfPresenceTransport::WorkerLoop()
 				const json_value *pOp = json_object_get(pJson, "op");
 				if(pOp != &json_value_none && pOp->type == json_string)
 				{
-					if(str_comp(pOp->u.string.ptr, "ack") == 0 && BrowserSnapshotAwaitingAckSequence != 0)
+					if(str_comp(pOp->u.string.ptr, "ack") == 0)
 					{
 						const json_value *pSequence = json_object_get(pJson, "seq");
-						if(pSequence != &json_value_none && pSequence->type == json_integer && static_cast<uint64_t>(pSequence->u.integer) >= BrowserSnapshotAwaitingAckSequence)
+						const json_value *pUnchanged = json_object_get(pJson, "unchanged");
+						const bool HasSequence = pSequence != &json_value_none && pSequence->type == json_integer;
+						const uint64_t AckSequence = HasSequence ? static_cast<uint64_t>(pSequence->u.integer) : 0;
+						const bool BrowserSnapshotAck = BrowserSnapshotAwaitingAckSequence != 0 && HasSequence && AckSequence >= BrowserSnapshotAwaitingAckSequence;
+						if(m_Debug.load(std::memory_order_relaxed))
+							log_info("amf_presence", "websocket ack installation_suffix=%s instance_suffix=%s seq=%s%llu unchanged=%d browser_awaiting_seq=%llu browser_refresh_unblocked=%d",
+								InstallationIdSuffix(ClientId), InstallationIdSuffix(m_InstanceId), HasSequence ? "" : "invalid/", (unsigned long long)AckSequence,
+								pUnchanged != &json_value_none && pUnchanged->type == json_boolean ? pUnchanged->u.boolean : -1,
+								(unsigned long long)BrowserSnapshotAwaitingAckSequence, BrowserSnapshotAck);
+						if(BrowserSnapshotAck)
 						{
 							BrowserSnapshotAwaitingAckSequence = 0;
-							if(Desired.m_BrowserSnapshotRequestSerial != CompletedBrowserSnapshotRequestSerial && SteadyNowMs() - LastBrowserSnapshotAt >= BROWSER_SNAPSHOT_MANUAL_COOLDOWN_MS)
+							if(Desired.m_BrowserSnapshotRequestSerial != CompletedBrowserSnapshotRequestSerial)
 							{
 								RefreshBrowserSnapshot();
 								CompletedBrowserSnapshotRequestSerial = Desired.m_BrowserSnapshotRequestSerial;

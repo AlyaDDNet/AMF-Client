@@ -37,8 +37,11 @@
 #include <game/client/components/key_binder.h>
 #include <game/client/components/menu_background.h>
 #include <game/client/components/sounds.h>
+#include <game/client/components/tclient/amf_features/ui_theme/style.h>
+#include <game/client/components/tclient/amf_features/ui_theme/widgets.h>
+#include <game/client/components/tclient/amf_settings_search.h>
 #include <game/client/gameclient.h>
-#include <game/client/lineinput.h>
+#include <game/client/smooth_ui.h>
 #include <game/client/ui_listbox.h>
 #include <game/localization.h>
 
@@ -49,8 +52,6 @@
 
 using namespace std::chrono_literals;
 
-// Set by OnRender while aspect confirmation is visible so cursor/input still
-// reach the fallback overlay when the menu itself is closed.
 static bool s_AspectConfirmWantsInput = false;
 static constexpr int ASPECT_CONFIRM_SECONDS = 10;
 
@@ -137,27 +138,28 @@ int CMenus::DoButton_Toggle(const void *pId, int Checked, const CUIRect *pRect, 
 	return Active ? Ui()->DoButtonLogic(pId, Checked, pRect, Flags) : 0;
 }
 
-int CMenus::DoButton_Menu(CButtonContainer *pButtonContainer, const char *pText, int Checked, const CUIRect *pRect, const unsigned Flags, const char *pImageName, int Corners, float Rounding, float FontFactor, ColorRGBA Color, const CUIRect *pInteractionRect)
+int CMenus::DoButton_Menu(CButtonContainer *pButtonContainer, const char *pText, int Checked, const CUIRect *pRect, const unsigned Flags, const char *pImageName, int Corners, float Rounding, float FontFactor, ColorRGBA Color, const void *pImageHotId, const CUIRect *pInteractionRect, const char *pLeadingIcon)
 {
 	CUIRect Text = *pRect;
 
 	if(Checked)
 		Color = ColorRGBA(0.6f, 0.6f, 0.6f, 0.5f);
-	else // TClient, why was this not here? ig they never use "checked" anywhere important
+	else
 		Color.a *= Ui()->ButtonColorMul(pButtonContainer);
 
-	pRect->Draw(Color, Corners, Rounding);
+	AmfUiTheme::DrawUiButton(pRect, Color, Checked || Ui()->HotItem() == pButtonContainer, Corners, Rounding);
 
 	if(pImageName)
 	{
 		CUIRect Image;
-		pRect->VSplitRight(pRect->h * 4.0f, &Text, &Image); // always correct ratio for image
+		pRect->VSplitRight(pRect->h * BUTTON_IMAGE_WIDTH_FACTOR, &Text, &Image); // always correct ratio for image
 
 		// render image
 		const CMenuImage *pImage = FindMenuImage(pImageName);
 		if(pImage)
 		{
-			Graphics()->TextureSet(Ui()->HotItem() == pButtonContainer ? pImage->m_OrgTexture : pImage->m_GreyTexture);
+			const bool ImageHot = Ui()->HotItem() == pButtonContainer || (pImageHotId != nullptr && Ui()->HotItem() == pImageHotId);
+			Graphics()->TextureSet(ImageHot ? pImage->m_OrgTexture : pImage->m_GreyTexture);
 			Graphics()->WrapClamp();
 			Graphics()->QuadsBegin();
 			Graphics()->SetColor(1.0f, 1.0f, 1.0f, 1.0f);
@@ -170,7 +172,46 @@ int CMenus::DoButton_Menu(CButtonContainer *pButtonContainer, const char *pText,
 
 	Text.HMargin(pRect->h >= 20.0f ? 2.0f : 1.0f, &Text);
 	Text.HMargin((Text.h * FontFactor) / 2.0f, &Text);
-	Ui()->DoLabel(&Text, pText, Text.h * CUi::ms_FontmodHeight, TEXTALIGN_MC);
+	const float TextFontSize = Text.h * CUi::ms_FontmodHeight;
+	if(pLeadingIcon)
+	{
+		constexpr float IconLabelGap = 8.0f;
+		constexpr float LabelWidthPadding = 8.0f;
+		const float LabelNaturalWidth = TextRender()->TextWidth(TextFontSize, pText);
+		constexpr unsigned IconRenderFlags = TEXT_RENDER_FLAG_ONLY_ADVANCE_WIDTH | TEXT_RENDER_FLAG_NO_X_BEARING | TEXT_RENDER_FLAG_NO_PIXEL_ALIGNMENT | TEXT_RENDER_FLAG_NO_OVERSIZE;
+		TextRender()->SetFontPreset(EFontPreset::ICON_FONT);
+		TextRender()->SetRenderFlags(IconRenderFlags);
+		// TextWidth's Flags parameter is TEXTFLAG_*, not ETextRenderFlags. Keep it
+		// at its default so measuring the glyph doesn't render it at the origin.
+		const float IconWidth = TextRender()->TextWidth(TextFontSize, pLeadingIcon);
+		TextRender()->SetRenderFlags(0);
+		TextRender()->SetFontPreset(EFontPreset::DEFAULT_FONT);
+		const float LabelWidth = std::min(LabelNaturalWidth + LabelWidthPadding, std::max(0.0f, Text.w - IconWidth - IconLabelGap));
+		const float ContentWidth = IconWidth + IconLabelGap + LabelWidth;
+		const float ContentX = Text.x + (Text.w - ContentWidth) * 0.5f;
+		float LabelTextHeight = 0.0f;
+		float LabelMaxCharacterHeight = 0.0f;
+		int LabelLineCount = 0;
+		STextSizeProperties LabelSizeProperties;
+		LabelSizeProperties.m_pHeight = &LabelTextHeight;
+		LabelSizeProperties.m_pMaxCharacterHeightInLine = &LabelMaxCharacterHeight;
+		LabelSizeProperties.m_pLineCount = &LabelLineCount;
+		TextRender()->TextWidth(TextFontSize, pText, -1, LabelWidth, 0, LabelSizeProperties);
+		const float LabelY = Text.y + (LabelLineCount == 1 ? ((Text.h - LabelMaxCharacterHeight) * 0.5f - (LabelTextHeight - LabelMaxCharacterHeight)) : (Text.h - LabelTextHeight) * 0.5f);
+		CUIRect IconRect{ContentX, LabelY, IconWidth, Text.h};
+		CUIRect LabelRect{ContentX + IconWidth + IconLabelGap, LabelY, LabelWidth, Text.h};
+
+		TextRender()->SetFontPreset(EFontPreset::ICON_FONT);
+		TextRender()->SetRenderFlags(IconRenderFlags);
+		Ui()->DoLabel(&IconRect, pLeadingIcon, TextFontSize, TEXTALIGN_TL);
+		TextRender()->SetRenderFlags(0);
+		TextRender()->SetFontPreset(EFontPreset::DEFAULT_FONT);
+		Ui()->DoLabel(&LabelRect, pText, TextFontSize, TEXTALIGN_TL, {.m_MaxWidth = LabelRect.w});
+	}
+	else
+	{
+		Ui()->DoLabel(&Text, pText, TextFontSize, TEXTALIGN_MC);
+	}
 
 	return Ui()->DoButtonLogic(pButtonContainer, Checked, pInteractionRect ? pInteractionRect : pRect, Flags);
 }
@@ -219,8 +260,7 @@ int CMenus::DoButton_MenuTab(CButtonContainer *pButtonContainer, const char *pTe
 	ColorRGBA DrawColor = TargetColor;
 	if(pAnimator != nullptr)
 	{
-		// Animators may change a tab's decoration, but never its input/layout
-		// rectangle. Blend only the color so adjacent fixed tabs cannot overlap.
+		// Keep AMF's tab color transition while the 20.1 input/layout rect stays fixed.
 		const float Value = pAnimator->m_Value;
 		DrawColor = ColorRGBA(
 			InactiveColor.r + (TargetColor.r - InactiveColor.r) * Value,
@@ -228,7 +268,7 @@ int CMenus::DoButton_MenuTab(CButtonContainer *pButtonContainer, const char *pTe
 			InactiveColor.b + (TargetColor.b - InactiveColor.b) * Value,
 			InactiveColor.a + (TargetColor.a - InactiveColor.a) * Value);
 	}
-	Rect.Draw(DrawColor, Corners, EdgeRounding);
+	AmfUiTheme::DrawUiNavTab(&Rect, DrawColor, Checked || MouseInside, Corners, EdgeRounding);
 
 	if(pAnimator != nullptr)
 	{
@@ -294,15 +334,20 @@ int CMenus::DoButton_Favorite(const void *pButtonId, const void *pParentId, bool
 
 int CMenus::DoButton_CheckBox_Common(const void *pId, const char *pText, const char *pBoxText, const CUIRect *pRect, const unsigned Flags)
 {
+	AmfSettingsSearch::DrawItemHighlight(pId, pRect);
 	CUIRect Box, Label;
 	pRect->VSplitLeft(pRect->h, &Box, &Label);
 	Label.VSplitLeft(5.0f, nullptr, &Label);
 
 	Box.Margin(2.0f, &Box);
-	Box.Draw(ColorRGBA(1, 1, 1, 0.25f * Ui()->ButtonColorMul(pId)), IGraphics::CORNER_ALL, 3.0f);
+	AmfUiTheme::DrawUiCheckbox(&Box, ColorRGBA(1, 1, 1, 0.25f * Ui()->ButtonColorMul(pId)), false, IGraphics::CORNER_ALL, 3.0f);
 
 	const bool Checkable = *pBoxText == 'X';
-	if(Checkable)
+	if(Checkable && AmfUiTheme::IsNewCheckbox())
+	{
+		AmfUiTheme::DrawCheckBoxChecked(&Box, Ui()->ButtonColorMul(pId));
+	}
+	else if(Checkable)
 	{
 		TextRender()->SetRenderFlags(ETextRenderFlags::TEXT_RENDER_FLAG_ONLY_ADVANCE_WIDTH | ETextRenderFlags::TEXT_RENDER_FLAG_NO_X_BEARING | ETextRenderFlags::TEXT_RENDER_FLAG_NO_Y_BEARING | ETextRenderFlags::TEXT_RENDER_FLAG_NO_OVERSIZE | ETextRenderFlags::TEXT_RENDER_FLAG_NO_PIXEL_ALIGNMENT);
 		TextRender()->SetFontPreset(EFontPreset::ICON_FONT);
@@ -330,6 +375,7 @@ bool CMenus::DoLine_RadioMenu(CUIRect &View, const char *pLabel, std::vector<CBu
 	CUIRect Label, Buttons;
 	View.HSplitTop(Spacing, nullptr, &View);
 	View.HSplitTop(ButtonHeight, &Buttons, &View);
+	AmfSettingsSearch::DrawItemHighlight(&Value, &Buttons);
 	Buttons.VSplitMid(&Label, &Buttons, 10.0f);
 	Buttons.HMargin(2.0f, &Buttons);
 	Ui()->DoLabel(&Label, pLabel, 13.0f, TEXTALIGN_ML);
@@ -360,25 +406,22 @@ ColorHSLA CMenus::DoLine_ColorPicker(CButtonContainer *pResetId, const float Lin
 	pMainRect->HSplitTop(LineSize, &Section, pMainRect);
 	pMainRect->HSplitTop(BottomMargin, nullptr, pMainRect);
 
-	const char *pRandomizeText = pRandomizeId != nullptr ? Localize("Random color") : nullptr;
-	constexpr float RANDOMIZE_BUTTON_WIDTH = 90.0f;
-	// Keep the lower row's picker/button spacing identical to the normal
-	// background-color row above it.
-	constexpr float RANDOMIZE_BUTTON_SPACING = 8.0f;
-
+	// Reset and Random are actions of the color setting, not of the picker mode.
+	// Keep the standard Reset button present for every color-picker style.
 	Section.VSplitRight(60.0f, &Section, &ResetButton);
+	Section.VSplitRight(8.0f, &Section, nullptr);
 	if(pRandomizeId != nullptr)
 	{
-		Section.VSplitRight(RANDOMIZE_BUTTON_SPACING, &Section, nullptr);
+		constexpr float RANDOMIZE_BUTTON_WIDTH = 90.0f;
+		Section.VSplitRight(8.0f, &Section, nullptr);
 		Section.VSplitRight(RANDOMIZE_BUTTON_WIDTH, &Section, &RandomizeButton);
-		Section.VSplitRight(RANDOMIZE_BUTTON_SPACING, &Section, nullptr);
-		Section.VSplitRight(Section.h, &Section, &ColorPickerButton);
+		Section.VSplitRight(8.0f, &Section, nullptr);
 	}
 	else
 	{
 		Section.VSplitRight(8.0f, &Section, nullptr);
-		Section.VSplitRight(Section.h, &Section, &ColorPickerButton);
 	}
+	Section.VSplitRight(Section.h, &Section, &ColorPickerButton);
 	Section.VSplitRight(8.0f, &Label, nullptr);
 
 	if(pCheckBoxValue != nullptr)
@@ -397,19 +440,11 @@ ColorHSLA CMenus::DoLine_ColorPicker(CButtonContainer *pResetId, const float Lin
 	}
 
 	ColorHSLA PickedColor = DoButton_ColorPicker(&ColorPickerButton, pColorValue, Alpha);
-
 	if(pRandomizeId != nullptr)
 	{
 		RandomizeButton.HMargin(2.0f, &RandomizeButton);
-		if(DoButton_Menu(pRandomizeId, pRandomizeText, 0, &RandomizeButton, BUTTONFLAG_LEFT, nullptr, IGraphics::CORNER_ALL, 4.0f, 0.1f, ColorRGBA(1.0f, 1.0f, 1.0f, 0.25f)))
+		if(DoButton_Menu(pRandomizeId, Localize("Random color"), 0, &RandomizeButton, BUTTONFLAG_LEFT, nullptr, IGraphics::CORNER_ALL, 4.0f, 0.1f, ColorRGBA(1.0f, 1.0f, 1.0f, 0.25f)))
 		{
-			// Muted, playable backgrounds: broad hue selection with the moderately
-			// dark saturation and lightness range used by the surrounding DDNet UI.
-			constexpr float MIN_SATURATION = 0.18f;
-			constexpr float MAX_SATURATION = 0.38f;
-			constexpr float MIN_LIGHTNESS = 0.30f;
-			constexpr float MAX_LIGHTNESS = 0.43f;
-
 			const unsigned PreviousColor = *pColorValue;
 			const ColorHSLA CurrentColor(PreviousColor, Alpha);
 			unsigned RandomColor;
@@ -417,15 +452,15 @@ ColorHSLA CMenus::DoLine_ColorPicker(CButtonContainer *pResetId, const float Lin
 			{
 				ColorHSLA NewColor = CurrentColor;
 				NewColor.h = random_float();
-				NewColor.s = random_float(MIN_SATURATION, MAX_SATURATION);
-				NewColor.l = random_float(MIN_LIGHTNESS, MAX_LIGHTNESS);
+				NewColor.s = random_float(0.18f, 0.38f);
+				NewColor.l = random_float(0.30f, 0.43f);
 				RandomColor = NewColor.Pack(Alpha);
 			} while(RandomColor == PreviousColor);
 
 			*pColorValue = RandomColor;
 			PickedColor = ColorHSLA(RandomColor, Alpha);
 		}
-		GameClient()->m_Tooltips.DoToolTip(pRandomizeId, &RandomizeButton, pRandomizeText);
+		GameClient()->m_Tooltips.DoToolTip(pRandomizeId, &RandomizeButton, Localize("Random color"));
 	}
 
 	ResetButton.HMargin(2.0f, &ResetButton);
@@ -439,6 +474,7 @@ ColorHSLA CMenus::DoLine_ColorPicker(CButtonContainer *pResetId, const float Lin
 
 ColorHSLA CMenus::DoButton_ColorPicker(const CUIRect *pRect, unsigned int *pHslaColor, bool Alpha)
 {
+	AmfSettingsSearch::DrawItemHighlight(pHslaColor, pRect);
 	ColorHSLA HslaColor = ColorHSLA(*pHslaColor, Alpha);
 
 	ColorRGBA Outline = ColorRGBA(1.0f, 1.0f, 1.0f, 0.25f);
@@ -447,7 +483,7 @@ ColorHSLA CMenus::DoButton_ColorPicker(const CUIRect *pRect, unsigned int *pHsla
 	CUIRect Rect;
 	pRect->Margin(3.0f, &Rect);
 
-	pRect->Draw(Outline, IGraphics::CORNER_ALL, 4.0f);
+	AmfUiTheme::DrawUiDropdown(pRect, Outline, Ui()->HotItem() == pHslaColor, IGraphics::CORNER_ALL, 4.0f);
 	Rect.Draw(color_cast<ColorRGBA>(HslaColor), IGraphics::CORNER_ALL, 4.0f);
 
 	if(Ui()->DoButtonLogic(pHslaColor, 0, pRect, BUTTONFLAG_LEFT))
@@ -471,6 +507,7 @@ int CMenus::DoButton_CheckBoxAutoVMarginAndSet(const void *pId, const char *pTex
 {
 	CUIRect CheckBoxRect;
 	pRect->HSplitTop(VMargin, &CheckBoxRect, pRect);
+	AmfSettingsSearch::DrawItemHighlight(pValue, &CheckBoxRect);
 
 	int Logic = DoButton_CheckBox_Common(pId, pText, *pValue ? "X" : "", &CheckBoxRect, BUTTONFLAG_LEFT);
 
@@ -564,7 +601,18 @@ void CMenus::RenderMenubar(CUIRect Box, IClient::EClientState ClientState)
 
 		Box.VSplitLeft(33.0f, &Button, &Box);
 
-		const bool GotNewsOrUpdate = (bool)g_Config.m_UiUnreadNews;
+		bool GotNewsOrUpdate = false;
+
+#if defined(CONF_AUTOUPDATE)
+		int State = Updater()->GetCurrentState();
+		bool NeedUpdate = str_comp(Client()->LatestVersion(), "0");
+		if(State == IUpdater::CLEAN && NeedUpdate)
+		{
+			GotNewsOrUpdate = true;
+		}
+#endif
+
+		GotNewsOrUpdate |= (bool)g_Config.m_UiUnreadNews;
 
 		ColorRGBA HomeButtonColorAlert(0, 1, 0, 0.25f);
 		ColorRGBA HomeButtonColorAlertHover(0, 1, 0, 0.5f);
@@ -730,18 +778,20 @@ void CMenus::RenderMenubar(CUIRect Box, IClient::EClientState ClientState)
 	}
 }
 
-void CMenus::RenderLoading(const char *pCaption, const char *pContent, int IncreaseCounter)
+void CMenus::RenderLoadingDirect(const char *pCaption, const char *pContent, std::optional<float> Progress)
 {
 	// TODO: not supported right now due to separate render thread
 
-	const int CurLoadRenderCount = m_LoadingState.m_Current;
-	m_LoadingState.m_Current += IncreaseCounter;
-	dbg_assert(m_LoadingState.m_Current <= m_LoadingState.m_Total, "Invalid progress for RenderLoading");
-
 	// make sure that we don't render for each little thing we load
 	// because that will slow down loading if we have vsync
+	// make sure we otherwise update the progressbar if we have one for a smoother animation
 	const std::chrono::nanoseconds Now = time_get_nanoseconds();
-	if(Now - m_LoadingState.m_LastRender < std::chrono::nanoseconds(1s) / 60l)
+
+	/* Limit FPS to something reasonable. Ideally the values would just be stored and the rendering would be on a **consistent** timer with 60Hz
+	 * Waiting for calls of this function makes the rendering stutter, which you can notice with the background
+	 */
+	int RefreshRate = g_Config.m_GfxVsync || !Progress.has_value() ? 60 : (in_range(g_Config.m_GfxRefreshRate, 1, 300) ? g_Config.m_GfxRefreshRate : 300);
+	if(RefreshRate > 0 && Now - m_LoadingState.m_LastRender < std::chrono::nanoseconds(1s) / RefreshRate)
 		return;
 
 	// need up date this here to get correct
@@ -778,18 +828,28 @@ void CMenus::RenderLoading(const char *pCaption, const char *pContent, int Incre
 	Box.HSplitTop(24.0f, &Label, &Box);
 	Ui()->DoLabel(&Label, pContent, 20.0f, TEXTALIGN_MC);
 
-	if(m_LoadingState.m_Total > 0)
+	if(Progress.has_value())
 	{
 		CUIRect ProgressBar;
 		Box.HSplitBottom(30.0f, &Box, nullptr);
 		Box.HSplitBottom(25.0f, &Box, &ProgressBar);
 		ProgressBar.VMargin(20.0f, &ProgressBar);
-		Ui()->RenderProgressBar(ProgressBar, CurLoadRenderCount / (float)m_LoadingState.m_Total);
+		Ui()->RenderProgressBar(ProgressBar, std::clamp(Progress.value(), 0.0f, 1.0f));
 	}
 
 	Graphics()->SetColor(1.0, 1.0, 1.0, 1.0);
 
 	Client()->UpdateAndSwap();
+}
+
+void CMenus::RenderLoading(const char *pCaption, const char *pContent, int IncreaseCounter)
+{
+	// does not support multithreading
+
+	const int CurLoadRenderCount = m_LoadingState.m_Current;
+	m_LoadingState.m_Current += IncreaseCounter;
+	dbg_assert(m_LoadingState.m_Current <= m_LoadingState.m_Total, "Invalid progress for RenderLoading");
+	RenderLoadingDirect(pCaption, pContent, m_LoadingState.m_Total > 0 ? std::make_optional(CurLoadRenderCount / (float)m_LoadingState.m_Total) : std::nullopt);
 }
 
 void CMenus::FinishLoading()
@@ -841,11 +901,18 @@ void CMenus::OnInterfacesInit(CGameClient *pClient)
 
 void CMenus::OnConsoleInit()
 {
-	// The organizer layout is a config domain, therefore its console commands
-	// must exist before the engine executes config files. Registering them from
-	// OnInit was too late and made a correctly saved layout look as if it had
-	// been reset on every restart.
 	AssetOrganizer::OnConsoleInit(Console(), ConfigManager());
+	Console()->Register("add_favorite_asset", "s[tab] s[asset_name]", CFGFLAG_CLIENT, ConAddFavoriteAsset, this, "Add an asset item as a favorite");
+	Console()->Register("remove_favorite_asset", "s[tab] s[asset_name]", CFGFLAG_CLIENT, ConRemoveFavoriteAsset, this, "Remove an asset item from the favorites");
+	Console()->Register(AMF_RUN_STATISTICS_BIND_COMMAND, "", CFGFLAG_CLIENT, ConKeyAmfRunStatistics, this, "Show current Run Statistics while held");
+	ConfigManager()->RegisterCallback(CMenus::ConfigSaveCallback, this, ConfigDomain::TCLIENT);
+}
+
+void CMenus::ConKeyAmfRunStatistics(IConsole::IResult *pResult, void *pUserData)
+{
+	CMenus *pMenus = static_cast<CMenus *>(pUserData);
+	const bool Pressed = pResult->GetInteger(0) != 0;
+	pMenus->m_AmfRunStatisticsHold.SetFromBind(Pressed);
 }
 
 void CMenus::OnInit()
@@ -899,9 +966,7 @@ void CMenus::OnInit()
 	Console()->Chain("cl_asset_cursor", ConchainAssetCursor, this);
 	Console()->Chain("cl_asset_arrow", ConchainAssetArrow, this);
 	Console()->Chain("snd_pack", ConchainSndPack, this);
-	Console()->Register("add_favorite_asset", "s[tab] s[asset_name]", CFGFLAG_CLIENT, ConAddFavoriteAsset, this, "Add an asset item as a favorite");
-	Console()->Register("remove_favorite_asset", "s[tab] s[asset_name]", CFGFLAG_CLIENT, ConRemoveFavoriteAsset, this, "Remove an asset item from the favorites");
-	ConfigManager()->RegisterCallback(CMenus::ConfigSaveCallback, this, ConfigDomain::TCLIENT);
+
 	Console()->Chain("demo_play", ConchainDemoPlay, this);
 	Console()->Chain("demo_speed", ConchainDemoSpeed, this);
 
@@ -953,6 +1018,8 @@ void CMenus::UpdateMusicState()
 		GameClient()->m_Sounds.Enqueue(CSounds::CHN_MUSIC, SOUND_MENU);
 	else if(!ShouldPlay && GameClient()->m_Sounds.IsPlaying(SOUND_MENU))
 		GameClient()->m_Sounds.Stop(SOUND_MENU);
+	if(!ShouldPlay)
+		GameClient()->m_MapSounds.StopAll();
 }
 
 void CMenus::PopupMessage(const char *pTitle, const char *pMessage, const char *pButtonLabel, int NextPopup, FPopupButtonCallback pfnButtonCallback)
@@ -1011,6 +1078,7 @@ bool CMenus::CanDisplayWarning() const
 
 void CMenus::Render()
 {
+	const AmfUiTheme::CMenuThemeScope MenuThemeScope(IsActive() || Client()->State() == IClient::STATE_DEMOPLAYBACK);
 	Ui()->MapScreen();
 	Ui()->SetMouseSlow(false);
 
@@ -1030,7 +1098,8 @@ void CMenus::Render()
 		m_CommunityIcons.Update();
 	}
 
-	// Initially add DDNet as favorite community and select its tab.
+	// Initially add DDNet as a favorite community, but leave the Internet tab
+	// selected so servers outside that community are not absent from search.
 	// This must be delayed until the DDNet info is available.
 	if(m_CreateDefaultFavoriteCommunities &&
 		ServerBrowser()->DDNetInfoAvailable())
@@ -1040,8 +1109,6 @@ void CMenus::Render()
 		{
 			ServerBrowser()->FavoriteCommunitiesFilter().Clear();
 			ServerBrowser()->FavoriteCommunitiesFilter().Add(IServerBrowser::COMMUNITY_DDNET);
-			SetMenuPage(PAGE_FAVORITE_COMMUNITY_1);
-			ServerBrowser()->Refresh(IServerBrowser::TYPE_FAVORITE_COMMUNITY_1);
 		}
 	}
 	if(m_JoinTutorial.m_Queued && m_Popup == POPUP_NONE)
@@ -1706,7 +1773,7 @@ void CMenus::RenderPopupFullscreen(CUIRect Screen)
 		Ui()->DoEditBox(&m_DemoRenderInput, &TextBox, 12.8f);
 
 		// Warn about disconnect if online
-		if(Client()->State() == IClient::STATE_ONLINE)
+		if(Client()->State() == IClient::STATE_ONLINE || Client()->State() == IClient::STATE_DEMOPLAYBACK)
 		{
 			Box.HSplitBottom(10.0f, &Box, nullptr);
 			Box.HSplitBottom(20.0f, &Box, &Row);
@@ -1861,6 +1928,7 @@ void CMenus::RenderPopupFullscreen(CUIRect Screen)
 			Ui()->DoLabel(&StatusLabel, pStatusLabel, 20.0f, TEXTALIGN_ML);
 		}
 
+		char aProgressLabel[256];
 		const char *pProgressLabel = nullptr;
 		bool ProgressDeterminate = true;
 		const float LastStateChangeSeconds = std::chrono::duration_cast<std::chrono::duration<float>>(time_get_nanoseconds() - m_JoinTutorial.m_StateChange).count();
@@ -1909,9 +1977,11 @@ void CMenus::RenderPopupFullscreen(CUIRect Screen)
 		};
 		const auto &&RunServer = [&]() {
 			char aMotd[256];
+			char aLocalizedMotd[256];
+			str_format(aLocalizedMotd, sizeof(aLocalizedMotd), "%s\n\n%s", Localize("You're playing on a local server because no online Tutorial server could be found."), Localize("Your record will only be saved locally."));
 			str_copy(aMotd, "sv_motd \"");
 			char *pDst = aMotd + str_length(aMotd);
-			str_escape(&pDst, Localize("You're playing on a local server because no online Tutorial server could be found.\n\nYour record will only be saved locally."), aMotd + sizeof(aMotd) - 1);
+			str_escape(&pDst, aLocalizedMotd, aMotd + sizeof(aMotd) - 1);
 			str_append(aMotd, "\"");
 			if(GameClient()->m_LocalServer.RunServer({"sv_register 0", "sv_map Tutorial", aMotd}))
 			{
@@ -1940,7 +2010,8 @@ void CMenus::RenderPopupFullscreen(CUIRect Screen)
 			}
 			else
 			{
-				pProgressLabel = Localize("Could not find online Tutorial server.\nStarting and connecting to local server…");
+				str_format(aProgressLabel, sizeof(aProgressLabel), "%s\n%s", Localize("Could not find online Tutorial server."), Localize("Starting and connecting to local server…"));
+				pProgressLabel = aProgressLabel;
 			}
 		}
 		else if(m_JoinTutorial.m_LocalServerState == CJoinTutorial::ELocalServerState::WAITING_STOP)
@@ -1962,7 +2033,7 @@ void CMenus::RenderPopupFullscreen(CUIRect Screen)
 		}
 		else if(m_JoinTutorial.m_LocalServerState == CJoinTutorial::ELocalServerState::WAITING_START)
 		{
-			if(LastStateChangeSeconds >= 5.0f)
+			if(LastStateChangeSeconds >= 5.0f && !GameClient()->m_LocalServer.IsStarting())
 			{
 				ShowFinalErrorMessage();
 			}
@@ -1971,7 +2042,7 @@ void CMenus::RenderPopupFullscreen(CUIRect Screen)
 				if(LastStateChangeSeconds >= 2.0f &&
 					GameClient()->m_LocalServer.IsServerRunning())
 				{
-					Client()->Connect("localhost");
+					GameClient()->m_LocalServer.Connect();
 				}
 
 				pProgressLabel = Localize("Waiting for local server to start…");
@@ -1990,6 +2061,7 @@ void CMenus::RenderPopupFullscreen(CUIRect Screen)
 			Ui()->ConsumeHotkey(CUi::HOTKEY_ESCAPE) ||
 			Ui()->ConsumeHotkey(CUi::HOTKEY_ENTER))
 		{
+			GameClient()->m_LocalServer.CancelConnect();
 			m_Popup = POPUP_NONE;
 		}
 	}
@@ -2316,6 +2388,8 @@ void CMenus::PopupConfirmDemoReplaceVideo()
 
 void CMenus::SetActive(bool Active)
 {
+	if(Active)
+		m_AmfRunStatisticsHold.Release();
 	if(Active != m_MenuActive)
 	{
 		Ui()->SetHotItem(nullptr);
@@ -2344,7 +2418,7 @@ void CMenus::SetActive(bool Active)
 			m_NeedSendDummyinfo = false;
 		}
 
-		if(Client()->State() == IClient::STATE_ONLINE || Client()->State() == IClient::STATE_DEMOPLAYBACK)
+		if(Client()->State() == IClient::STATE_ONLINE)
 		{
 			GameClient()->OnRelease();
 		}
@@ -2353,6 +2427,11 @@ void CMenus::SetActive(bool Active)
 	{
 		GameClient()->OnRelease();
 	}
+}
+
+void CMenus::OnRelease()
+{
+	m_AmfRunStatisticsHold.Release();
 }
 
 void CMenus::OnShutdown()
@@ -2384,6 +2463,7 @@ bool CMenus::OnInput(const IInput::CEvent &Event)
 
 void CMenus::OnStateChange(int NewState, int OldState)
 {
+	m_AmfRunStatisticsHold.Release();
 	// reset active item
 	Ui()->SetActiveItem(nullptr);
 
@@ -2459,10 +2539,8 @@ void CMenus::OnRender()
 	}
 
 	// Full custom aspect changes temporarily replace the window projection. Keep
-	// the donor's ten-second keep/revert guard so an unusable display can recover
-	// without changing the selected setting permanently. The state lives on the
-	// menu instance so the AMF Visuals page can present the same confirmation
-	// state and restore its pre-test scroll position.
+	// the ten-second keep/revert guard so an unusable display can recover without
+	// changing the selected setting permanently.
 	const int CurAspectMode = g_Config.m_AmfCustomAspectRatioMode;
 	const int CurAspectRatio = g_Config.m_AmfCustomAspectRatio;
 	const int CurAspectApplyMode = g_Config.m_AmfCustomAspectRatioApplyMode;
@@ -2515,8 +2593,6 @@ void CMenus::OnRender()
 					m_AspectPrevApplyMode = m_AspectLastApplyMode;
 					m_AspectPrevNum = m_AspectLastNum;
 					m_AspectPrevDen = m_AspectLastDen;
-					// Capture only on the transition into the test. Auto-scroll and
-					// subsequent slider edits must never overwrite this snapshot.
 					CaptureAmfVisualScrollPosition();
 				}
 				m_AspectConfirmActive = true;
@@ -2551,33 +2627,54 @@ void CMenus::OnRender()
 	const bool ShowAspectConfirmOverlay = m_AspectConfirmActive && AspectConfirmNeeded;
 	s_AspectConfirmWantsInput = ShowAspectConfirmOverlay;
 
+	const bool RunStatisticsInGame = Client()->State() == IClient::STATE_ONLINE || Client()->State() == IClient::STATE_DEMOPLAYBACK;
+	const bool StatisticsUiAccessible = AmfImpact::CImpactSystem::IsStatisticsUiAccessible(g_Config.m_AmfImpactStatisticsAccess);
+	const bool RunStatisticsHoldRequested = AmfRunStatisticsQuickOverlayRequested(
+		m_AmfRunStatisticsHold.IsHeld(), StatisticsUiAccessible, RunStatisticsInGame);
+	static CSmoothUiSectionAnimation s_RunStatisticsHoldOverlay;
+	const bool AnimateRunStatisticsHoldOverlay = g_Config.m_AmfSmoothHud && g_Config.m_AmfAnimMenu;
+	const float RunStatisticsHoldProgress = s_RunStatisticsHoldOverlay.Update(
+		RunStatisticsHoldRequested,
+		Client()->RenderFrameTime(),
+		180,
+		AnimateRunStatisticsHoldOverlay);
+	const bool RunStatisticsHoldVisible = AmfRunStatisticsQuickOverlayVisible(
+		RunStatisticsHoldRequested, s_RunStatisticsHoldOverlay.IsVisible(), StatisticsUiAccessible, RunStatisticsInGame);
+
 	if(!IsActive())
 	{
 		if(Ui()->ConsumeHotkey(CUi::HOTKEY_ESCAPE))
 		{
 			SetActive(true);
 		}
-		else if(Client()->State() != IClient::STATE_DEMOPLAYBACK && !ShowAspectConfirmOverlay)
+		else if(Client()->State() != IClient::STATE_DEMOPLAYBACK && !ShowAspectConfirmOverlay && !RunStatisticsHoldVisible)
 		{
 			Ui()->ClearHotkeys();
+			RenderAmfRunCompletionToast();
 			return;
 		}
 	}
 
 	Ui()->StartCheck();
 	UpdateColors();
-
 	const bool IngameMenu = IsActive() && (Client()->State() == IClient::STATE_ONLINE || Client()->State() == IClient::STATE_DEMOPLAYBACK);
 	const bool UseWindowAspectForUi = IngameMenu && (GameClient()->IsAspectRatioBlockedByFng() || g_Config.m_AmfCustomAspectRatioApplyMode != 1);
 	Ui()->SetUseGraphicsScreenAspect(!UseWindowAspectForUi);
 
 	Ui()->Update();
-	if(IsActive())
-		Ui()->DoBackButton();
 
 	if(IsActive())
 		Ui()->DoBackButton();
-
+	if(IsActive())
+		Ui()->DoBackButton();
+	if(RunStatisticsHoldVisible && !IsActive())
+	{
+		RenderAmfRunStatisticsQuickOverlay(*Ui()->Screen(), RunStatisticsHoldProgress);
+		Ui()->FinishCheck();
+		Ui()->ClearHotkeys();
+		Ui()->SetUseGraphicsScreenAspect(true);
+		return;
+	}
 	if(IsActive())
 		Ui()->DoBackButton();
 
@@ -2588,6 +2685,7 @@ void CMenus::OnRender()
 	{
 		Ui()->RenderBackButton();
 	}
+
 	// render debug information
 	if(g_Config.m_Debug)
 		Ui()->DebugRender(2.0f, Ui()->Screen()->h - 12.0f);
@@ -2596,7 +2694,7 @@ void CMenus::OnRender()
 		SetActive(false);
 
 	// Render the confirmation bar in physical-window coordinates. The game
-	// projection may be stretched, but this small overlay remains readable and
+	// projection may be stretched, but this overlay remains readable and
 	// clickable until the user explicitly keeps or reverts the new ratio.
 	if(ShowAspectConfirmOverlay && !m_AspectTestViewRendered && m_AspectConfirmActive)
 	{
@@ -2665,109 +2763,6 @@ void CMenus::OnRender()
 	Ui()->SetUseGraphicsScreenAspect(true);
 }
 
-void CMenus::DrawAspectRatioButton(const CUIRect &Rect, ColorRGBA NormalColor, ColorRGBA HoverColor, ColorRGBA PressedColor, bool Hovered, bool Pressed)
-{
-	const ColorRGBA FillColor = Pressed ? PressedColor : Hovered ? HoverColor : NormalColor;
-	const ColorRGBA BorderColor(
-		std::min(1.0f, FillColor.r * 1.18f + 0.04f),
-		std::min(1.0f, FillColor.g * 1.18f + 0.04f),
-		std::min(1.0f, FillColor.b * 1.18f + 0.04f),
-		FillColor.a);
-
-	// Action buttons use the same rectangular hitbox as the standard menu UI.
-	// Keep the visual treatment simple and stateful instead of drawing a second
-	// polygonal silhouette that could diverge from the clickable rectangle.
-	Rect.Draw(BorderColor, IGraphics::CORNER_ALL, 5.0f);
-	CUIRect Inner = Rect;
-	Inner.Margin(1.0f, &Inner);
-	Inner.Draw(FillColor, IGraphics::CORNER_ALL, 4.0f);
-}
-
-void CMenus::ConfirmAspectRatioTest()
-{
-	if(!m_AspectConfirmActive)
-		return;
-
-	// The currently applied values become the new baseline. Do not restore the
-	// pre-test scroll position on confirmation; the user explicitly kept this
-	// aspect and may continue from the test card.
-	m_AspectConfirmActive = false;
-	m_AspectPrevMode = g_Config.m_AmfCustomAspectRatioMode;
-	m_AspectPrevRatio = g_Config.m_AmfCustomAspectRatio;
-	m_AspectPrevApplyMode = g_Config.m_AmfCustomAspectRatioApplyMode;
-	m_AspectPrevNum = g_Config.m_AmfCustomAspectRatioNum;
-	m_AspectPrevDen = g_Config.m_AmfCustomAspectRatioDen;
-	m_AspectLastMode = m_AspectPrevMode;
-	m_AspectLastRatio = m_AspectPrevRatio;
-	m_AspectLastApplyMode = m_AspectPrevApplyMode;
-	m_AspectLastNum = m_AspectPrevNum;
-		m_AspectLastDen = m_AspectPrevDen;
-	DiscardAmfVisualScrollPosition();
-	RequestAspectRatioVisualFocus();
-	s_AspectConfirmWantsInput = false;
-}
-
-void CMenus::RevertAspectRatioTest()
-{
-	if(!m_AspectConfirmActive)
-		return;
-
-	g_Config.m_AmfCustomAspectRatioMode = m_AspectPrevMode;
-	g_Config.m_AmfCustomAspectRatio = m_AspectPrevRatio;
-	g_Config.m_AmfCustomAspectRatioApplyMode = m_AspectPrevApplyMode;
-	g_Config.m_AmfCustomAspectRatioNum = m_AspectPrevNum;
-	g_Config.m_AmfCustomAspectRatioDen = m_AspectPrevDen;
-	m_AspectLastMode = m_AspectPrevMode;
-	m_AspectLastRatio = m_AspectPrevRatio;
-	m_AspectLastApplyMode = m_AspectPrevApplyMode;
-	m_AspectLastNum = m_AspectPrevNum;
-	m_AspectLastDen = m_AspectPrevDen;
-	m_AspectConfirmActive = false;
-	GameClient()->m_TClient.SetForcedAspect();
-	RestoreAmfVisualScrollPosition();
-	m_AspectVisualScrollFocusPending = false;
-	s_AspectConfirmWantsInput = false;
-}
-
-void CMenus::RequestAspectRatioVisualFocus()
-{
-	m_AspectVisualScrollFocusPending = true;
-}
-
-int CMenus::AspectConfirmSecondsLeft() const
-{
-	if(!m_AspectConfirmActive)
-		return 0;
-	return std::max(0, static_cast<int>((m_AspectConfirmDeadline - time_get() + time_freq() - 1) / time_freq()));
-}
-
-void CMenus::CaptureAmfVisualScrollPosition()
-{
-	if(m_AspectVisualScrollSnapshotValid)
-		return;
-	// CScrollRegion keeps the position in content coordinates, independent of
-	// the current UI projection. That makes the value valid across the temporary
-	// aspect test view and all supported window sizes/UI scales.
-	m_AspectVisualScrollBeforeTest = m_AmfVisualScrollRegion.ScrollPosition();
-	m_AspectVisualScrollSnapshotValid = true;
-}
-
-void CMenus::RestoreAmfVisualScrollPosition()
-{
-	if(!m_AspectVisualScrollSnapshotValid)
-		return;
-	m_AspectVisualScrollRestorePosition = m_AspectVisualScrollBeforeTest;
-	m_AspectVisualScrollSnapshotValid = false;
-	m_AspectVisualScrollRestorePending = true;
-}
-
-void CMenus::DiscardAmfVisualScrollPosition()
-{
-	m_AspectVisualScrollSnapshotValid = false;
-	m_AspectVisualScrollRestorePending = false;
-	m_AspectVisualScrollFocusPending = false;
-}
-
 void CMenus::UpdateColors()
 {
 	ms_GuiColor = color_cast<ColorRGBA>(ColorHSLA(g_Config.m_UiColor, true));
@@ -2798,7 +2793,7 @@ void CMenus::RenderBackground()
 {
 	const float ScreenHeight = 300.0f;
 	const float ScreenWidth = ScreenHeight * Graphics()->ScreenAspect();
-	Graphics()->MapScreen(0.0f, 0.0f, ScreenWidth, ScreenHeight);
+	Graphics()->MapScreenToSize(ScreenWidth, ScreenHeight);
 
 	// render background color
 	Graphics()->TextureClear();
@@ -2929,7 +2924,6 @@ void CMenus::SetMenuPage(int NewPage)
 
 void CMenus::RefreshBrowserTab(bool Force)
 {
-	GameClient()->m_AmfPresenceTransport.RequestBrowserSnapshot();
 	if(g_Config.m_UiPage == PAGE_INTERNET)
 	{
 		if(Force || ServerBrowser()->GetCurrentType() != IServerBrowser::TYPE_INTERNET)
@@ -3000,4 +2994,107 @@ void CMenus::JoinTutorial()
 	m_JoinTutorial.m_TriedRefresh = false;
 	m_JoinTutorial.m_LocalServerState = CJoinTutorial::ELocalServerState::NOT_TRIED;
 	m_JoinTutorial.m_StateChange = time_get_nanoseconds();
+}
+
+void CMenus::DrawAspectRatioButton(const CUIRect &Rect, ColorRGBA NormalColor, ColorRGBA HoverColor, ColorRGBA PressedColor, bool Hovered, bool Pressed)
+{
+	const ColorRGBA FillColor = Pressed ? PressedColor : Hovered ? HoverColor : NormalColor;
+	const ColorRGBA BorderColor(
+		std::min(1.0f, FillColor.r * 1.18f + 0.04f),
+		std::min(1.0f, FillColor.g * 1.18f + 0.04f),
+		std::min(1.0f, FillColor.b * 1.18f + 0.04f),
+		FillColor.a);
+
+	// Action buttons use the same rectangular hitbox as the standard menu UI.
+	// Keep the visual treatment simple and stateful instead of drawing a second
+	// polygonal silhouette that could diverge from the clickable rectangle.
+	Rect.Draw(BorderColor, IGraphics::CORNER_ALL, 5.0f);
+	CUIRect Inner = Rect;
+	Inner.Margin(1.0f, &Inner);
+	Inner.Draw(FillColor, IGraphics::CORNER_ALL, 4.0f);
+}
+
+void CMenus::ConfirmAspectRatioTest()
+{
+	if(!m_AspectConfirmActive)
+		return;
+
+	// The currently applied values become the new baseline. Do not restore the
+	// pre-test scroll position on confirmation; the user explicitly kept this
+	// aspect and may continue from the test card.
+	m_AspectConfirmActive = false;
+	m_AspectPrevMode = g_Config.m_AmfCustomAspectRatioMode;
+	m_AspectPrevRatio = g_Config.m_AmfCustomAspectRatio;
+	m_AspectPrevApplyMode = g_Config.m_AmfCustomAspectRatioApplyMode;
+	m_AspectPrevNum = g_Config.m_AmfCustomAspectRatioNum;
+	m_AspectPrevDen = g_Config.m_AmfCustomAspectRatioDen;
+	m_AspectLastMode = m_AspectPrevMode;
+	m_AspectLastRatio = m_AspectPrevRatio;
+	m_AspectLastApplyMode = m_AspectPrevApplyMode;
+	m_AspectLastNum = m_AspectPrevNum;
+		m_AspectLastDen = m_AspectPrevDen;
+	DiscardAmfVisualScrollPosition();
+	RequestAspectRatioVisualFocus();
+	s_AspectConfirmWantsInput = false;
+}
+
+void CMenus::RevertAspectRatioTest()
+{
+	if(!m_AspectConfirmActive)
+		return;
+
+	g_Config.m_AmfCustomAspectRatioMode = m_AspectPrevMode;
+	g_Config.m_AmfCustomAspectRatio = m_AspectPrevRatio;
+	g_Config.m_AmfCustomAspectRatioApplyMode = m_AspectPrevApplyMode;
+	g_Config.m_AmfCustomAspectRatioNum = m_AspectPrevNum;
+	g_Config.m_AmfCustomAspectRatioDen = m_AspectPrevDen;
+	m_AspectLastMode = m_AspectPrevMode;
+	m_AspectLastRatio = m_AspectPrevRatio;
+	m_AspectLastApplyMode = m_AspectPrevApplyMode;
+	m_AspectLastNum = m_AspectPrevNum;
+	m_AspectLastDen = m_AspectPrevDen;
+	m_AspectConfirmActive = false;
+	GameClient()->m_TClient.SetForcedAspect();
+	RestoreAmfVisualScrollPosition();
+	m_AspectVisualScrollFocusPending = false;
+	s_AspectConfirmWantsInput = false;
+}
+
+void CMenus::RequestAspectRatioVisualFocus()
+{
+	m_AspectVisualScrollFocusPending = true;
+}
+
+int CMenus::AspectConfirmSecondsLeft() const
+{
+	if(!m_AspectConfirmActive)
+		return 0;
+	return std::max(0, static_cast<int>((m_AspectConfirmDeadline - time_get() + time_freq() - 1) / time_freq()));
+}
+
+void CMenus::CaptureAmfVisualScrollPosition()
+{
+	if(m_AspectVisualScrollSnapshotValid)
+		return;
+	// CScrollRegion keeps the position in content coordinates, independent of
+	// the current UI projection. That makes the value valid across the temporary
+	// aspect test view and all supported window sizes/UI scales.
+	m_AspectVisualScrollBeforeTest = m_AmfVisualScrollRegion.ScrollPosition();
+	m_AspectVisualScrollSnapshotValid = true;
+}
+
+void CMenus::RestoreAmfVisualScrollPosition()
+{
+	if(!m_AspectVisualScrollSnapshotValid)
+		return;
+	m_AspectVisualScrollRestorePosition = m_AspectVisualScrollBeforeTest;
+	m_AspectVisualScrollSnapshotValid = false;
+	m_AspectVisualScrollRestorePending = true;
+}
+
+void CMenus::DiscardAmfVisualScrollPosition()
+{
+	m_AspectVisualScrollSnapshotValid = false;
+	m_AspectVisualScrollRestorePending = false;
+	m_AspectVisualScrollFocusPending = false;
 }

@@ -19,13 +19,6 @@
 #include <cmath>
 #include <iterator>
 
-inline static void RotatePoint(const vec2 &Center, vec2 &Point, float Rotation)
-{
-	const vec2 RelativePos = Point - Center;
-	Point.x = RelativePos.x * std::cos(Rotation) - RelativePos.y * std::sin(Rotation) + Center.x;
-	Point.y = RelativePos.x * std::sin(Rotation) + RelativePos.y * std::cos(Rotation) + Center.y;
-}
-
 inline static bool QuadName(const int *pInts, size_t NumInts, char *pStr, size_t StrSize)
 {
 	dbg_assert(NumInts > 0, "QuadName: NumInts invalid");
@@ -125,6 +118,41 @@ void CMovingTiles::OnMapLoad()
 	m_EnvEvaluator.OnInterfacesInit(GameClient());
 }
 
+void CMovingTiles::AccumulatePracticeCollision(int PracticeGameTick, vec2 Position, bool ResolveCurrentPosition, MovingTilesCollision::SOverride &Override) const
+{
+	// EnvelopeEval(0) follows the interpolated render clock. Practice collision,
+	// however, is evaluated while a private world is advancing one discrete tick
+	// at a time. The character position passed to HandleTiles belongs to the
+	// state before PracticeGameTick's deferred move, so evaluate the quad at the
+	// matching start-of-tick envelope time (PracticeGameTick - 1).
+	const int PredictionTick = Client()->PredGameTick(g_Config.m_ClDummy);
+	const double PredictionIntra = Client()->PredIntraGameTick(g_Config.m_ClDummy);
+	const int TickSpeed = Client()->GameTickSpeed();
+	const double RenderEnvelopeTick = (double)PredictionTick - 1.0 + PredictionIntra;
+	const double PracticeEnvelopeTick = (double)PracticeGameTick - 1.0;
+	const int EnvelopeTimeOffsetMillis = TickSpeed > 0 ? (int)std::round((PracticeEnvelopeTick - RenderEnvelopeTick) * 1000.0 / (double)TickSpeed) : 0;
+
+	for(const CQuadData &QuadData : m_vQuads)
+	{
+		if(!QuadData.m_pQuad || (QuadData.m_Type != EQType::FREEZE && QuadData.m_Type != EQType::UNFREEZE))
+			continue;
+
+		const CQuad *pQuad = QuadData.m_pQuad;
+		std::array<vec2, 4> aInitial;
+		for(size_t Point = 0; Point < aInitial.size(); Point++)
+			aInitial[Point] = QuadData.m_Pos[Point];
+
+		ColorRGBA PositionEnvelope(0.0f, 0.0f, 0.0f, 0.0f);
+		m_EnvEvaluator.EnvelopeEval(EnvelopeTimeOffsetMillis, pQuad->m_PosEnv, PositionEnvelope, 3);
+		const vec2 Offset(PositionEnvelope.r, PositionEnvelope.g);
+		const float Rotation = PositionEnvelope.b / 180.0f * pi + QuadData.m_Angle;
+		const std::array<vec2, 4> aCurrent = MovingTilesCollision::TransformQuad(aInitial, QuadData.m_Pos[4], Offset, Rotation);
+
+		const int Tile = QuadData.m_Type == EQType::FREEZE ? TILE_FREEZE : TILE_UNFREEZE;
+		MovingTilesCollision::Accumulate(Tile, aInitial, aCurrent, Position, ResolveCurrentPosition, Override);
+	}
+}
+
 void CMovingTiles::OnRender()
 {
 	if(g_Config.m_ClOverlayEntities != 100)
@@ -181,7 +209,7 @@ void CMovingTiles::OnRender()
 		return true;
 	};
 
-	auto RenderPass = [&](int RenderFlags) {
+	auto RenderPass = [&]() {
 		constexpr float ColorConv = 1.0f / 255.0f;
 
 		size_t QuadStart = 0;
@@ -228,12 +256,6 @@ void CMovingTiles::OnRender()
 				if(Color.a <= 0.0f)
 					continue;
 
-				bool Opaque = false;
-				if(Opaque && !(RenderFlags & LAYERRENDERFLAG_OPAQUE))
-					continue;
-				if(!Opaque && !(RenderFlags & LAYERRENDERFLAG_TRANSPARENT))
-					continue;
-
 				Graphics()->QuadsSetSubsetFree(
 					fx2f(pQuad->m_aTexcoords[0].x), fx2f(pQuad->m_aTexcoords[0].y),
 					fx2f(pQuad->m_aTexcoords[1].x), fx2f(pQuad->m_aTexcoords[1].y),
@@ -246,31 +268,30 @@ void CMovingTiles::OnRender()
 				const vec2 Offset(Position.r, Position.g);
 				const float Rotation = Position.b / 180.0f * pi + QuadData.m_Angle;
 
-				IGraphics::CColorVertex aColors[4] = {
-					IGraphics::CColorVertex(0, pQuad->m_aColors[0].r * ColorConv * Color.r, pQuad->m_aColors[0].g * ColorConv * Color.g, pQuad->m_aColors[0].b * ColorConv * Color.b, pQuad->m_aColors[0].a * ColorConv * Color.a),
-					IGraphics::CColorVertex(1, pQuad->m_aColors[1].r * ColorConv * Color.r, pQuad->m_aColors[1].g * ColorConv * Color.g, pQuad->m_aColors[1].b * ColorConv * Color.b, pQuad->m_aColors[1].a * ColorConv * Color.a),
-					IGraphics::CColorVertex(2, pQuad->m_aColors[2].r * ColorConv * Color.r, pQuad->m_aColors[2].g * ColorConv * Color.g, pQuad->m_aColors[2].b * ColorConv * Color.b, pQuad->m_aColors[2].a * ColorConv * Color.a),
-					IGraphics::CColorVertex(3, pQuad->m_aColors[3].r * ColorConv * Color.r, pQuad->m_aColors[3].g * ColorConv * Color.g, pQuad->m_aColors[3].b * ColorConv * Color.b, pQuad->m_aColors[3].a * ColorConv * Color.a)};
-				Graphics()->SetColorVertex(aColors, std::size(aColors));
+				auto QuadColor = [&](int Index) {
+					return ColorRGBA(
+						pQuad->m_aColors[Index].r * ColorConv * Color.r,
+						pQuad->m_aColors[Index].g * ColorConv * Color.g,
+						pQuad->m_aColors[Index].b * ColorConv * Color.b,
+						pQuad->m_aColors[Index].a * ColorConv * Color.a);
+				};
+				// DDNet 20.1 exposes per-corner colors through SetColor4. Its argument
+				// order differs from the map's TL, TR, BL, BR point storage order.
+				Graphics()->SetColor4(QuadColor(0), QuadColor(1), QuadColor(3), QuadColor(2));
 
-				vec2 aPoints[4] = {
+				const std::array<vec2, 4> aLocalPoints = {{
 					QuadData.m_Pos[0],
 					QuadData.m_Pos[1],
 					QuadData.m_Pos[2],
 					QuadData.m_Pos[3],
-				};
-
-				if(Rotation != 0.0f)
-				{
-					for(vec2 &Point : aPoints)
-						RotatePoint(QuadData.m_Pos[4], Point, Rotation);
-				}
+				}};
+				const std::array<vec2, 4> aPoints = MovingTilesCollision::TransformQuad(aLocalPoints, QuadData.m_Pos[4], Offset, Rotation);
 
 				const IGraphics::CFreeformItem Freeform(
-					aPoints[0] + Offset,
-					aPoints[1] + Offset,
-					aPoints[2] + Offset,
-					aPoints[3] + Offset);
+					aPoints[0],
+					aPoints[1],
+					aPoints[2],
+					aPoints[3]);
 				Graphics()->QuadsDrawFreeform(&Freeform, 1);
 			}
 
@@ -279,11 +300,8 @@ void CMovingTiles::OnRender()
 		}
 	};
 
-	Graphics()->BlendNone();
-	RenderPass(LAYERRENDERFLAG_OPAQUE);
-
 	Graphics()->BlendNormal();
-	RenderPass(LAYERRENDERFLAG_TRANSPARENT);
+	RenderPass();
 
 	Graphics()->ClipDisable();
 }

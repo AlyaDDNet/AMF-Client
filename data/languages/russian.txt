@@ -1273,9 +1273,6 @@ Initializing map logic
 Sending initial client info
 == Отправка начальных данных о клиенте
 
-Uploading map data to GPU
-== Загрузка данных о карте в GPU
-
 Getting game info
 == Получение игровых данных
 
@@ -2495,6 +2492,10 @@ Unmute
 Mute
 == Заглушить
 
+[AMF Client]
+AMF Client Only
+== Только AMF Client
+
 Unmute emoticons
 == Включить эмоции
 
@@ -2666,3 +2667,3697 @@ Prediction margin
 
 Predict events (experimental)
 == Предсказывать события (экспериментально)
+
+[AntiPing: predict other players]
+Off
+== Выключен
+
+[AntiPing: predict other players]
+All
+== Все
+
+[Important alert message]
+Tap to dismiss…
+== Нажмите, чтобы отклонить…
+
+Initializing layers
+== Подготовка слоёв
+
+[Direct touch input]
+Relative aim
+== Относительный прицел
+
+[Predefined touch button behaviors]
+Joystick Relative Aim
+== Прицеливание по относительному положению джойстика
+
+Virtual joystick which only aims and moves the mouse pointer relatively.
+== Виртуальный джойстик, который служит только для наведения и относительного перемещения указателя мыши.
+
+Credits
+== Благодарности
+
+[AntiPing: predict other players]
+Interact
+== Взаимодействовать
+
+Always predict frozen players
+== Всегда предсказывать замороженных игроков
+
+No country flags match your filter criteria
+== Нет флагов, которые подходят под ваши критерии фильтрации.
+
+Join
+== Присоединиться
+
+'%s' not bound.
+== '%s' не определено.
+
+Press '%s' to show cursor.
+== Нажмите '%s', чтобы показать курсор.
+
+[AMF Client]
+Run Statistics
+== Статистика забегов
+
+Enable Run Statistics
+== Включить статистику забегов
+
+Run Statistics cannot be enabled during an active run. Reset and start the run again.
+== Нельзя включить статистику во время активного забега. Сделайте reset и начните забег заново.
+
+[AMF Client]
+Quick Statistics Hold Key
+== Клавиша быстрой статистики
+
+Enables local Run Statistics collection and its UI. A run must be enabled before START.
+== Включает локальный сбор статистики забегов и окно статистики. Функцию нужно включить до старта.
+
+# AMF Client / TClient UI
+ seconds
+== секунд
+
+ seconds (never)
+== секунд (никогда)
+
+_ or ' ' = Space
+== _ или ' ' = пробел
+
+- close
+== - закрыть
+
+%d seconds remaining
+== Осталось %d сек.
+
+%s could not be read
+== Не удалось прочитать %s
+
+%s not found
+== Не найдено: %s
+
+%s to %s failed: %s
+== Не удалось выполнить %s для %s: %s
+
+%s translating to %s
+== Перевод с %s на %s
+
+1 second remaining
+== Осталась 1 секунда
+
+a = Angle
+== a = угол
+
+Activating mod weapon on %d: %s
+== Активирую модифицированное оружие у игрока %d: %s\n
+
+Add Bind
+== Добавить привязку
+
+Add Entry
+== Добавить запись
+
+Add Group
+== Добавить группу
+
+Add Item
+== Добавить элемент
+
+Adjust your prediction margin while frozen
+== Настроить Margin предсказания в заморозке
+
+After Load
+== После загрузки
+
+Aleds
+== Аледы
+
+Allow Duplicate Entries
+== Разрешить повторяющиеся записи
+
+AMF Client
+== AMF Client
+
+AMF Client developer
+== Разработчик AMF Client
+
+AMF Client Team
+== Команда AMF Client
+
+Developer AMF
+== Разработчик AMF
+
+Lead Tester
+== Гл. Тестер
+
+Helper AMF
+== Хелпер AMF
+
+AMF Client Discord community.
+== Сообщество AMF Client в Discord.
+
+AMF Client links
+== Ссылки AMF Client
+
+AMF Client settings
+== Настройки AMF Client
+
+Amount
+== Количество
+
+Animation settings were reset to the recommended values.
+== Параметры анимации сброшены до рекомендуемых значений.
+
+Animations
+== Анимации
+
+Anti Latency Tools
+== Инструменты снижения задержки
+
+Anti Ping Smoothing
+== Сглаживание Anti-Ping
+
+Apply
+== Применить
+
+Are you sure that you want to remove '%s' from your war groups?
+== Вы действительно хотите удалить «%s» из групп списка игроков?
+
+Arrow
+== Стрелка
+
+Aspect Ratio
+== Соотношение сторон
+
+Assets (%d)
+== Ресурсы (%d)
+
+Attempt to change your name when near finish
+== Попытка сменить имя рядом с финишем
+
+Auto execute
+== Автовыполнение
+
+Auto margin
+== Автоматический Margin
+
+Auto Reply
+== Автоответ
+
+Auto reply to muted players
+== Автоответ игрокам, которых вы заглушили
+
+Auto reply when tabbed out
+== Автоответ, когда игра не в фокусе
+
+Auto vote no to map changes when far
+== Автоматически голосовать против смены карты, если вы далеко от финиша
+
+Automatically translate incoming messages
+== Автоматически переводить входящие сообщения
+
+Back
+== Назад
+
+Background Draw
+== Фоновая отрисовка
+
+Before using AMF Client, please read the information below carefully.
+== Перед использованием AMF Client внимательно прочитайте информацию ниже.
+
+Best input others
+== Best Input для остальных игроков
+
+Bind Wheel
+== Колесо биндов
+
+Bind Wheel Key
+== Клавиша колеса биндов
+
+Black
+== Чёрный
+
+[AMF Client]
+Type to search settings
+== Введите запрос для поиска настроек
+
+[AMF Client]
+Impact System by AMF Client
+== Система Impact от AMF Client
+
+Blue
+== Синий
+
+Blurs the game world slightly while it moves.
+== Слегка размывает игровой мир во время движения.
+
+Bottom
+== Снизу
+
+c = Position
+== c = позиция
+
+Center
+== По центру
+
+Change indicator offset based on distance to other tees
+== Менять смещение индикатора в зависимости от расстояния до других игроков
+
+Changing name to %s near finish
+== Имя будет изменено на %s рядом с финишем
+
+Chat Binds
+== Чат-привязки
+
+Choose where the indicator appears next to the nickname.
+== Выберите положение индикатора рядом с ником.
+
+Clan: %s
+== Клан: %s
+
+Clutches
+== Клатчи
+
+Color Mode
+== Режим цвета
+
+Colored frozen tee skins
+== Цветные скины замороженных игроков
+
+Colors in chat
+== Цвета в чате
+
+Colors in scoreboard
+== Цвета в таблице счёта
+
+Colors in spectate select
+== Цвета в выборе наблюдения
+
+Columns
+== Столбцы
+
+Coming soon...
+== Скоро...
+
+Command:
+== Команда:
+
+Compact List
+== Компактный список
+
+Config Files
+== Файлы конфигурации
+
+Confirm
+== Подтвердить
+
+Connect to a server first to open the HUD Editor.
+== Сначала подключитесь к серверу, чтобы открыть редактор HUD.
+
+Controls AMF input and prediction features.
+== Управляет функциями ввода и предсказания AMF.
+
+Controls AMF visual features.
+== Управляет визуальными функциями AMF.
+
+Controls the strength of the motion blur effect.
+== Настраивает силу эффекта размытия движения.
+
+Count frozen tees
+== Считать замороженных игроков
+
+Cover
+== Обложка
+
+Create folder
+== Создать папку
+
+Cube
+== Куб
+
+Current Run
+== Текущий забег
+
+Custom Font: 
+== Свой шрифт: 
+
+Custom Gradient for Yourself
+== Свой градиент для себя
+
+Custom size
+== Пользовательский размер
+
+d = Prediction
+== d = предсказание
+
+Default
+== По умолчанию
+
+Delay
+== Задержка
+
+Delete page
+== Удалить страницу
+
+Delete Run
+== Удалить забег
+
+Delete saved run
+== Удалить сохранённый забег
+
+Delta input others
+== Delta Input для остальных игроков
+
+disabled
+== отключено
+
+Do not show on startup
+== Не показывать при запуске
+
+Don't Save
+== Не сохранять
+
+Dont predict other players if you are frozen
+== Не предсказывать других игроков, если вы заморожены
+
+Dot Dot
+== Двойная точка
+
+Drag, scale, reset and save the position of AMF HUD elements.
+== Перетаскивайте, масштабируйте, сбрасывайте и сохраняйте расположение элементов HUD AMF.
+
+Draw where mouse is
+== Рисовать в положении курсора
+
+Duration
+== Длительность
+
+Edit Entry
+== Изменить запись
+
+Editor preview
+== Предпросмотр редактора
+
+Enable
+== Включить
+
+Enable Discord Integration
+== Включить интеграцию с Discord
+
+Enable Fast Input
+== Включить Fast Input
+
+Enable Focus Mode
+== Включить режим фокуса
+
+Enable Key Indicator
+== Включить индикатор клавиш
+
+Enable Music Player
+== Включить музыкальный проигрыватель
+
+Enable tee trails
+== Включить следы игроков
+
+Enable warlist
+== Включить список игроков
+
+Enables smooth HUD/interface animations.
+== Включает плавную анимацию HUD и интерфейса.
+
+END OF THE LAST 30 RUNS
+== КОНЕЦ ПОСЛЕДНИХ 30 ЗАБЕГОВ
+
+Execute before connect
+== Выполнить перед подключением
+
+Execute on join
+== Выполнить при входе
+
+F
+== F
+
+f = FPS
+== f = FPS
+
+F input others
+== F Input для остальных игроков
+
+Fade trail alpha
+== Плавное затухание следа
+
+Fail
+== Неудача
+
+Failed to create bgdraw folder
+== Не удалось создать папку bgdraw
+
+Fake CTF flags
+== Поддельные флаги CTF
+
+Falls
+== Падения
+
+Enhanced Weapons
+== Улучшенные оружия
+
+Fast
+== Быстро
+
+Fast Input Mode
+== Режим Fast Input
+
+Fast Input others
+== Fast Input для остальных игроков
+
+Finish Name
+== Имя на финише
+
+Finish Name:
+== Имя на финише:
+
+Finished
+== Завершён
+
+Focus Mode
+== Режим фокуса
+
+Focus Mode Bind
+== Клавиша режима фокуса
+
+Font Size
+== Размер шрифта
+
+Freeze & deep
+== Заморозка и глубокая заморозка
+
+Freeze outline color
+== Цвет обводки заморозки
+
+Freeze stars
+== Звёзды заморозки
+
+Frozen Margin
+== Margin в заморозке
+
+Frozen Tee Display
+== Отображение замороженного игрока
+
+Full
+== Полный
+
+Game no HUD
+== Игра без HUD
+
+Game only
+== Только игра
+
+Generate Random Team
+== Создать случайную команду
+
+Generate Random Tee
+== Создать случайного персонажа
+
+Ghost Tools
+== Инструменты призраков
+
+Gradient Nicknames
+== Градиентные ники
+
+Gradient Position
+== Положение градиента
+
+Gradient Source
+== Источник градиента
+
+Gradient Strength
+== Сила градиента
+
+Green
+== Зелёный
+
+Hammer Mode: 
+== Режим молота: 
+
+Hide for yourself
+== Скрыть для себя
+
+Hide ghosts of frozen players
+== Скрывать призраков замороженных игроков
+
+Hide indicator for tees on your screen
+== Скрывать индикатор у игроков на вашем экране
+
+Hide nameplates in spec
+== Скрывать таблички имён в режиме наблюдателя
+
+Hide Settings Tabs
+== Скрыть вкладки настроек
+
+High Priority DDNet
+== Высокий приоритет DDNet
+
+History
+== История
+
+Horizontal Position
+== Горизонтальное положение
+
+HUD Editor
+== Редактор HUD
+
+Impact analysis unavailable for this team
+== Анализ статистики недоступен для этой команды
+
+Indicator alive color
+== Цвет индикатора живого игрока
+
+Indicator in freeze color
+== Цвет индикатора в заморозке
+
+Indicator max distance
+== Максимальное расстояние индикатора
+
+Indicator max offset
+== Максимальное смещение индикатора
+
+Indicator min offset
+== Минимальное смещение индикатора
+
+Indicator offset
+== Смещение индикатора
+
+Indicator opacity
+== Непрозрачность индикатора
+
+Indicator position
+== Положение индикатора
+
+Indicator safe color
+== Цвет безопасного индикатора
+
+Indicator size
+== Размер индикатора
+
+Information
+== Информация
+
+Ingame cursor scale
+== Масштаб игрового курсора
+
+Input
+== Ввод
+
+Integration
+== Интеграция
+
+Interpolation
+== Интерполяция
+
+Keep this aspect ratio?
+== Сохранить это соотношение сторон?
+
+Kill outline color
+== Цвет обводки убийства
+
+l = Local Time
+== l = местное время
+
+Last!
+== Последний!
+
+Latency compensation
+== Компенсация задержки
+
+Leave empty to disable
+== Оставьте пустым, чтобы отключить
+
+Left
+== Слева
+
+Left of nickname
+== Слева от ника
+
+Left the run
+== Покинул забег
+
+LibreTranslate API key:
+== Ключ API LibreTranslate:
+
+LibreTranslate endpoint:
+== Адрес сервера LibreTranslate:
+
+Load
+== Загрузить
+
+Loaded %d items
+== Загружено элементов: %d
+
+Loaded %d items (discarded %d items)
+== Загружено элементов: %d (отброшено: %d)
+
+Local Time
+== Местное время
+
+Looks like you're on a server where this feature is forbidden
+== Похоже, на этом сервере эта функция запрещена
+
+Low Priority Discord
+== Низкий приоритет Discord
+
+Low Priority Spotify | SoundCloud
+== Низкий приоритет Spotify | SoundCloud
+
+manual
+== вручную
+
+Map was changed
+== Карта изменена
+
+Max Rows
+== Максимум строк
+
+Meow Input
+== Meow Input
+
+Meow Input others
+== Meow Input для остальных игроков
+
+Message to send in chat:
+== Сообщение для отправки в чат:
+
+Minimum Time
+== Минимальное время
+
+Mode
+== Режим
+
+Motion Blur
+== Размытие движения
+
+Mouse wheel - scroll
+== Колесо мыши - прокрутка
+
+Move here
+== Переместить сюда
+
+Moving Tiles
+== Движущиеся тайлы
+
+Music Player
+== Музыкальный проигрыватель
+
+Name:
+== Имя:
+
+Name: %s
+== Имя: %s
+
+New folder
+== Новая папка
+
+New page
+== Новая страница
+
+No changes since last save
+== Нет изменений с момента последнего сохранения
+
+No items to write
+== Нет элементов для записи
+
+No media
+== Нет медиафайлов
+
+No saved runs
+== Нет сохранённых забегов
+
+Normal
+== Обычный
+
+Nothing
+== Ничего
+
+Off (default)
+== Выкл. (по умолчанию)
+
+Official AMF Client page on GitHub.
+== Официальная страница AMF Client на GitHub.
+
+Online Players
+== Игроки в сети
+
+Only modified
+== Только изменённые
+
+Only show after joining a team
+== Показывать только после вступления в команду
+
+Only show outlines in entities
+== Показывать обводки только на объектах
+
+Opens the AMF Client configuration file.
+== Открывает файл конфигурации AMF Client.
+
+Optimistic prediction in stable direction
+== Оптимистичное предсказание в стабильном направлении
+
+Optional
+== Необязательно
+
+Outline alpha
+== Непрозрачность обводки
+
+Outline Alpha (walls)
+== Непрозрачность обводки (стены)
+
+Outline freeze & deep
+== Обводка заморозки и глубокой заморозки
+
+Outline kill
+== Обводка убийства
+
+Outline teleporter
+== Обводка телепортера
+
+Outline unfreeze & undeep
+== Обводка разморозки и выхода из глубокой заморозки
+
+Outline walls
+== Обводка стен
+
+Outline width
+== Толщина обводки
+
+Override
+== Заменить
+
+Override Entry
+== Заменить запись
+
+Override Group
+== Заменить группу
+
+Override Selected
+== Заменить выбранное
+
+Overwrite clan even if empty
+== Перезаписывать клан, даже если он пуст
+
+p = Ping
+== p = пинг
+
+Page
+== Страница
+
+Partial statistics
+== Неполная статистика
+
+Participants
+== Участники
+
+Pet
+== Питомец
+
+Pet alpha
+== Непрозрачность питомца
+
+Pet size
+== Размер питомца
+
+Pet Skin:
+== Скин питомца:
+
+Player Indicator
+== Индикатор игрока
+
+Player statistics
+== Статистика игрока
+
+Predicted alpha
+== Непрозрачность предсказания
+
+Prediction offset
+== Смещение предсказания
+
+Preset
+== Предустановка
+
+Pressed Color
+== Цвет при нажатии
+
+Prioritizes the most recently pressed direction when Left and Right are held together.
+== При одновременном удержании Left и Right отдаёт приоритет направлению, нажатому последним.
+
+Profiles
+== Профили
+
+Profiles file
+== Файл профилей
+
+Pulse
+== Пульсация
+
+Purple
+== Фиолетовый
+
+r = Race Time
+== r = время гонки
+
+Rainbow
+== Радуга
+
+Rainbow hook
+== Радужный крюк
+
+Rainbow others
+== Радужные остальные игроки
+
+Rainbow speed
+== Скорость радуги
+
+Rainbow Tees
+== Радужные игроки
+
+Rainbow weapons
+== Радужное оружие
+
+Random
+== Случайно
+
+Rating
+== Рейтинг
+
+Reason
+== Причина
+
+Red
+== Красный
+
+Remember instability for longer
+== Дольше учитывать нестабильность
+
+Remove Bind
+== Удалить привязку
+
+Remove Item
+== Удалить элемент
+
+Remove prediction & antiping in freeze
+== Отключать предсказание и Anti-Ping в заморозке
+
+Remove War Group
+== Удалить группу списка игроков
+
+Render all custom colored feet as white feet skin
+== Отображать ступни всех персонажей с пользовательским цветом как белые
+
+Render ghosts as circles
+== Отображать призраков кругами
+
+Render tiny tees instead of circles
+== Отображать маленьких персонажей вместо кругов
+
+Render weapons as the gun sprite
+== Отображать оружие спрайтом пистолета
+
+Renders rifle and shotgun lasers with the AMF visual effect without changing gameplay.
+== Отображает лазеры винтовки и дробовика с визуальным эффектом AMF, не меняя игровой процесс.
+
+Reset all
+== Сбросить всё
+
+Reset All
+== Сбросить всё
+
+Reset animation settings
+== Сбросить настройки анимации
+
+Reset Music Player settings
+== Сбросить настройки музыкального проигрывателя
+
+Reset position
+== Сбросить положение
+
+Reset position of mouse when opening bindwheel
+== Сбрасывать положение мыши при открытии колеса биндов
+
+Reset scale
+== Сбросить масштаб
+
+Resolution
+== Разрешение
+
+Revert
+== Отменить
+
+Reverting in %d seconds
+== Возврат через %d сек.
+
+Rifle preview
+== Предпросмотр винтовки
+
+Right
+== Справа
+
+Right of nickname
+== Справа от ника
+
+RMB - actions
+== ПКМ - действия
+
+Rotate with cursor
+== Поворачивать курсором
+
+Rotate with cursor like gun
+== Поворачивать курсором, как оружие
+
+Rounding
+== Скругление
+
+Run a console command before connect
+== Выполнить команду консоли перед подключением
+
+Run a console command on join
+== Выполнить команду консоли при входе
+
+Run ended
+== Забег завершён
+
+Run History
+== История забегов
+
+Run report
+== Отчёт о забеге
+
+Run saved
+== Забег сохранён
+
+Run statistics were automatically saved
+== Статистика забега сохранена автоматически
+
+Saiko
+== Saiko
+
+Saiko input others
+== Saiko Input для остальных игроков
+
+Saiko+
+== Saiko+
+
+Saiko+ input others
+== Saiko+ Input для остальных игроков
+
+Save Run
+== Сохранить забег
+
+Save/Load Assets
+== Сохранение/загрузка ресурсов
+
+Save/Load Clan
+== Сохранение/загрузка клана
+
+Save/Load Colors
+== Сохранение/загрузка цветов
+
+Save/Load Emote
+== Сохранение/загрузка эмоции
+
+Save/Load Flag
+== Сохранение/загрузка флага
+
+Save/Load Name
+== Сохранение/загрузка имени
+
+Save/Load Skin
+== Сохранение/загрузка скина
+
+Saved runs
+== Сохранённые забеги
+
+Saves
+== Спасения
+
+Scale
+== Масштаб
+
+Screen center line color
+== Цвет центральной линии экрана
+
+Screen center line width
+== Толщина центральной линии экрана
+
+Selected aspect:
+== Выбранное соотношение сторон:
+
+Server
+== Сервер
+
+Sets only Discord.exe processes to Windows Low priority while enabled.
+== При включении задаёт низкий приоритет Windows только процессам Discord.exe.
+
+Sets only the AMF Client process to Windows High priority while enabled.
+== При включении задаёт высокий приоритет Windows только процессу AMF Client.
+
+Shotgun preview
+== Предпросмотр дробовика
+
+Show all warlist groups
+== Показывать все группы списка игроков
+
+Show AMF Client Indicator
+== Показывать индикатор AMF Client
+
+Show any enabled Indicators
+== Показывать включённые индикаторы
+
+Show any enabled outlines
+== Показывать включённые обводки
+
+Show clan if war
+== Показывать клан при отметке в списке
+
+Show country flags in nameplates
+== Показывать флаги стран в табличках имён
+
+Show CPS
+== Показывать CPS
+
+Show frozen tee display
+== Показывать замороженного игрока
+
+Show katan on frozen players
+== Показывать катаны у замороженных игроков
+
+Show labels on status bar items
+== Показывать подписи элементов строки состояния
+
+Show Lyrics
+== Показывать текст песни
+
+Show mini vote HUD
+== Показывать мини-HUD голосования
+
+SHOW MORE RUNS
+== ПОКАЗАТЬ БОЛЬШЕ ЗАБЕГОВ
+
+Show Mouse Indicator
+== Показывать индикатор мыши
+
+Show music time
+== Показывать время музыки
+
+Show only freeze Players
+== Показывать только замороженных игроков
+
+Show other tees' trails
+== Показывать следы других игроков
+
+Show ping colored circle in nameplates
+== Показывать цветной круг пинга в табличках имён
+
+Show position and angle (mini debug)
+== Показывать позицию и угол (мини-отладка)
+
+Show screen center lines
+== Показывать центральные линии экрана
+
+Show seconds on clock
+== Показывать секунды на часах
+
+Show server time
+== Показывать время сервера
+
+Show skin names in nameplate
+== Показывать названия скинов в табличках имён
+
+Show status bar
+== Показывать строку состояния
+
+Show the pet
+== Показывать питомца
+
+Show unpredicted ghosts for other players
+== Показывать непредсказанные призраки других игроков
+
+Show when you are the last alive
+== Показывать, когда вы остались последним
+
+Show your cursor when in free spectate
+== Показывать курсор в свободном наблюдении
+
+Shows AMF Client information and links.
+== Показывает информацию и ссылки AMF Client.
+
+Shows movement, jump, fire and hook keys.
+== Показывает клавиши движения, прыжка, выстрела и крюка.
+
+Shows the AMF Client icon next to supported player names.
+== Показывает значок AMF Client рядом с именами пользователей клиента.
+
+Shows the current Windows media session in the HUD.
+== Показывает текущий медиасеанс Windows в HUD.
+
+Shows the user agreement and AMF Client information.
+== Показывает пользовательское соглашение и информацию AMF Client.
+
+Skin Color
+== Цвет скина
+
+Skin: %s
+== Скин: %s
+
+Smooth HUD
+== Плавный HUD
+
+Smoothing
+== Сглаживание
+
+Snap Tap
+== Snap Tap
+
+Soft
+== Мягкий
+
+Solid
+== Сплошной
+
+Soon...
+== Скоро...
+
+Spectate cursor alpha
+== Непрозрачность курсора наблюдателя
+
+Stability
+== Стабильность
+
+Static
+== Статичный
+
+Static Color
+== Статичный цвет
+
+Statistics
+== Статистика
+
+Status Bar
+== Строка состояния
+
+Status bar alpha
+== Непрозрачность строки состояния
+
+Status Bar Codes:
+== Обозначения строки состояния:
+
+Status bar color
+== Цвет строки состояния
+
+Status bar height
+== Высота строки состояния
+
+Status Scheme:
+== Схема строки состояния:
+
+Strength
+== Сила
+
+Style
+== Стиль
+
+Sub-Tick aiming
+== Наведение между тиками
+
+Support ♥
+== Поддержать ♥
+
+Swap ghosts and normal players
+== Поменять местами призраков и обычных игроков
+
+System
+== Система
+
+T Client
+== T Client
+
+Taper trail width
+== Сужать след
+
+TClient
+== TClient
+
+TClient Developers
+== Разработчики TClient
+
+TClient Links
+== Ссылки TClient
+
+TClient Settings
+== Настройки TClient
+
+Team/War
+== Команда/список игроков
+
+Tee Size
+== Размер персонажа
+
+Tee trail color
+== Цвет следа игрока
+
+Tee Trails
+== Следы игроков
+
+Tees left alive text
+== Текст оставшихся в живых игроков
+
+Tele
+== Теле
+
+Teleporter outline color
+== Цвет обводки телепортера
+
+Text alpha
+== Непрозрачность текста
+
+Text color
+== Цвет текста
+
+Text Scale
+== Масштаб текста
+
+The command is ran in console not chat
+== Команда выполняется в консоли, а не в чате
+
+This feature is blocked on this server
+== Эта функция запрещена на данном сервере
+
+ticks
+== тиков
+
+Tile Outlines
+== Обводка тайлов
+
+Time until strokes disappear
+== Время до исчезновения линий
+
+Tiny Tee Size
+== Размер маленького персонажа
+
+Tiny Tees
+== Маленькие персонажи
+
+Toggle ghosts key
+== Клавиша переключения призраков
+
+Trail alpha
+== Непрозрачность следа
+
+Trail length
+== Длина следа
+
+Trail width
+== Толщина следа
+
+Translate
+== Перевести
+
+Translate incoming to:
+== Переводить входящие сообщения на:
+
+Translation timed out
+== Время ожидания перевода истекло
+
+Tune Zone Color
+== Цвет зоны настроек
+
+Uncertainty duration
+== Длительность неопределённости
+
+Unfreeze & undeep
+== Разморозка и выход из глубокой заморозки
+
+Unfreeze outline color
+== Цвет обводки разморозки
+
+Unhook & hook
+== Отцепление и зацепление крюком
+
+Unpredicted alpha
+== Непрозрачность непредсказанного игрока
+
+Unsorted
+== Без сортировки
+
+Unsupported server
+== Сервер не поддерживается
+
+Up
+== Сверху
+
+Use 12 hour clock
+== Использовать 12-часовой формат времени
+
+Use left mouse to select
+== Выберите левой кнопкой мыши
+
+Use middle mouse select without copy
+== Выберите средней кнопкой мыши без копирования
+
+Use new smoothing algorithm
+== Использовать новый алгоритм сглаживания
+
+Use right mouse to swap with selected
+== Нажмите правой кнопкой мыши, чтобы поменять с выбранным
+
+Use skins instead of ninja tees
+== Использовать скины вместо персонажей-ниндзя
+
+Use warlist colors instead of regular colors
+== Использовать цвета списка игроков вместо обычных
+
+Use warlist groups for indicator
+== Использовать группы списка игроков для индикатора
+
+User agreement
+== Пользовательское соглашение
+
+v = Velocity
+== v = скорость
+
+Vertical Position
+== Вертикальное положение
+
+Visual
+== Визуальное
+
+Visualizer Position
+== Положение визуализатора
+
+Waiting for another team member
+== Ожидание другого участника команды
+
+Walls outline color
+== Цвет обводки стен
+
+War Entries
+== Записи списка игроков
+
+War Groups
+== Группы списка игроков
+
+War List
+== Список игроков
+
+Wheel animate
+== Анимация колеса
+
+White
+== Белый
+
+Writing item %d failed
+== Не удалось записать элемент %d
+
+Written %d items
+== Записано элементов: %d
+
+Yellow
+== Жёлтый
+
+You can save the run statistics
+== Можно сохранить статистику забега
+
+You have probably only installed the TClient DDNet.exe which is not supported, please use the entire TClient folder
+== Похоже, вы установили только TClient DDNet.exe, что не поддерживается. Используйте всю папку TClient.
+
+Your profile
+== Ваш профиль
+
+z = Zoom
+== z = масштаб
+
+# AMF Client dynamic UI, tooltips, and runtime-generated labels
+(Up to date)
+== (Версия актуальна)
+
+(Update ready)
+== (Обновление готово)
+
+%s %s is a custom client based on Best Client and DDNet %s. This foundation is extended with AMF Client features, interface and capabilities. AMF Client is owned by alya?. Artificial intelligence, including OpenAI Codex, is used to develop the client and write code.
+== %s %s — модифицированный клиент на основе Best Client и DDNet %s. Эта основа дополнена функциями, интерфейсом и возможностями AMF Client. AMF Client принадлежит alya?. Искусственный интеллект, включая OpenAI Codex, используется при разработке клиента и написании кода.
+
+About the agreement
+== О соглашении
+
+About the project
+== О проекте
+
+Acknowledgements
+== Благодарности
+
+Add [group] [clan] [reason]:
+== Добавить [group] [clan] [reason]:
+
+Add [group] [name] [reason]:
+== Добавить [group] [name] [reason]:
+
+Add team clan:
+== Добавить клан команды:
+
+Add team name:
+== Добавить имя команды:
+
+Add war clan:
+== Добавить клан в список игроков:
+
+Add war name:
+== Добавить имя в список игроков:
+
+Adds a lightweight dim behind animated containers.
+== Добавляет лёгкое затемнение за анимированными панелями.
+
+Adds a quick smooth appearance and disappearance to the scoreboard.
+== Плавно и быстро показывает и скрывает таблицу счёта.
+
+Adds a small container movement when it appears or disappears.
+== Добавляет небольшое смещение панели при появлении и скрытии.
+
+AMF Client is an unofficial modification and is not affiliated with the official DDNet team.
+== AMF Client — неофициальная модификация, не связанная с командой DDNet.
+
+AMF Client is up to date
+== AMF Client обновлён до последней версии
+
+Analysis paused
+== Анализ приостановлен
+
+Analysis paused — one participant remains in the team
+== Анализ приостановлен — в команде остался один участник
+
+Analyzing...
+== Анализ...
+
+Animate messages
+== Анимировать сообщения
+
+Animate scoreboard
+== Анимировать таблицу счёта
+
+Animate text
+== Анимировать текст
+
+Applies Best Input prediction to other tees.
+== Применяет предсказание Best Input к другим персонажам.
+
+Applies Cloud Input prediction to other tees.
+== Применяет предсказание Cloud Input к другим персонажам.
+
+Applies Delta Input prediction to other tees.
+== Применяет предсказание Delta Input к другим персонажам.
+
+Applies F Input prediction to other tees.
+== Применяет предсказание F Input к другим персонажам.
+
+Applies Fast Input prediction to other tees.
+== Применяет предсказание Fast Input к другим персонажам.
+
+Applies Meow Input prediction to other tees.
+== Применяет предсказание Meow Input к другим персонажам.
+
+Applies Saiko Input prediction to other tees.
+== Применяет предсказание Saiko Input к другим персонажам.
+
+Applies Saiko+ Input prediction to other tees.
+== Применяет предсказание Saiko+ Input к другим персонажам.
+
+Apply Changes
+== Применить изменения
+
+Audio
+== Звук
+
+Automatically replaces the manual prediction margin using latency.
+== Автоматически заменяет ручной запас предсказания значением, рассчитанным по задержке.
+
+Backdrop darkness
+== Затемнение фона
+
+Backdrop dimming
+== Затемнение фона
+
+Backend: 
+== Служба: 
+
+Best Client and DDNet
+== Best Client и DDNet
+
+Change map to Kobra 3
+== Сменить карту на Kobra 3
+
+Changes the thickness of the chat text caret.
+== Изменяет толщину текстового курсора в чате.
+
+Changes: %d
+== Изменения: %d
+
+Chat animations
+== Анимации чата
+
+Chat opening animation
+== Анимация открытия чата
+
+Classic
+== Классический
+
+Clean
+== Чистый
+
+Clear Changes
+== Очистить изменения
+
+Client Info
+== Информация о клиенте
+
+Cloud Input
+== Cloud Input
+
+Cloud Input others
+== Cloud Input для других игроков
+
+Color
+== Цвет
+
+Colors
+== Цвета
+
+Compensates a small part of network latency.
+== Компенсирует небольшую часть сетевой задержки.
+
+Controls how far the selected input predicts ahead.
+== Задаёт, насколько далеко выбранный режим ввода предсказывает действия.
+
+Controls visual smoothing for Best Input.
+== Настраивает визуальное сглаживание Best Input.
+
+Creators
+== Создатели
+
+Cubic
+== Кубический
+
+Cursor
+== Курсор
+
+Cute:
+== Милота:
+
+DDNet Player HUD
+== HUD игроков DDNet
+
+Delta
+== Delta
+
+DEV PREVIEW
+== ПРЕДПРОСМОТР
+
+Dummy Actions
+== Действия dummy
+
+Enable Deleting
+== Разрешить удаление
+
+Enables faster input processing to reduce control latency.
+== Включает ускоренную обработку ввода для снижения задержки управления.
+
+Essential information
+== Основная информация
+
+Finalized
+== Завершено
+
+Finish Prediction
+== Предсказание финиша
+
+Flip:
+== Перевернуть:
+
+Follow server rules
+== Соблюдайте правила сервера
+
+Follow server rules. Do not use the client for cheats, bypassing restrictions or harming other players.
+== Соблюдайте правила сервера. Не используйте клиент для читов, обхода ограничений или нанесения вреда другим игрокам.
+
+FPS
+== FPS
+
+Game Timer
+== Таймер игры
+
+Github
+== Github
+
+GitHub
+== GitHub
+
+Gradient Spectator Menu
+== Градиентное меню наблюдателя
+
+Gradient Team Colors
+== Градиентные цвета команды
+
+Group name
+== Название группы
+
+Hide Chat
+== Скрыть чат
+
+Hide Emoticons
+== Скрыть эмоции
+
+Hide HUD
+== Скрыть HUD
+
+Hide Music Player
+== Скрыть музыкальный плеер
+
+Hide Player Names
+== Скрыть имена игроков
+
+Hide Scoreboard
+== Скрыть таблицу счёта
+
+Hide Unnecessary UI
+== Скрыть лишний интерфейс
+
+Hide Visual Effects
+== Скрыть визуальные эффекты
+
+Hook Combo
+== Серия зацепов крюком
+
+I am not tabbed in
+== Я отошёл от компьютера
+
+I have muted you
+== Я отключил ваш чат
+
+Impact
+== Влияние
+
+In progress
+== В процессе
+
+Ingame Chat
+== Игровой чат
+
+Kaomoji
+== Каомодзи
+
+Keyboard
+== Клавиатура
+
+Killfeed
+== Лента убийств
+
+Landscape
+== Альбомная ориентация
+
+Lenny:
+== Лэнни:
+
+Linear
+== Линейный
+
+Lock Cam
+== Фиксация камеры
+
+Map changed
+== Карта изменена
+
+Menu animations
+== Анимации меню
+
+Message animation
+== Анимация сообщения
+
+Minecraft
+== Minecraft
+
+Mini Vote
+== Мини-голосование
+
+Minimal
+== Минималистичный
+
+Mouse Indicator
+== Индикатор мыши
+
+Movement Info
+== Информация о движении
+
+Mute:
+== Заглушить:
+
+Notify Last
+== Уведомление об оставшемся последним
+
+OpenGL
+== OpenGL
+
+Other
+== Другие
+
+Other Players
+== Другие игроки
+
+Portrait
+== Книжная ориентация
+
+practice local: %s
+== локальная практика: %s
+
+Prediction Time
+== Время предсказания
+
+preview
+== предпросмотр
+
+Project status
+== Статус проекта
+
+Remaining Players
+== Оставшиеся игроки
+
+Remove [group] [clan]:
+== Удалить [group] [clan]:
+
+Remove [group] [name]:
+== Удалить [group] [name]:
+
+Remove team clan:
+== Удалить клан команды:
+
+Remove team name:
+== Удалить имя команды:
+
+Remove war clan:
+== Удалить клан из списка игроков:
+
+Remove war name:
+== Удалить имя из списка игроков:
+
+Responsibility
+== Ответственность
+
+Restores balanced animation values recommended for smooth and responsive interface behavior.
+== Восстанавливает сбалансированные параметры анимации для плавного и отзывчивого интерфейса.
+
+Rounded
+== Скруглённый
+
+Rules
+== Правила
+
+Rules of use
+== Правила использования
+
+Scoreboard animations
+== Анимации таблицы счёта
+
+Scoreboard closing duration
+== Длительность закрытия таблицы счёта
+
+Scoreboard opening duration
+== Длительность открытия таблицы счёта
+
+Scoreboard slide distance
+== Дистанция смещения таблицы счёта
+
+Selects the input behavior used while playing.
+== Выбирает поведение ввода во время игры.
+
+Selects the interpolation curve for Best Input.
+== Выбирает кривую интерполяции для Best Input.
+
+Server changed
+== Сервер изменён
+
+Sets a new message animation duration; zero uses the base duration.
+== Задаёт длительность анимации новых сообщений; ноль использует базовую длительность.
+
+Sets how far animated containers move.
+== Задаёт расстояние смещения анимированных панелей.
+
+Sets how far the scoreboard moves during its transition.
+== Задаёт расстояние смещения таблицы счёта во время анимации.
+
+Sets how quickly the scoreboard appears.
+== Задаёт скорость появления таблицы счёта.
+
+Sets how quickly the scoreboard disappears.
+== Задаёт скорость скрытия таблицы счёта.
+
+Sets the base speed of interface animations.
+== Задаёт базовую скорость анимаций интерфейса.
+
+Sets the strength of the animated container background dim.
+== Задаёт интенсивность затемнения фона анимированной панели.
+
+Sets the visual approach speed of the text caret.
+== Задаёт скорость визуального перемещения текстового курсора.
+
+Show Custom Player Gradients
+== Показывать пользовательские градиенты игроков
+
+Shrug:
+== Пожать плечами:
+
+Slide distance
+== Дистанция смещения
+
+Slide effect
+== Эффект смещения
+
+Smooth
+== Плавный
+
+Smooth text caret
+== Плавный текстовый курсор
+
+Smoothly animates menus, tabs, lists and popups.
+== Плавно анимирует меню, вкладки, списки и всплывающие окна.
+
+Smoothly moves only the text caret and does not affect the DDNet mouse cursor.
+== Плавно перемещает только текстовый курсор и не влияет на курсор мыши DDNet.
+
+Smoothly shows and hides the chat without delaying text input.
+== Плавно показывает и скрывает чат, не задерживая ввод текста.
+
+Smoothly shows new chat messages.
+== Плавно показывает новые сообщения чата.
+
+Smoothly shows text blocks without delaying typed characters.
+== Плавно показывает текстовые блоки, не задерживая ввод символов.
+
+Smoothly shows the main menu elements when the client starts.
+== Плавно показывает элементы главного меню при запуске клиента.
+
+Special thanks to the Best Client creators for the project foundation and their contribution to DDNet clients. Thanks to DDNet developers, component authors and AMF Client testers.
+== Особая благодарность создателям Best Client за основу проекта и вклад в клиенты DDNet. Спасибо разработчикам DDNet, авторам компонентов и тестировщикам AMF Client.
+
+Spectator Count
+== Количество наблюдателей
+
+Start menu animations
+== Анимации стартового меню
+
+Text caret speed
+== Скорость текстового курсора
+
+Text caret width
+== Толщина текстового курсора
+
+Translate ID:
+== Перевести ID:
+
+Translate:
+== Перевести:
+
+Unflip:
+== Вернуть исходное положение:
+
+Unknown artist
+== Неизвестный исполнитель
+
+Unmute:
+== Снять заглушение:
+
+Unofficial modification
+== Неофициальная модификация
+
+Update is ready to install
+== Обновление готово к установке
+
+Use
+== Использовать
+
+Use at your own risk
+== Используйте на свой страх и риск
+
+User
+== Пользователь
+
+User responsibility
+== Ответственность пользователя
+
+Uses the precise mouse position when an action is pressed.
+== Использует точное положение мыши в момент нажатия действия.
+
+Voice HUD
+== Голосовой HUD
+
+Voice Mute Icons
+== Значки отключённого микрофона
+
+Votes
+== Голосования
+
+Vulkan
+== Vulkan
+
+Waiting for participants to start
+== Ожидание начала участников
+
+Waiting for the team to resume activity
+== Ожидание возобновления активности команды
+
+Warlist
+== Список игроков
+
+Wiped
+== Командный вайп
+
+You
+== Вы
+
+You are responsible for using the client, its settings and your actions on servers.
+== Вы несёте ответственность за использование клиента, его настройки и свои действия на серверах.
+
+Enabled
+== Включено
+
+None
+== Нет
+
+Off
+== Выключено
+
+Own
+== Свои
+
+Run Statistics
+== Статистика забегов
+
+Prediction margin: %dms
+== Запас предсказания: %d мс
+
+Show %s group
+== Показывать группу %s
+
+You are not in practice
+== Вы не в режиме практики
+
+No safe position found
+== Безопасная позиция не найдена
+
+[warlist]
+No clan found for user "%s"
+== Для игрока "%s" не найден клан
+
+[translate]
+Aborted
+== Отменено
+
+[translate]
+Curl error, see console
+== Ошибка Curl, подробности в консоли
+
+[translate]
+Got http code %d
+== Получен HTTP-код %d
+
+[translate]
+Response is not JSON
+== Ответ не является JSON
+
+[translate]
+Response is not object
+== Ответ не является объектом
+
+[translate]
+Error is not string
+== Ошибка не является строкой
+
+[translate]
+No translatedText
+== В ответе отсутствует translatedText
+
+[translate]
+translatedText is not string
+== translatedText не является строкой
+
+[translate]
+No pDetectedLanguage
+== В ответе отсутствует pDetectedLanguage
+
+[translate]
+pDetectedLanguage is not object
+== pDetectedLanguage не является объектом
+
+[translate]
+Unknown language
+== Неизвестный язык
+
+[translate]
+No language
+== Язык не указан
+
+[translate]
+language is not string
+== language не является строкой
+
+[translate]
+Unexpected response format
+== Неожиданный формат ответа
+
+[translate]
+No translated sentences
+== В ответе нет переведённых предложений
+
+[translate]
+Empty translation
+== Пустой перевод
+
+[translate]
+Not a valid ID
+== Неверный ID
+
+[translate]
+ID not connected
+== Игрок с таким ID не подключён
+
+[translate]
+No message to translate
+== Нет сообщения для перевода
+
+[translate]
+Invalid translate backend
+== Неверный сервис перевода
+
+Downloading update... %d%%
+== Загрузка обновления... %d%%
+
+AMF Client Practice
+== Практика AMF Client
+
+Click to add this item to your favorites.
+== Нажмите, чтобы добавить этот элемент в избранное.
+
+Click to remove this item from your favorites.
+== Нажмите, чтобы удалить этот элемент из избранного.
+
+Configs
+== Конфиги
+
+Could not find online Tutorial server.
+== Не удалось найти онлайн-сервер обучения.
+
+Starting and connecting to local server…
+== Запуск и подключение к локальному серверу…
+
+You're playing on a local server because no online Tutorial server could be found.
+== Вы играете на локальном сервере, так как не удалось найти онлайн-сервер обучения.
+
+Your record will only be saved locally.
+== Ваш результат будет сохранён только локально.
+
+Delete asset
+== Удалить ресурс
+
+Delete this asset from your assets directory.
+== Удалить этот ресурс из каталога ресурсов.
+
+not bound
+== не назначено
+
+Show cursor
+== Показывать курсор
+
+Toggle between game scene preview and raw texture
+== Переключить предпросмотр игровой сцены и исходной текстуры
+
+Translated text hidden due to streamer mode
+== Переведённый текст скрыт в режиме стримера
+
+Vote
+== Голосование
+
+(Update available)
+== (Доступно обновление)
+
+All AMF Client players: %d
+== Всего игроков AMF Client: %d
+
+AMF Client players
+== Игроки AMF Client
+
+AMF Client players: %d
+== Игроки AMF Client: %d
+
+AMF Client presence unavailable
+== Служба Presence недоступна
+
+AMF Client update %s is available
+== Доступно обновление AMF Client %s
+
+Block
+== Заблокировать
+
+Check for updates
+== Проверить обновления
+
+Checking for updates...
+== Проверка обновлений...
+
+Clip Name
+== Копировать имя
+
+Copy
+== Копировать
+
+Copy Skin
+== Копировать скин
+
+Download update
+== Скачать обновление
+
+Drag - move
+== Перетащить - переместить
+
+Drop here to create folder
+== Перетащите сюда, чтобы создать папку
+
+Esc - back
+== Esc - назад
+
+Fast Practice
+== Быстрая практика
+
+Folder name
+== Имя папки
+
+Folders
+== Папки
+
+Invite to team
+== Пригласить в команду
+
+Join team
+== Войти в команду
+
+LMB - select
+== ЛКМ - выбрать
+
+Message copied
+== Сообщение скопировано
+
+No AMF Client players online
+== Игроки AMF Client не в сети
+
+No AMF Client users on the selected server
+== На выбранном сервере нет пользователей AMF Client
+
+Player blocked
+== Игрок заблокирован
+
+Player muted
+== Игрок заглушён
+
+Player unblocked
+== Блокировка игрока снята
+
+Player unmuted
+== Звук игрока восстановлен
+
+Profile
+== Профиль
+
+Refresh AMF Client list
+== Обновить список AMF Client
+
+Rename
+== Переименовать
+
+Reply
+== Ответить
+
+Restart and update
+== Перезапустить и обновить
+
+Show AMF Client only
+== Показывать только AMF Client
+
+Show AMF Client users only
+== Показывать только пользователей AMF Client
+
+Stop Practice
+== Остановить практику
+
+Unblock
+== Разблокировать
+
+Update failed
+== Ошибка обновления
+
+Vote Kick
+== Голосование за исключение
+
+Whisper
+== Личное сообщение
+
+Unable to delete the asset '%s'
+== Не удалось удалить ресурс «%s»
+
+available commands: /r /back /rescuemode /tp /teleport /tpxy /lasttp /tc /telecursor /totele /totelecp /solo /unsolo /deep /undeep /livefreeze /unlivefreeze /shotgun /grenade /laser /rifle /unshotgun /ungrenade /unlaser /unrifle /weapons /unweapons /addweapon /removeweapon /jetpack /unjetpack /infjump /uninfjump /setjumps /ninja /unninja /endless /unendless /invincible /collision /hookcollision /hitothers /practice /unpractice
+== Доступные команды: /r /back /rescuemode /tp /teleport /tpxy /lasttp /tc /telecursor /totele /totelecp /solo /unsolo /deep /undeep /livefreeze /unlivefreeze /shotgun /grenade /laser /rifle /unshotgun /ungrenade /unlaser /unrifle /weapons /unweapons /addweapon /removeweapon /jetpack /unjetpack /infjump /uninfjump /setjumps /ninja /unninja /endless /unendless /invincible /collision /hookcollision /hitothers /practice /unpractice
+
+available rescue modes: auto, manual
+== Доступные режимы спасения: auto, manual
+
+can't set manual rescue while not grounded
+== Нельзя задать точку ручного спасения, пока персонаж не стоит на земле
+
+invalid jumps value
+== Неверное значение числа прыжков
+
+invalid teleporter index
+== Неверный индекс телепортера
+
+invalid value, use 0 or 1
+== Неверное значение, используйте 0 или 1
+
+invalid weapon id
+== Неверный ID оружия
+
+invalid X coordinate
+== Неверная координата X
+
+invalid Y coordinate
+== Неверная координата Y
+
+manual rescue point saved
+== Точка ручного спасения сохранена
+
+no player with this name found
+== Игрок с таким именем не найден
+
+no safe rescue position found
+== Безопасная позиция для спасения не найдена
+
+practice character is not available
+== Персонаж для практики недоступен
+
+practice mode already enabled
+== Режим практики уже включён
+
+practice mode disabled
+== Режим практики отключён
+
+rescue mode changed to auto
+== Режим спасения переключён на auto
+
+rescue mode changed to manual
+== Режим спасения переключён на manual
+
+rescue mode: %s
+== Режим спасения: %s
+
+safe position updated
+== Безопасная позиция обновлена
+
+there is no teleporter with that index on the map
+== На карте нет телепортера с таким индексом
+
+there is nowhere to go back to
+== Возвращаться некуда
+
+unknown argument for /hitothers
+== Неизвестный аргумент команды /hitothers
+
+unknown argument. check '/rescuemode list'
+== Неизвестный аргумент. Проверьте список команд: /rescuemode list
+
+usage: /%s <index>
+== Использование: /%s <index>
+
+usage: /%s <weapon-id>
+== Использование: /%s <weapon-id>
+
+usage: /setjumps <count>
+== Использование: /setjumps <count>
+
+usage: /tpxy x y
+== Использование: /tpxy x y
+
+you haven't previously teleported
+== Вы ещё не телепортировались
+
+Add teammate
+== Добавить союзника
+
+Remove teammate
+== Убрать союзника
+
+(1-16) indicator circle size
+== Размер круга индикатора (1-16)
+
+(16-128) Max indicator offset for variable offset setting
+== Максимальное смещение индикатора для переменного режима (16-128)
+
+(16-128) Offset of indicator position
+== Смещение положения индикатора (16-128)
+
+Allow duplicate war entries
+== Разрешить повторяющиеся записи в списке войны
+
+Allow your hammer to rotate like other weapons
+== Разрешить молоту вращаться, как остальному оружию
+
+Alpha of cursor in freeview
+== Прозрачность курсора в режиме свободного наблюдения
+
+Alpha of pet (100 = fully opaque, 50 = half transparent)
+== Прозрачность питомца (100 = полностью непрозрачный, 50 = полупрозрачный)
+
+Alpha of predicted ghosts (0-100)
+== Прозрачность предсказанных призраков (0-100)
+
+Alpha of unpredicted ghosts (0-100)
+== Прозрачность непредсказанных призраков (0-100)
+
+Also use color for frozen tee feet
+== Использовать цвет также для лап замороженного персонажа
+
+AMF animation preset has been initialized
+== Предустановка анимации AMF инициализирована
+
+AMF Client indicator display mode (0=left, 1=right, 2=hide self locally)
+== Режим отображения индикатора AMF Client (0=слева, 1=справа, 2=скрыть локально)
+
+AMF input prediction mode
+== Режим предсказания ввода AMF
+
+AMF key indicator style (0 = Default, 1 = Minecraft)
+== Стиль индикатора клавиш AMF (0 = по умолчанию, 1 = Minecraft)
+
+AMF mouse indicator preset (1 = Arrow, 2 = Dot Dot, 3 = Nothing)
+== Вариант индикатора мыши AMF (1 = стрелка, 2 = две точки, 3 = ничего)
+
+AMF mouse indicator pressed color (0 = Yellow, 1 = White)
+== Цвет нажатия индикатора мыши AMF (0 = жёлтый, 1 = белый)
+
+AMF Presence installation identifier
+== Идентификатор установки AMF Presence
+
+AMF Presence installation token
+== Токен установки AMF Presence
+
+AMF Run Statistics access migration completed
+== Миграция доступа к статистике забегов AMF Client завершена
+
+Animate AMF Client menus and popups
+== Анимировать меню и всплывающие окна AMF Client
+
+Animate chat text blocks without delaying typing
+== Анимировать блоки текста чата, не задерживая ввод
+
+Animate new chat messages
+== Анимировать новые сообщения чата
+
+Animate opening and closing the chat container
+== Анимировать открытие и закрытие контейнера чата
+
+Animate opening and closing the scoreboard
+== Анимировать открытие и закрытие табло
+
+Animate the AMF Client start menu
+== Анимировать стартовое меню AMF Client
+
+Apply Best input prediction to other tees
+== Применять предсказание Best input к другим персонажам
+
+Apply clan in profiles
+== Применять клан при загрузке профиля
+
+Apply Cloud Input prediction to other tees
+== Применять предсказание Cloud Input к другим персонажам
+
+Apply colors in profiles
+== Применять цвета при загрузке профиля
+
+Apply Delta input prediction to other tees
+== Применять предсказание Delta input к другим персонажам
+
+Apply emote in profiles
+== Применять эмоцию при загрузке профиля
+
+Apply F input prediction to other tees
+== Применять предсказание F input к другим персонажам
+
+Apply Fast input prediction to other tees
+== Применять предсказание Fast input к другим персонажам
+
+Apply fast input to other tees
+== Применять быстрый ввод к другим персонажам
+
+Apply flag in profiles
+== Применять флаг при загрузке профиля
+
+Apply gunpack assets in profiles
+== Применять набор оружия из профилей
+
+Apply Meow input prediction to other tees
+== Применять предсказание Meow input к другим персонажам
+
+Apply name in profiles
+== Применять имя при загрузке профиля
+
+Apply Saiko input prediction to other tees
+== Применять предсказание Saiko input к другим персонажам
+
+Apply Saiko+ input prediction to other tees
+== Применять предсказание Saiko+ input к другим персонажам
+
+Apply skin in profiles
+== Применять скин при загрузке профиля
+
+Apply tile assets (entities) in profiles
+== Применять набор тайлов (entities) из профилей
+
+Auto reply to muted players with a message
+== Автоматически отвечать заглушённым игрокам сообщением
+
+Auto reply when your game is minimized
+== Автоматически отвечать, когда игра свёрнута
+
+Auto vote no if you far on a map
+== Автоматически голосовать против, если вы далеко на карте
+
+Automatically save and load background drawings
+== Автоматически сохранять и загружать фоновые рисунки
+
+Automatically set cl_prediction_margin from network latency and jitter
+== Автоматически задавать cl_prediction_margin с учётом задержки и джиттера сети
+
+Base AMF UI animation duration in milliseconds
+== Базовая длительность анимации интерфейса AMF в миллисекундах
+
+Base skin for white feet
+== Базовый скин для белых лап
+
+Best input interpolation mode
+== Режим интерполяции Best input
+
+Best input latency compensation
+== Компенсация задержки Best input
+
+Best input prediction amount in 0.01 ticks
+== Величина предсказания Best input в сотых долях тика
+
+Best input smoothing amount
+== Сглаживание Best input
+
+Bit flags to disable settings tabs
+== Битовая маска отключения вкладок настроек
+
+Bitmask of asset types to save/load in profiles; -1 uses legacy asset settings
+== Маска типов ресурсов для сохранения и загрузки в профилях; -1 использует старые настройки ресурсов
+
+Center lines color (enabled by tc_show_center)
+== Цвет центральных линий (включаются параметром tc_show_center)
+
+Center lines width (enabled by tc_show_center)
+== Ширина центральных линий (включаются параметром tc_show_center)
+
+Chat caret approach speed
+== Скорость перемещения курсора ввода в чате
+
+Chat caret width in pixels
+== Ширина курсора ввода в чате в пикселях
+
+Cloud input prediction amount in 0.01 ticks
+== Величина предсказания Cloud Input в сотых долях тика
+
+Color for last notify
+== Цвет последнего уведомления
+
+Color of alive tees in player indicator
+== Цвет живых персонажей в индикаторе игроков
+
+Color of background draw strokes
+== Цвет линий рисования фона
+
+Color of frozen tees in player indicator
+== Цвет замороженных персонажей в индикаторе игроков
+
+Color of outline around freeze and deep
+== Цвет контура заморозки и deep
+
+Color of outline around hook and unhook
+== Цвет контура зацепления и отцепления крюком
+
+Color of outline around kill
+== Цвет контура смерти
+
+Color of outline around teleporters
+== Цвет контура телепортов
+
+Color of outline around unfreeze and undeep
+== Цвет контура разморозки и снятия deep
+
+Color of tees who is getting saved in player indicator
+== Цвет спасаемых персонажей в индикаторе игроков
+
+Command to run with tc_mod_weapon, id is appended to end of command
+== Команда для запуска tc_mod_weapon; ID добавляется в конец команды
+
+Custom aspect ratio apply mode (0=game only, 1=full, 2=game without HUD)
+== Режим применения пользовательского соотношения сторон (0=только игра, 1=полностью, 2=игра без HUD)
+
+Custom aspect ratio denominator
+== Знаменатель пользовательского соотношения сторон
+
+Custom aspect ratio mode (-1=legacy, 0=off, 1=preset, 2=custom)
+== Режим пользовательского соотношения сторон (-1=старый, 0=выкл., 1=предустановка, 2=свой)
+
+Custom aspect ratio multiplied by 100
+== Пользовательское соотношение сторон, умноженное на 100
+
+Custom aspect ratio numerator
+== Числитель пользовательского соотношения сторон
+
+Custom font face
+== Гарнитура пользовательского шрифта
+
+Define the Size of the Tiny Tee
+== Задать размер маленького персонажа
+
+Delta input prediction amount in 0.01 ticks
+== Величина предсказания Delta input в сотых долях тика
+
+Determines uncertainty duration as a factor of ping, 100 = 1.0
+== Определяет длительность неопределённости относительно пинга; 100 = 1.0
+
+Different antiping smoothing algorithm, not compatible with cl_antiping_smooth
+== Другой алгоритм сглаживания antiping, несовместимый с cl_antiping_smooth
+
+Don't show tees that are on your screen
+== Не отображать персонажей, находящихся на экране
+
+Draws lines to show the center of your screen/hitbox
+== Отображать линии, показывающие центр экрана и хитбокса
+
+Draws outline around freeze and deep
+== Отображать контур заморозки и deep
+
+Draws outline around hook and unhook
+== Отображать контур зацепления и отцепления крюком
+
+Draws outline around kill
+== Отображать контур смерти
+
+Draws outline around teleporters
+== Отображать контур телепортов
+
+Draws outline around unfreeze and undeep
+== Отображать контур разморозки и снятия deep
+
+Draws outlines
+== Отображать контуры
+
+Duration of emote and bind wheel animations, in milliseconds (0 == no animation, 1000 = 1 second)
+== Длительность анимаций колеса эмоций и биндов в миллисекундах (0 == без анимации, 1000 = 1 секунда)
+
+Enable AMF Client smooth HUD animations
+== Включить плавные анимации HUD AMF Client
+
+Enable AMF motion blur
+== Включить размытие движения AMF
+
+Enable changing prediction margin while frozen
+== Разрешить менять запас предсказания во время заморозки
+
+Enable focus mode to minimize visual distractions
+== Включить режим фокуса, чтобы уменьшить визуальные отвлекающие элементы
+
+Enable local AMF Run Statistics collection and UI
+== Включить локальный сбор статистики забегов AMF и её интерфейс
+
+Enable Music Player HUD element
+== Включить элемент Music Player в HUD
+
+Enable music player visualizer
+== Включить визуализатор Music Player
+
+Enable Snap Tap for opposite left/right inputs
+== Включить Snap Tap для противоположных нажатий влево/вправо
+
+Enable status bar
+== Включить строку состояния
+
+Enable Tee trails
+== Включить следы персонажей
+
+Enable the isolated AMF Presence transport
+== Включить отдельный транспорт AMF Presence
+
+F input prediction amount in 0.001 ticks
+== Величина предсказания F input в тысячных долях тика
+
+Fade trail alpha over length
+== Уменьшать прозрачность следа по его длине
+
+Fast input response in milliseconds
+== Быстродействие Fast input в миллисекундах
+
+Filters out chat messages based on a regular expression.
+== Фильтровать сообщения чата по регулярному выражению.
+
+First custom nickname gradient color
+== Первый цвет градиента ника
+
+Font size for last notify
+== Размер шрифта последнего уведомления
+
+For backends which need it, api key to use
+== API-ключ для сервисов, которым он требуется
+
+For backends which need it, endpoint to use (must be https)
+== Адрес сервиса, которому требуется endpoint (только HTTPS)
+
+Gradient direction (0=left, 1=right)
+== Направление градиента (0=слева направо, 1=справа налево)
+
+Gradient strength in percent
+== Интенсивность градиента в процентах
+
+Hash binding AMF Presence identity to the writable client profile
+== Привязать идентификатор AMF Presence хешем к доступному для записи профилю клиента
+
+Height of the status bar
+== Высота строки состояния
+
+Helps in Gores. Allows internal certainty value to be negative which causes more conservative prediction
+== Помогает на Gores. Разрешает отрицательную внутреннюю оценку уверенности, что делает предсказание осторожнее
+
+Hide chat in focus mode
+== Скрывать чат в режиме фокуса
+
+Hide emoticon visuals in focus mode
+== Скрывать визуальные эмоции в режиме фокуса
+
+Hide Ghosts of other players if they are frozen
+== Скрывать призраков других игроков, если они заморожены
+
+Hide HUD in focus mode
+== Скрывать HUD в режиме фокуса
+
+Hide music player in focus mode
+== Скрывать Music Player в режиме фокуса
+
+Hide player names in focus mode
+== Скрывать имена игроков в режиме фокуса
+
+Hide scoreboard in focus mode
+== Скрывать табло в режиме фокуса
+
+Hide unnecessary UI in focus mode
+== Скрывать ненужные элементы интерфейса в режиме фокуса
+
+Hide visual effects in focus mode
+== Скрывать визуальные эффекты в режиме фокуса
+
+Hide your own chat bubbles, only works when authed in remote console
+== Скрывать собственные облачка чата; работает только при авторизации в удалённой консоли
+
+Horizontal position for last notify as percentage of screen width
+== Горизонтальное положение последнего уведомления в процентах ширины экрана
+
+Horizontal position of the AMF key indicator in percent
+== Горизонтальное положение индикатора клавиш AMF в процентах
+
+How long until auto vote far happens
+== Задержка до автоматического голоса против за дальность
+
+How many milliseconds fast input will apply
+== Длительность применения быстрого ввода в миллисекундах
+
+How many ticks it takes to remove the maximum prediction after being frozen
+== Сколько тиков требуется, чтобы убрать максимальное предсказание после разморозки
+
+Improve mouse precision by scaling max distance to 1000
+== Повысить точность мыши, масштабируя максимальную дистанцию до 1000
+
+Indicator circles will be further away the further the tee is
+== Чем дальше персонаж, тем дальше от него будет круг индикатора
+
+Keep Music Player visible while playback is paused
+== Оставлять Music Player видимым на паузе
+
+Last AMF Client agreement revision shown on startup
+== Последняя редакция соглашения AMF Client, показанная при запуске
+
+Legacy AMF Impact migration marker
+== Маркер устаревшей миграции Impact AMF
+
+Legacy AMF Impact visibility setting
+== Устаревшая настройка видимости Impact AMF
+
+Limit mouse to screen boundaries
+== Ограничить перемещение мыши границами экрана
+
+Local player nameplate offset
+== Смещение таблички имени локального игрока
+
+Log AMF Presence diagnostics without credentials
+== Записывать диагностику AMF Presence без учётных данных
+
+Make frozen players in volleyball look more like volleyballs (0 = disabled, 1 = in volleyball maps, 2 = always)
+== Делать замороженных игроков похожими на мячи в волейболе (0 = выкл., 1 = на волейбольных картах, 2 = всегда)
+
+Makes color of tees darker when in freeze (0-100)
+== Затемнять персонажей во время заморозки (0-100)
+
+Makes prediction margin transition smooth, causes worse ping jitter adjustment (reverts a DDNet change)
+== Сглаживает изменение запаса предсказания, но ухудшает компенсацию джиттера пинга (отменяет изменение DDNet)
+
+Manual prediction margin preserved by AMF Auto Margin in ms (0 = initialize from cl_prediction_margin)
+== Ручной запас предсказания, сохраняемый AMF Auto Margin в мс (0 = взять начальное значение из cl_prediction_margin)
+
+Maximum AMF UI slide distance in pixels
+== Максимальная дистанция сдвига интерфейса AMF в пикселях
+
+Maximum number of rows in frozen tee HUD display
+== Максимальное число строк в HUD замороженных персонажей
+
+Maximum number of strokes
+== Максимальное число линий
+
+Maximum tee distance for variable offset
+== Максимальная дистанция персонажа для переменного смещения
+
+Meow input prediction amount in 0.01 ticks
+== Величина предсказания Meow input в сотых долях тика
+
+Message to reply to muted players
+== Сообщение для автоматического ответа заглушённым игрокам
+
+Message to reply when your game is minimized
+== Сообщение для автоматического ответа, когда игра свёрнута
+
+Message to send when auto far vote happens, leave empty to disable
+== Сообщение при автоматическом голосе против за дальность; оставьте пустым, чтобы отключить
+
+Moving tiles in entities mode (0=off, 1=T Client)
+== Движущиеся тайлы в режиме entities (0=выкл., 1=T Client)
+
+Music player animation duration
+== Длительность анимации Music Player
+
+Music player color mode (0=static, 1=cover)
+== Режим цвета Music Player (0=статичный, 1=по обложке)
+
+Music player diagnostics
+== Диагностика Music Player
+
+Music player HUD color alpha
+== Прозрачность цвета HUD Music Player
+
+Music player text scale
+== Масштаб текста Music Player
+
+Music player visualizer bar count
+== Число столбцов визуализатора Music Player
+
+Music player visualizer mode
+== Режим визуализатора Music Player
+
+Music player visualizer rounding
+== Скругление столбцов визуализатора Music Player
+
+Music player visualizer smoothing
+== Сглаживание визуализатора Music Player
+
+Name to change to when near finish when tc_change_name_near_finish is 1
+== Имя, на которое менять имя рядом с финишем, если tc_change_name_near_finish равен 1
+
+New chat message animation duration in milliseconds, zero uses the base duration
+== Длительность анимации нового сообщения чата в миллисекундах; 0 использует базовую длительность
+
+Nickname gradient source (0=skin colors, 1=team/war colors)
+== Источник цветов градиента ника (0=цвета скина, 1=цвета команды/списка войны)
+
+Notify when you are last
+== Уведомлять, когда вы остались последним
+
+Only render frozen tee HUD display while in team
+== Показывать HUD замороженных персонажей только в команде
+
+Only show frozen tees in indicator
+== Показывать в индикаторе только замороженных персонажей
+
+Only show indicator while in team
+== Показывать индикатор только в команде
+
+Opacity of indicator circles
+== Прозрачность кругов индикатора
+
+Opacity of the AMF key indicator in percent
+== Прозрачность индикатора клавиш AMF в процентах
+
+Other players' nameplate offset
+== Смещение табличек имён других игроков
+
+Overwrite clan name even if profile has an empty clan name
+== Перезаписывать клан, даже если в профиле он не указан
+
+Percentage to scale the in game cursor by as a percentage (50 = half, 200 = double)
+== Масштаб игрового курсора в процентах (50 = половина, 200 = вдвое больше)
+
+Pet skin
+== Скин питомца
+
+Player skin to use for better volleyball ball
+== Скин игрока для более похожего на волейбольный мяч персонажа
+
+Predicts optimistically along the tees stable axis to reduce delay in gaining overall stability
+== Оптимистично предсказывать движение вдоль устойчивой оси персонажа, чтобы быстрее достичь общей стабильности
+
+Rainbow mode (1: rainbow, 2: pulse, 3: darkness, 4: random)
+== Режим радуги (1: радуга, 2: пульсация, 3: затемнение, 4: случайный)
+
+Rainbow speed as a percentage (50 = half speed, 200 = double speed)
+== Скорость радуги в процентах (50 = половина, 200 = вдвое быстрее)
+
+Rainbow Weapons
+== Радужное оружие
+
+Removes some amount of antiping & player prediction in freeze
+== Уменьшать antiping и предсказание игроков во время заморозки
+
+Render all feet as perfectly white base color
+== Отображать все лапы чисто белым базовым цветом
+
+Render confirmed AMF players using their published custom nickname gradient
+== Использовать опубликованный пользовательский градиент ника для подтверждённых игроков AMF
+
+Render Ghosts as circles instead of tee
+== Отображать призраков кругами вместо персонажей
+
+Render other tees smaller
+== Отображать других персонажей уменьшенными
+
+Render player nicknames with a gradient
+== Отображать ники игроков с градиентом
+
+Render player rifle and shotgun lasers with the AMF visual effect
+== Отображать лазеры винтовки и дробовика с эффектом AMF
+
+Render scoreboard team backgrounds with a gradient
+== Отображать фон команд на табло с градиентом
+
+Render spectator menu team backgrounds with a gradient
+== Отображать фон команд в меню наблюдателя с градиентом
+
+Render tees smaller
+== Отображать персонажей уменьшенными
+
+Render your gun cursor when spectating in freeview
+== Отображать прицел оружия при свободном наблюдении
+
+Renders weapons as the gun sprite instead of the weapon, with the exception of hammer and ninja (1 = with hue, 2 = without hue)
+== Отображать оружие спрайтом пистолета, кроме молота и ниндзюцу (1 = с оттенком, 2 = без оттенка)
+
+Revert hookline tip behavior
+== Вернуть прежнее поведение наконечника линии крюка
+
+Run a command (default kill) when you point and shoot at someone, only works when authed in remote console
+== Выполнять команду (по умолчанию kill), если навести прицел на игрока и выстрелить; работает только после авторизации в удалённой консоли
+
+Saiko input prediction amount in 0.01 ticks
+== Величина предсказания Saiko input в сотых долях тика
+
+Saiko+ input prediction amount in 0.01 ticks
+== Величина предсказания Saiko+ input в сотых долях тика
+
+Scale of the AMF key indicator in percent
+== Масштаб индикатора клавиш AMF в процентах
+
+Scoreboard animation slide distance in pixels
+== Дистанция сдвига табло при анимации в пикселях
+
+Scoreboard closing animation duration in milliseconds
+== Длительность анимации закрытия табло в миллисекундах
+
+Scoreboard opening animation duration in milliseconds
+== Длительность анимации открытия табло в миллисекундах
+
+Second custom nickname gradient color
+== Второй цвет пользовательского градиента ника
+
+Set Discord.exe process priority to Low while enabled
+== Устанавливать низкий приоритет процесса Discord.exe, пока функция включена
+
+Set the AMF Client process priority to High while enabled
+== Устанавливать высокий приоритет процесса AMF Client, пока функция включена
+
+Set what your prediction margin while frozen should be
+== Задать запас предсказания во время заморозки
+
+Show a pet
+== Показывать питомца
+
+Show all groups
+== Показывать все группы
+
+Show AMF Client version in nameplates
+== Показывать версию AMF Client в табличках имён
+
+Show an in-memory Impact history preview (debug UI only)
+== Показывать предпросмотр истории Impact в памяти (только отладочный интерфейс)
+
+Show chat messages from the client such as echo
+== Показывать сообщения клиента в чате, например echo
+
+Show clan in nameplate if there is a war
+== Показывать клан в табличке имени, если игрок в списке войны
+
+Show clicks per second in the AMF key indicator
+== Показывать число нажатий в секунду в индикаторе клавиш AMF
+
+Show DDNet domain in Configs tab
+== Показывать раздел DDNet на вкладке «Конфиги»
+
+Show frozen tee HUD
+== Показывать HUD замороженных персонажей
+
+Show ghosts for other players in their unpredicted position
+== Показывать призраков других игроков в непредсказанном положении
+
+Show how many tees in your team are currently frozen. (0 - off, 1 - show alive, 2 - show frozen)
+== Показывать число замороженных персонажей команды (0 - выкл., 1 - живые, 2 - замороженные)
+
+Show ingame HUD (Dummy Aim Angle)
+== Показывать в HUD угол прицеливания dummy
+
+Show ingame HUD (Dummy Position)
+== Показывать в HUD положение dummy
+
+Show ingame HUD (Dummy Speed)
+== Показывать в HUD скорость dummy
+
+Show katana on frozen players (reverts a DDNet change)
+== Показывать катану у замороженных игроков (возвращает прежнее поведение DDNet)
+
+Show labels on status bar entries
+== Показывать подписи элементов строки состояния
+
+Show local time in seconds
+== Показывать местное время с секундами
+
+Show moving tiles in entities
+== Показывать движущиеся тайлы в entities
+
+Show music player cover art
+== Показывать обложку альбома в Music Player
+
+Show only modified settings in Configs tab
+== Показывать на вкладке «Конфиги» только изменённые настройки
+
+Show only servers with active AMF Client users
+== Показывать только серверы с активными пользователями AMF Client
+
+Show player hit boxes (1 = predicted, 2 = predicted and unpredicted)
+== Показывать хитбоксы игроков (1 = предсказанные, 2 = предсказанные и непредсказанные)
+
+Show players from second group
+== Показывать игроков из второй группы
+
+Show players from the first group
+== Показывать игроков из первой группы
+
+Show position and angle
+== Показывать положение и угол
+
+Show predicted players as ghost and normal players as unpredicted
+== Показывать предсказанных игроков призраками, а обычных - без предсказания
+
+Show radial indicator of other tees
+== Показывать радиальный индикатор других персонажей
+
+Show seconds in local time
+== Показывать секунды в местном времени
+
+Show synchronized song lyrics in the music player
+== Показывать синхронизированные с песней слова в Music Player
+
+Show TClient domain in Configs tab
+== Показывать раздел TClient на вкладке «Конфиги»
+
+Show tee trails for other players
+== Показывать следы других игроков
+
+Show tees instead of circles
+== Показывать персонажей вместо кругов
+
+Show the AMF Client agreement on startup
+== Показывать соглашение AMF Client при запуске
+
+Show the AMF Client indicator next to local players
+== Показывать индикатор AMF Client рядом с локальными игроками
+
+Show the AMF key indicator
+== Показывать индикатор клавиш AMF
+
+Show the AMF mouse indicator
+== Показывать индикатор мыши AMF
+
+Show the current time below song lyrics in the music player
+== Показывать текущее время под словами песни в Music Player
+
+Show the server game time in the music player
+== Показывать игровое время сервера в Music Player
+
+Show war colors in chat
+== Показывать цвета списка войны в чате
+
+Show war colors in scoreboard
+== Показывать цвета списка войны на табло
+
+Show war colors in spectator menu
+== Показывать цвета списка войны в меню наблюдателя
+
+Show war reason
+== Показывать причину добавления в список войны
+
+Show warlist colors instead of freeze colors
+== Показывать цвета списка войны вместо цветов заморозки
+
+Shows a circle to indicate ping in the nameplate
+== Показывает круг рядом с табличкой имени для обозначения пинга
+
+Shows fake CTF flags on people (0 = off, 1 = red, 2 = blue)
+== Показывать игрокам фиктивные флаги CTF (0 = выкл., 1 = красный, 2 = синий)
+
+Shows skin names in nameplates, good for finding missing skins
+== Показывать названия скинов в табличках имён, чтобы находить отсутствующие скины
+
+Shows the country flag in the nameplate
+== Показывать флаг страны в табличке имени
+
+Size of tees in frozen tee hud. (Default : 15)
+== Размер персонажей в HUD замороженных персонажей (по умолчанию: 15)
+
+Size of the pet as a percentage of a normal player
+== Размер питомца в процентах от обычного персонажа
+
+Smooth the chat text caret visually
+== Визуально сглаживать курсор ввода текста в чате
+
+Snap Tap direction switch delay in milliseconds (0 = off)
+== Задержка переключения направления Snap Tap в миллисекундах (0 = выкл.)
+
+Static music player color
+== Постоянный цвет Music Player
+
+Status bar background alpha
+== Прозрачность фона строки состояния
+
+Status bar background color
+== Цвет фона строки состояния
+
+Status bar text alpha
+== Прозрачность текста строки состояния
+
+Status bar text color
+== Цвет текста строки состояния
+
+Strength of motion blur frame blending (0-100%)
+== Интенсивность смешивания кадров для размытия движения (0-100%)
+
+Taper tee trail over length
+== Сужать след персонажа по длине
+
+Tee trail alpha
+== Прозрачность следа персонажа
+
+Tee trail color mode (1: Solid color, 2: Current Tee color, 3: Rainbow, 4: Color based on Tee speed, 5: Random)
+== Режим цвета следа персонажа (1: сплошной цвет, 2: текущий цвет персонажа, 3: радуга, 4: цвет по скорости, 5: случайный)
+
+Tee trail length
+== Длина следа персонажа
+
+Tee trail width
+== Ширина следа персонажа
+
+Text for last notify
+== Текст последнего уведомления
+
+The biggest amount of prediction ticks that are removed
+== Максимальное число удаляемых тиков предсказания
+
+The order in which to show status bar items
+== Порядок отображения элементов строки состояния
+
+Tick delay before executing tc_execute_on_join
+== Задержка в тиках перед выполнением tc_execute_on_join
+
+Time until strokes disappear (0 = never)
+== Время до исчезновения линий (0 = никогда)
+
+Toggle AMF Client Discord Rich Presence
+== Переключить Discord Rich Presence AMF Client
+
+Toggles war list visuals
+== Переключает отображение списка войны
+
+Translate backend to use (google, libretranslate)
+== Сервис перевода (google, libretranslate)
+
+Translate target language (must be 2 character ISO 639 code)
+== Язык перевода (двухбуквенный код ISO 639)
+
+Tune zone color preset (0=DDNet blue, 1=red, 2=green, 3=purple)
+== Цветовая схема tune-зон (0=синий DDNet, 1=красный, 2=зелёный, 3=фиолетовый)
+
+Turn on rainbow client side
+== Включить радужные цвета на клиенте
+
+Turn on rainbow client side for others
+== Включить радужные цвета других игроков на клиенте
+
+URL to fetch custom communities from (must be https), empty to disable
+== HTTPS-адрес источника пользовательских сообществ; пустое значение отключает загрузку
+
+Use 12 hour clock in local time
+== Использовать 12-часовой формат местного времени
+
+Use a lightweight background dim for animated AMF UI containers
+== Использовать лёгкое затемнение фона для анимированных контейнеров интерфейса AMF
+
+Use a small slide offset for animated AMF UI containers
+== Использовать небольшое смещение при сдвиге анимированных контейнеров интерфейса AMF
+
+Use compact row layout in Configs tab
+== Использовать компактное расположение строк на вкладке «Конфиги»
+
+Use music player color for HUD
+== Использовать цвет Music Player для HUD
+
+Use ninja skin, or darkened skin for frozen tees on hud
+== Использовать скин ниндзя или затемнённый скин замороженных персонажей в HUD
+
+Use rainbow team colors (reverts a DDNet change)
+== Использовать радужные цвета команды (возвращает прежнее поведение DDNet)
+
+Use skin colors for frozen tees
+== Использовать цвета скинов замороженных персонажей
+
+Use the custom nickname gradient for local players
+== Использовать пользовательский градиент ников для локальных игроков
+
+Use warlist for indicator
+== Использовать список войны для индикатора
+
+Vertical position for last notify as percentage of screen height
+== Вертикальное положение последнего уведомления в процентах высоты экрана
+
+Vertical position of the AMF key indicator in percent
+== Вертикальное положение индикатора клавиш AMF в процентах
+
+Visual background dim strength for AMF UI animations
+== Интенсивность видимого затемнения фона при анимации интерфейса AMF
+
+When enabled makes the vote UI small
+== Уменьшать интерфейс голосования, если включено
+
+Whether to allow any resolution in game when zoom is allowed (buggy on Windows)
+== Разрешить любое разрешение в игре при включённом масштабировании (нестабильно в Windows)
+
+Width of background draw strokes
+== Ширина линий рисования фона
+
+Width of outline around freeze and deep
+== Ширина контура заморозки и deep
+
+Width of outline around hook and unhook
+== Ширина контура зацепления и отцепления крюком
+
+Width of outline around kill
+== Ширина контура смерти
+
+Width of outline around teleporters
+== Ширина контура телепортов
+
+Width of outline around unfreeze and undeep
+== Ширина контура разморозки и снятия deep
+
+[AMF Client]
+Accent
+== Акцент
+Accent color
+== Цвет акцента
+Air jump ring
+== Кольцо воздушного прыжка
+Animate speed
+== Скорость анимации
+Background color
+== Цвет фона
+Badge
+== Значок
+Ball amount: %d
+== Количество шаров: %d
+Ball skin
+== Скин шаров
+Base color
+== Основной цвет
+Better checkbox
+== Улучшенный чекбокс
+Better color picker
+== Улучшенный выбор цвета
+Better font
+== Улучшенный шрифт
+Better scrollbar
+== Улучшенная полоса прокрутки
+Better tab option
+== Улучшенная навигация вкладок
+Binds
+== Привязки клавиш
+Black hole
+== Чёрная дыра
+Button
+== Кнопка
+Checkbox
+== Чекбокс
+Clear all balls
+== Очистить все шары
+Consider freeze walls
+== Учитывать стены с фризом
+Copy theme to clipboard
+== Скопировать тему в буфер обмена
+Cull map tiles outside FPS fog
+== Не отрисовывать тайлы за пределами области FPS-тумана
+Disable all particles render
+== Отключить отрисовку всех частиц
+Disable hammer particles
+== Отключить частицы молота
+Disable high detail
+== Отключить высокий уровень детализации
+Disable if you have shotgun, grenade or laser
+== Отключать при наличии дробовика, гранаты или лазера
+Disable jump particles
+== Отключить частицы прыжка
+Disable map quads render
+== Отключить отрисовку квадов карты
+Disk
+== Диск
+Disk color
+== Цвет диска
+Dots
+== Точки
+Droplist
+== Выпадающий список
+Dust
+== Пыль
+Dust color
+== Цвет пыли
+Element
+== Элемент
+Embers
+== Угли
+Enable better UI
+== Включить улучшенный интерфейс
+Enable colorable background
+== Включить окрашиваемый фон
+Enable finish prediction
+== Включить предсказание финиша
+Enable flying name plates
+== Включить летающие неймплейты
+Enable gores mode
+== Включить режим Gores
+Enable optimizer
+== Включить оптимизатор
+Energy motes
+== Частицы энергии
+Export
+== Экспортировать
+Exported!
+== Экспортировано!
+Eye
+== Глаз
+Finish time
+== Время финиша
+Fire color
+== Цвет огня
+Fireflies
+== Светлячки
+Firefly color
+== Цвет светлячков
+Flames
+== Пламя
+Flesh color
+== Цвет плоти
+Flow
+== Скорость переливания
+Flying Nameplates
+== Летающие неймплейты
+Follow speed
+== Скорость следования
+Forks
+== Разветвления
+FPS fog (cull outside limit)
+== FPS-туман (скрывать объекты вне области)
+Freeze Lifestyle
+== Фриз лайфстил
+Function block
+== Блок функций
+Glitter
+== Мерцание
+Gores Mode
+== Режим Gores
+Grab gust
+== Порыв при захвате
+Gradient
+== Градиент
+Gradient color
+== Цвет градиента
+Grow time
+== Время роста
+Hammer slash
+== Визуальный эффект удара молота
+Hide line
+== Скрыть линию
+Hold aura
+== Аура заряда
+Hold burst
+== Всплеск при заряде
+Hook box
+== Рамка вокруг зацепленного игрока
+[AMF Client]
+Custom Effects
+== Кастомные эффекты
+[AMF Client]
+Custom Hooks
+== Кастомные хуки
+Hook hold
+== Эффект накопления заряда на крюке
+Hook lasso
+== Лассо крюка
+Import
+== Импортировать
+Imported!
+== Импортировано!
+Improved UI
+== Улучшенный UI
+Input field
+== Поле ввода
+Jitter
+== Разброс
+Leaves
+== Листья
+Lift above player
+== Поднять над игроком
+Lightning
+== Молния
+Lightning color
+== Цвет молнии
+Lightning thickness
+== Толщина молнии
+Line thickness
+== Толщина линий
+Magic
+== Магия
+Matter
+== Материя
+Movement drag
+== Инерция при движении
+New Ball
+== Новый шар
+New Ball Cursor
+== Шар у курсора
+Opacity
+== Прозрачность
+Optimizer
+== Оптимизатор
+Paste theme from clipboard
+== Вставить тему из буфера обмена
+Physic Balls
+== Физик боллы
+Radius
+== Радиус
+Radius (tiles)
+== Радиус (тайлы)
+Rain
+== Дождь
+Rain color
+== Цвет дождя
+Rays
+== Лучи
+Render FPS fog rectangle
+== Отображать границу FPS-тумана
+Ribbon width
+== Ширина ленты
+Runes
+== Руны
+Screen shake
+== Тряска экрана
+Scrollbar
+== Полоса прокрутки
+Settings tabs
+== Вкладки настроек
+Show always
+== Показывать всегда
+Show milliseconds
+== Показывать миллисекунды
+Show percentage
+== Показывать процент
+Show time
+== Показывать время
+Slime
+== Слизь
+Smoke
+== Дым
+Snow
+== Снег
+Snow color
+== Цвет снега
+Snow look
+== Вид снега
+Snowflakes
+== Снежинки
+Sparkles
+== Мерцание
+Sparks
+== Искры
+Spawn count
+== Количество шаров за действие
+Spell color
+== Цвет заклинания
+Spin
+== Вращение
+Spin speed
+== Скорость вращения
+Style the hook
+== Стилизовать крюк
+Suckers
+== Присоски
+Tentacle
+== Щупальце
+Text
+== Текст
+Thickness
+== Толщина
+Time left
+== Оставшееся время
+Troll
+== Тролль
+UI background
+== Фон интерфейса
+UI Themes
+== Темы UI
+Use custom style
+== Использовать собственный стиль
+Visible area (%)
+== Видимая область (%)
+Wall arcs
+== Дуги молнии по стене
+Weather
+== Погода
+Weather type
+== Тип погоды
+Whirlwind
+== Вихрь
+Wind color
+== Цвет ветра
+Wind lines
+== Линии ветра
+Wind opacity
+== Непрозрачность ветра
+Writhing
+== Извивание
+Zoom %
+== Масштаб %
+
+# Disambiguate AMF feature labels that occur more than once in the shared language catalog.
+[AMF Client]
+Opacity
+== Непрозрачность
+[AMF Client]
+Enable
+== Включить
+[AMF Client]
+Finish Prediction
+== Прогноз финиша
+[AMF Client]
+Fire
+== Огонь
+[AMF Client]
+Hook
+== Крюк
+[AMF Client]
+Left
+== Слева
+[AMF Client]
+None
+== Нет
+[AMF Client]
+Rainbow
+== Радуга
+[AMF Client]
+Reset to defaults
+== Сбросить настройки
+[AMF Client]
+Right
+== Справа
+[AMF Client]
+Size
+== Размер
+
+[AMF Finish Prediction]
+Finish
+== Финиш
+[AMF Finish Prediction]
+Left
+== Осталось
+[AMF Client]
+Open in HUD editor
+== Открыть в редакторе HUD
+[AMF Client]
+Join a game first
+== Сначала подключитесь к игре
+
+[AMF Client]
+Enhanced Weapons
+== Улучшенные оружия
+
+[AMF Client]
+Laser
+== Лазер
+
+[AMF Client]
+Shotgun
+== Дробовик
+
+[AMF Client]
+Rocket
+== Ракета
+
+[AMF Client]
+Classic
+== Классический
+
+[AMF Client]
+Prism
+== Призма
+
+[AMF Client]
+Pulse
+== Пульсация
+
+[AMF Client]
+Crystal
+== Кристалл
+
+[AMF Client]
+Power
+== Интенсивность
+
+[AMF Client]
+Color
+== Цвет
+
+[AMF Client]
+Nuke effects
+== Ядерные эффекты
+
+[AMF Client]
+Enable Nuke effects
+== Включить ядерные эффекты
+
+[AMF Client]
+Screen shake
+== Тряска экрана
+
+[AMF Client]
+Nuke size
+== Размер ядерного взрыва
+
+[AMF Client]
+Freeze Lifestyle
+== Фриз лайфстайл
+
+[AMF Client]
+Shield
+== Щит
+
+[AMF Client]
+Reach
+== Дальность
+
+[AMF Client]
+Amount
+== Количество
+
+[AMF Client]
+Frost
+== Иней
+
+[AMF Client]
+Custom hook color
+== Пользовательский цвет хука
+
+[AMF Client]
+Cold color
+== Холодный цвет
+
+[AMF Client]
+Custom Tune Zone Colors
+== Кастомные цвета тюн-зон
+
+[AMF Client]
+Toggle the custom tint used for tune zones.
+== Включает пользовательскую окраску тюн-зон.
+
+[AMF Client]
+Standard
+== Стандартный
+
+[AMF Client]
+Red
+== Красный
+
+[AMF Client]
+Green
+== Зелёный
+
+[AMF Client]
+Purple
+== Фиолетовый
+
+[AMF Client]
+Yellow
+== Жёлтый
+
+[AMF Client]
+White
+== Белый
+
+[AMF Client]
+Black
+== Чёрный

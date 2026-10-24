@@ -47,6 +47,7 @@ public:
 			int m_GradientStrength = 100;
 			int m_GameClientId = -1;
 			std::string m_PlayerName;
+			std::string m_ClientVersion;
 		};
 
 		struct SPresence

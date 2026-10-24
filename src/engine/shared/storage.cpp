@@ -317,9 +317,8 @@ public:
 					return;
 				}
 
-				// Development builds place the executable in a configuration
-				// subdirectory (for example, build/release) and the data directory
-				// next to it (build/data).
+				// Development builds can place the executable in a configuration
+				// subdirectory (for example, build/Debug) while data is next to it.
 				fs_parent_dir(aDir);
 				str_format(aBuf, sizeof(aBuf), "%s/data/mapres", aDir);
 				if(fs_is_dir(aBuf))

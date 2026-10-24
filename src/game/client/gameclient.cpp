@@ -20,7 +20,6 @@
 #include "components/hud.h"
 #include "components/infomessages.h"
 #include "components/items.h"
-#include "components/tclient/inputs.h"
 #include "components/mapimages.h"
 #include "components/maplayers.h"
 #include "components/mapsounds.h"
@@ -37,6 +36,8 @@
 #include "components/sounds.h"
 #include "components/spectator.h"
 #include "components/statboard.h"
+#include "components/tclient/inputs.h"
+#include "components/tclient/amf_features/fx/own_tee.h"
 #include "components/voting.h"
 #include "lineinput.h"
 #include "prediction/entities/character.h"
@@ -54,7 +55,6 @@
 #include <base/vmath.h>
 
 #include <engine/client/checksum.h>
-#include <engine/config.h>
 #include <engine/client/enums.h>
 #include <engine/demo.h>
 #include <engine/discord.h>
@@ -84,15 +84,20 @@
 #include <game/teamscore.h>
 #include <game/version.h>
 
-#include "../../../other/helpers/amf_discord_priority_restore_protocol.h"
-
+#include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cwchar>
+#include <iterator>
 #include <limits>
 #include <string>
+#include <system_error>
+
+#include "../../../other/helpers/amf_priority_restore_protocol.h"
 
 #if defined(CONF_FAMILY_WINDOWS)
 #include <windows.h>
+#include <appmodel.h>
 #include <tlhelp32.h>
 #ifdef ERROR
 #undef ERROR
@@ -115,6 +120,61 @@ bool GetProcessCreationTime(HANDLE Process, uint64_t &CreationTime)
 		return false;
 	CreationTime = FileTimeValue(Creation);
 	return true;
+}
+
+unsigned AmfPriorityTargetForExecutable(const wchar_t *pExecutable)
+{
+	if(_wcsicmp(pExecutable, L"Discord.exe") == 0)
+		return AmfPriorityRestore::TARGET_DISCORD;
+	if(_wcsicmp(pExecutable, L"Spotify.exe") == 0)
+		return AmfPriorityRestore::TARGET_SPOTIFY;
+	if(_wcsicmp(pExecutable, L"soundcouch.exe") == 0)
+		return AmfPriorityRestore::TARGET_SOUNDCLOUD;
+	return 0;
+}
+
+bool IsExpectedAmfPriorityPackage(HANDLE Process, unsigned Target)
+{
+	if(Target != AmfPriorityRestore::TARGET_SOUNDCLOUD)
+		return true;
+	wchar_t aPackageFamily[PACKAGE_FAMILY_NAME_MAX_LENGTH] = {};
+	UINT32 PackageFamilyLength = PACKAGE_FAMILY_NAME_MAX_LENGTH;
+	return GetPackageFamilyName(Process, &PackageFamilyLength, aPackageFamily) == ERROR_SUCCESS &&
+		_wcsicmp(aPackageFamily, L"SoundcloudLtd.SoundCloud-MusicAudio_2xc63xn306dnw") == 0;
+}
+
+bool IsLegacyDiscordPriorityRestoreHelperRunning()
+{
+	const HANDLE Snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if(Snapshot == INVALID_HANDLE_VALUE)
+		return true; // Defer lowering until the one-time compatibility check succeeds.
+
+	PROCESSENTRY32W Entry{};
+	Entry.dwSize = sizeof(Entry);
+	bool Running = false;
+	if(Process32FirstW(Snapshot, &Entry))
+	{
+		do
+		{
+			if(_wcsicmp(Entry.szExeFile, L"amfclient-discord-priority-restore.exe") != 0)
+				continue;
+			const HANDLE Process = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, Entry.th32ProcessID);
+			if(!Process)
+			{
+				Running = true;
+				break;
+			}
+			DWORD ExitCode = 0;
+			Running = GetExitCodeProcess(Process, &ExitCode) && ExitCode == STILL_ACTIVE;
+			CloseHandle(Process);
+			if(Running)
+				break;
+		} while(Process32NextW(Snapshot, &Entry));
+	}
+	else
+		Running = true;
+	CloseHandle(Snapshot);
+	return Running;
 }
 
 std::wstring WidenUtf8(const char *pString)
@@ -142,6 +202,11 @@ int CGameClient::DDNetVersion() const { return DDNET_VERSION_NUMBER; }
 const char *CGameClient::DDNetVersionStr() const { return m_aDDNetVersionStr; }
 int CGameClient::ClientVersion7() const { return CLIENT_VERSION7; }
 const char *CGameClient::GetItemName(int Type) const { return m_NetObjHandler.GetObjName(Type); }
+
+CGameClient::~CGameClient()
+{
+	StopAmfProcessPriorityWorker();
+}
 
 void CGameClient::OnConsoleInit()
 {
@@ -197,18 +262,35 @@ void CGameClient::OnConsoleInit()
 					      &m_TClient, // TClient (Must be before chat and players)
 					      &m_AmfPresenceTransport,
 					      &m_AmfPresenceResolver,
+					      &m_ImpactSystem,
+					      &m_AmfFlyingNamePlates,
 					      &m_Players,
 					      &m_MovingTilesBackground, // TClient
 					      &m_FastPractice,
+					      &m_AmfOptimizer,
 					      &m_AmfAutoMargin,
 					      &m_CloudInput,
-					      &m_CloudInputOld,
-						  &m_MapLayersForeground,
-						  &m_MovingTilesForeground, // TClient
-					      &m_Outlines,  // TClient
+					      &m_MapLayersForeground,
+					      &m_MovingTilesForeground, // TClient
+					      &m_Outlines, // TClient
 					      &m_Mumble, // TClient
-					      &m_Pet, // TClient
+				      &m_Pet, // TClient
+				      &m_AmfWeather,
+				      &m_AmfFreezeLifestyle,
+					      &m_AmfHookWind,
+					      &m_AmfHookBlackHole,
+					      &m_AmfHookMagic,
+					      &m_AmfHookRainbow,
+					      &m_AmfHookLightning,
+					      &m_AmfHookTentacle,
+					      &m_AmfHookFire,
+					      &m_AmfHookTroll,
+					      &m_AmfHookRope,
+					      &m_AmfFxActions,
+					      &m_AmfGatheredEnergy,
+					      &m_WeaponVfx,
 					      &m_Particles.m_RenderExplosions,
+					      &m_AmfPhysicBalls,
 					      &m_NamePlates,
 					      &m_SettingsStatusIndicator,
 					      &m_Particles.m_RenderExtra,
@@ -220,14 +302,15 @@ void CGameClient::OnConsoleInit()
 					      &m_Mod, // TClient
 					      &m_CustomCommunities, // TClient
 					      &m_Hud,
+					      &m_AmfFinishPrediction,
 					      &m_MusicPlayer,
-					      &m_Spectator,
+				      &m_Spectator,
 					      &m_Emoticon,
 					      &m_BindChat, // TClient
 					      &m_BindWheel, // TClient
 					      &m_WarList, // TClient
 					      &m_StatusBar, // TClient
-					      &m_InfoMessages,
+				      &m_InfoMessages,
 					      &m_Chat,
 					      &m_Broadcast,
 					      &m_ImportantAlert,
@@ -251,12 +334,12 @@ void CGameClient::OnConsoleInit()
 						  &m_Chat, // chat has higher prio, due to that you can quit it by pressing esc
 						  &m_Scoreboard,
 						  &m_Motd, // for pressing esc to remove it
-						  &m_Spectator,
-						  &m_BindWheel, // TClient
-						  &m_Emoticon,
-					  &m_ImportantAlert,
-					  &m_AmfHudEditor,
-					  &m_Menus,
+					      &m_Spectator,
+					      &m_BindWheel, // TClient
+					      &m_Emoticon,
+					      &m_ImportantAlert,
+					      &m_AmfHudEditor,
+						  &m_Menus,
 						  &m_Controls,
 						  &m_TouchControls,
 						  &m_Binds});
@@ -291,6 +374,7 @@ void CGameClient::OnConsoleInit()
 	Console()->Chain("cl_languagefile", ConchainLanguageUpdate, this);
 	Console()->Chain("amf_high_priority", ConchainAmfHighPriority, this);
 	Console()->Chain("amf_discord_low_priority", ConchainAmfDiscordLowPriority, this);
+	Console()->Chain("amf_spotify_soundcloud_low_priority", ConchainAmfSpotifySoundCloudLowPriority, this);
 
 	Console()->Chain("player_name", ConchainSpecialInfoupdate, this);
 	Console()->Chain("player_clan", ConchainSpecialInfoupdate, this);
@@ -368,11 +452,6 @@ void CGameClient::InitializeLanguage()
 	if(g_Config.m_ClShowWelcome)
 		g_Localization.SelectDefaultLanguage(Console(), g_Config.m_ClLanguagefile, sizeof(g_Config.m_ClLanguagefile));
 	g_Localization.Load(g_Config.m_ClLanguagefile, Storage(), Console());
-
-	// TClient
-	char aBuf[512];
-	str_format(aBuf, sizeof(aBuf), "tclient/%s", g_Config.m_ClLanguagefile);
-	g_Localization.Load(aBuf, Storage(), Console(), false);
 }
 
 void CGameClient::ForceUpdateConsoleRemoteCompletionSuggestions()
@@ -428,16 +507,16 @@ void CGameClient::OnInit()
 		}
 		OnInput(Event);
 	});
-	m_RenderTools.Init(Graphics(), TextRender(), this); // TClient
+	m_RenderTools.Init(Graphics(), TextRender(), this);
 	m_RenderMap.Init(Graphics(), TextRender());
 
 	if(GIT_SHORTREV_HASH)
 	{
-		str_format(m_aDDNetVersionStr, sizeof(m_aDDNetVersionStr), "%s %s (%s)", CLIENT_NAME, CLIENT_RELEASE_VERSION_DISPLAY, GIT_SHORTREV_HASH);
+		str_format(m_aDDNetVersionStr, sizeof(m_aDDNetVersionStr), "%s %s (%s)", GAME_NAME, GAME_RELEASE_VERSION, GIT_SHORTREV_HASH);
 	}
 	else
 	{
-		str_format(m_aDDNetVersionStr, sizeof(m_aDDNetVersionStr), "%s %s", CLIENT_NAME, CLIENT_RELEASE_VERSION_DISPLAY);
+		str_format(m_aDDNetVersionStr, sizeof(m_aDDNetVersionStr), "%s %s", GAME_NAME, GAME_RELEASE_VERSION);
 	}
 
 	// TODO: this should be different
@@ -484,11 +563,6 @@ void CGameClient::OnInit()
 		}
 		++CompCounter;
 	}
-
-	m_GameSkinLoaded = false;
-	m_ParticlesSkinLoaded = false;
-	m_EmoticonsSkinLoaded = false;
-	m_HudSkinLoaded = false;
 
 	// setup load amount, load textures
 	const char *pLoadingMessageAssets = Localize("Initializing assets");
@@ -539,25 +613,18 @@ void CGameClient::OnInit()
 	m_Menus.FinishLoading();
 	m_AmfConfigObservedHash = ConfigManager()->DomainHash(ConfigDomain::AMFCLIENT);
 	m_AmfConfigPersistenceInitialized = true;
-	// Apply the final saved state after graphics initialization, then verify it
-	// once through the same one-second cooldown used by settings changes.
 	ApplyAmfProcessPriority();
-	UpdateAmfDiscordProcessPriority();
+	UpdateAmfProcessPriorityTargets();
 	log_trace("gameclient", "initialization finished after %.2fms", (time_get() - OnInitStart) * 1000.0f / (float)time_freq());
 }
 
 void CGameClient::OnUpdate()
 {
 	HandleLanguageChanged();
-	if(m_AmfConfigSavePending)
-		UpdateAmfConfigPersistence();
+	UpdateAmfConfigPersistence();
 	const int64_t Now = time_get();
 	if(m_AmfPriorityVerificationPending && Now >= m_AmfPriorityVerificationTime)
 		VerifyAmfProcessPriority();
-	if(m_AmfDiscordPriorityVerificationPending && Now >= m_AmfDiscordPriorityVerificationTime)
-		VerifyAmfDiscordProcessPriorities();
-	if(m_AmfDiscordPriorityRetryPending && Now >= m_AmfDiscordPriorityRetryTime)
-		UpdateAmfDiscordProcessPriority();
 
 	CUIElementBase::Init(Ui()); // update static pointer because game and editor use separate UI
 
@@ -574,19 +641,12 @@ void CGameClient::OnUpdate()
 	}
 
 	// handle touch events
-	const std::vector<IInput::CTouchFingerState> &vTouchFingerStates = Input()->TouchFingerStates();
-	bool TouchHandled = false;
+	std::vector<IInput::CTouchFingerState> vTouchFingerStates = Input()->TouchFingerStates();
 	for(auto &pComponent : m_vpInput)
 	{
-		if(TouchHandled)
-		{
-			// Also update inactive components so they can handle touch fingers being released.
-			pComponent->OnTouchState({});
-		}
-		else if(pComponent->OnTouchState(vTouchFingerStates))
+		if(pComponent->OnTouchState(vTouchFingerStates))
 		{
 			Input()->ClearTouchDeltas();
-			TouchHandled = true;
 		}
 	}
 
@@ -605,6 +665,8 @@ void CGameClient::OnUpdate()
 	{
 		pComponent->OnUpdate();
 	}
+
+	m_LocalServer.Update();
 }
 
 void CGameClient::OnInput(const IInput::CEvent &Event)
@@ -675,16 +737,18 @@ int CGameClient::OnSnapInput(int *pData, bool Dummy, bool Force)
 			m_DummyInput.m_WantedWeapon = WEAPON_HAMMER + 1;
 		}
 
-		// const vec2 Dir = m_LocalCharacterPos - m_aClients[m_aLocalIds[!g_Config.m_ClDummy]].m_Predicted.m_Pos;
-		// TClient
-		const vec2 Dir = m_LocalCharacterPos - m_aClients[m_aLocalIds[!g_Config.m_ClDummy]].m_RegularPredicted.m_Pos;
-
+		const vec2 Dir = m_LocalCharacterPos - m_aClients[m_aLocalIds[!g_Config.m_ClDummy]].m_Predicted.m_Pos;
 		m_HammerInput.m_TargetX = (int)Dir.x;
 		m_HammerInput.m_TargetY = (int)Dir.y;
 
 		mem_copy(pData, &m_HammerInput, sizeof(m_HammerInput));
 		return sizeof(m_HammerInput);
 	}
+}
+
+void CGameClient::PrepareInputForSend(int *pData, int Size, bool Dummy)
+{
+	m_FastPractice.PrepareInputForSend(pData, Size, Dummy);
 }
 
 void CGameClient::OnConnected()
@@ -730,6 +794,7 @@ void CGameClient::OnConnected()
 void CGameClient::OnReset()
 {
 	InvalidateSnapshot();
+	m_RawAuthoritativeSnapshotAdapter.Reset();
 
 	m_EditorMovementDelay = 5;
 
@@ -754,6 +819,7 @@ void CGameClient::OnReset()
 	m_SuppressEvents = false;
 	m_NewTick = false;
 	m_NewPredictedTick = false;
+
 	m_aFlagDropTick[TEAM_RED] = 0;
 	m_aFlagDropTick[TEAM_BLUE] = 0;
 
@@ -790,15 +856,12 @@ void CGameClient::OnReset()
 	m_ReceivedDDNetPlayer = false;
 	m_ReceivedDDNetPlayerFinishTimes = false;
 	m_ReceivedDDNetPlayerFinishTimesMillis = false;
-	m_ReceivedPreInput = false;
 
 	m_Teams.Reset();
 	m_GameWorld.Clear();
 	m_GameWorld.m_WorldConfig.m_InfiniteAmmo = true;
 	m_PredictedWorld.CopyWorld(&m_GameWorld);
 	m_PrevPredictedWorld.CopyWorld(&m_PredictedWorld);
-	m_RegularPredictedWorld.CopyWorldClean(&m_PredictedWorld);
-	m_PrevRegularPredictedWorld.CopyWorldClean(&m_PredictedWorld);
 
 	m_vSnapEntities.clear();
 
@@ -808,7 +871,6 @@ void CGameClient::OnReset()
 	std::fill(std::begin(m_aLastUpdateTick), std::end(m_aLastUpdateTick), 0);
 
 	m_IsDummySwapping = false;
-	m_PredictedDummyId = -1;
 	m_CharOrder.Reset();
 	std::fill(std::begin(m_aSwitchStateTeam), std::end(m_aSwitchStateTeam), -1);
 
@@ -888,7 +950,6 @@ void CGameClient::OnRender()
 {
 	const ColorRGBA ClearColor = color_cast<ColorRGBA>(ColorHSLA(g_Config.m_ClOverlayEntities ? g_Config.m_ClBackgroundEntitiesColor : g_Config.m_ClBackgroundColor));
 	Graphics()->Clear(ClearColor.r, ClearColor.g, ClearColor.b);
-	Graphics()->SetScreenAspectOverrideEnabled(true);
 
 	// check if multi view got activated
 	if(!m_MultiView.m_IsInit && m_MultiViewActivated)
@@ -926,6 +987,7 @@ void CGameClient::OnRender()
 
 	// update camera data prior to CControls::OnRender to allow CControls::m_aTargetPos to compensate using camera data
 	m_Camera.UpdateCamera();
+	m_AmfOptimizer.RefreshFrame();
 
 	UpdateSpectatorCursor();
 
@@ -933,17 +995,17 @@ void CGameClient::OnRender()
 	const bool UseGameNoHudAspect = IsActiveGameplay && !IsAspectRatioBlockedByFng() && g_Config.m_AmfCustomAspectRatioApplyMode == 2;
 	bool HudAspectDisabled = false;
 
-	// render all systems
+	// Render all systems. In Game-no-HUD mode, render gameplay in the selected
+	// aspect and switch to the physical window aspect before the HUD component.
 	for(auto &pComponent : m_vpAll)
 	{
-		// In the target's render order HUD is registered before the music player;
-		// switch to the physical window aspect before the first HUD component so
-		// Game-no-HUD applies to every HUD overlay without changing their order.
 		if(UseGameNoHudAspect && !HudAspectDisabled && pComponent == &m_Hud)
 		{
 			Graphics()->SetScreenAspectOverrideEnabled(false);
 			HudAspectDisabled = true;
 		}
+		if(pComponent == &m_Hud)
+			m_AmfOptimizer.RenderFpsFogRect();
 		pComponent->OnRender();
 	}
 	if(UseGameNoHudAspect && HudAspectDisabled)
@@ -1044,784 +1106,6 @@ void CGameClient::OnDummyDisconnect()
 	m_FastPractice.InvalidateBufferedInputState();
 }
 
-void CGameClient::UpdateAmfProcessPriority()
-{
-#if defined(CONF_FAMILY_WINDOWS)
-	const bool WantHighPriority = g_Config.m_AmfHighPriority != 0;
-	const HANDLE Process = GetCurrentProcess();
-	const DWORD ProcessId = GetCurrentProcessId();
-	const DWORD RequestedPriority = WantHighPriority ? HIGH_PRIORITY_CLASS : NORMAL_PRIORITY_CLASS;
-	const DWORD PreviousPriority = GetPriorityClass(Process);
-	if(PreviousPriority == 0)
-	{
-		log_error("amf-priority", "DDNet PID %lu GetPriorityClass before SetPriorityClass failed (error %lu)", (unsigned long)ProcessId, (unsigned long)GetLastError());
-	}
-	else if(PreviousPriority != RequestedPriority)
-	{
-		log_info("amf-priority", "DDNet PID %lu applying priority %lu", (unsigned long)ProcessId, (unsigned long)RequestedPriority);
-		if(!SetPriorityClass(Process, RequestedPriority))
-			log_error("amf-priority", "DDNet PID %lu SetPriorityClass(%lu) returned false (error %lu)", (unsigned long)ProcessId, (unsigned long)RequestedPriority, (unsigned long)GetLastError());
-	}
-
-	// The delayed check is one-shot. A newer toggle replaces the pending request,
-	// so at most one correction can run for the latest requested state.
-	m_AmfExpectedPriority = RequestedPriority;
-	m_AmfPriorityVerificationPending = true;
-	m_AmfPriorityVerificationTime = time_get() + time_freq();
-#endif
-}
-
-void CGameClient::VerifyAmfProcessPriority()
-{
-#if defined(CONF_FAMILY_WINDOWS)
-	m_AmfPriorityVerificationPending = false;
-	const HANDLE Process = GetCurrentProcess();
-	const DWORD ProcessId = GetCurrentProcessId();
-	const DWORD ExpectedPriority = m_AmfExpectedPriority;
-	const DWORD ActualPriority = GetPriorityClass(Process);
-	if(ActualPriority == 0)
-	{
-		log_error("amf-priority", "DDNet PID %lu priority verification failed (error %lu)", (unsigned long)ProcessId, (unsigned long)GetLastError());
-		return;
-	}
-	if(ActualPriority == ExpectedPriority)
-	{
-		log_info("amf-priority", "DDNet PID %lu process priority confirmed as %lu", (unsigned long)ProcessId, (unsigned long)ExpectedPriority);
-		return;
-	}
-
-	log_error("amf-priority", "DDNet PID %lu priority changed after confirmation: expected %lu, got %lu; correcting once", (unsigned long)ProcessId, (unsigned long)ExpectedPriority, (unsigned long)ActualPriority);
-	if(!SetPriorityClass(Process, ExpectedPriority))
-	{
-		log_error("amf-priority", "DDNet PID %lu SetPriorityClass(%lu) correction failed (error %lu)", (unsigned long)ProcessId, (unsigned long)ExpectedPriority, (unsigned long)GetLastError());
-		return;
-	}
-	const DWORD CorrectedPriority = GetPriorityClass(Process);
-	if(CorrectedPriority != ExpectedPriority)
-	{
-		log_error("amf-priority", "DDNet PID %lu priority correction verification reported %lu instead of %lu (error %lu)", (unsigned long)ProcessId, (unsigned long)CorrectedPriority, (unsigned long)ExpectedPriority, (unsigned long)(CorrectedPriority == 0 ? GetLastError() : ERROR_SUCCESS));
-		return;
-	}
-	log_info("amf-priority", "DDNet PID %lu process priority confirmed as %lu after one correction", (unsigned long)ProcessId, (unsigned long)ExpectedPriority);
-#endif
-}
-
-bool CGameClient::PublishAmfDiscordPriorityRestoreState()
-{
-#if defined(CONF_FAMILY_WINDOWS)
-	auto *pState = static_cast<AmfDiscordPriorityRestore::CSharedState *>(m_pAmfDiscordRestoreState);
-	if(!pState || pState->m_Magic != AmfDiscordPriorityRestore::PROTOCOL_MAGIC || pState->m_Version != AmfDiscordPriorityRestore::PROTOCOL_VERSION)
-	{
-		log_error("amf-priority", "Discord crash restore state is unavailable");
-		return false;
-	}
-
-	unsigned OwnedProcessCount = 0;
-	for(const auto &Process : m_vAmfDiscordProcesses)
-	{
-		if(Process.m_PriorityChangedByAmf)
-			++OwnedProcessCount;
-	}
-	if(OwnedProcessCount > AmfDiscordPriorityRestore::MAX_PROCESSES)
-	{
-		log_error("amf-priority", "Discord crash restore state supports at most %u processes", AmfDiscordPriorityRestore::MAX_PROCESSES);
-		return false;
-	}
-
-	const LONG ActiveList = InterlockedCompareExchange(reinterpret_cast<volatile LONG *>(&pState->m_ActiveList), 0, 0);
-	const int NextList = ActiveList == 0 ? 1 : 0;
-	auto &List = pState->m_aLists[NextList];
-	mem_zero(&List, sizeof(List));
-	unsigned EntryIndex = 0;
-	for(const auto &Process : m_vAmfDiscordProcesses)
-	{
-		if(!Process.m_PriorityChangedByAmf)
-			continue;
-		List.m_aProcesses[EntryIndex].m_ProcessId = Process.m_ProcessId;
-		List.m_aProcesses[EntryIndex].m_CreationTime = Process.m_CreationTime;
-		++EntryIndex;
-	}
-	MemoryBarrier();
-	List.m_Count = EntryIndex;
-	MemoryBarrier();
-	InterlockedExchange(reinterpret_cast<volatile LONG *>(&pState->m_ActiveList), NextList);
-	return true;
-#else
-	return false;
-#endif
-}
-
-bool CGameClient::EnsureAmfDiscordPriorityRestoreHelper()
-{
-#if defined(CONF_FAMILY_WINDOWS)
-	bool HasOwnedProcesses = false;
-	for(const auto &Process : m_vAmfDiscordProcesses)
-	{
-		if(Process.m_PriorityChangedByAmf)
-		{
-			HasOwnedProcesses = true;
-			break;
-		}
-	}
-	if(!HasOwnedProcesses)
-	{
-		CancelAmfDiscordPriorityRestoreHelper();
-		return true;
-	}
-
-	if(m_pAmfDiscordRestoreHelperProcess && WaitForSingleObject(static_cast<HANDLE>(m_pAmfDiscordRestoreHelperProcess), 0) == WAIT_OBJECT_0)
-	{
-		log_error("amf-priority", "Discord crash restore helper exited unexpectedly; re-arming one session helper");
-		CancelAmfDiscordPriorityRestoreHelper();
-	}
-
-	if(m_AmfDiscordRestoreHelperLaunched)
-		return PublishAmfDiscordPriorityRestoreState();
-
-	uint64_t ClientCreationTime = 0;
-	if(!GetProcessCreationTime(GetCurrentProcess(), ClientCreationTime))
-	{
-		log_error("amf-priority", "failed to query AMF Client creation time for Discord crash restore helper (error %lu)", (unsigned long)GetLastError());
-		return false;
-	}
-
-	char aHelperPath[IO_MAX_PATH_LENGTH];
-	Storage()->GetBinaryPathAbsolute("amfclient-discord-priority-restore.exe", aHelperPath, sizeof(aHelperPath));
-	const std::wstring HelperPath = WidenUtf8(aHelperPath);
-	if(HelperPath.empty() || GetFileAttributesW(HelperPath.c_str()) == INVALID_FILE_ATTRIBUTES)
-	{
-		log_error("amf-priority", "Discord crash restore helper is missing");
-		return false;
-	}
-
-	const std::wstring ObjectBase = L"Local\\AMFDiscordPriorityRestore-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
-		std::to_wstring(ClientCreationTime) + L"-" + std::to_wstring(GetTickCount64());
-	const std::wstring StateName = ObjectBase + L"-state";
-	const std::wstring CancelEventName = ObjectBase + L"-cancel";
-	const std::wstring ReadyEventName = ObjectBase + L"-ready";
-
-	const HANDLE Mapping = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(AmfDiscordPriorityRestore::CSharedState), StateName.c_str());
-	const DWORD MappingError = GetLastError();
-	if(!Mapping || MappingError == ERROR_ALREADY_EXISTS)
-	{
-		log_error("amf-priority", "Discord crash restore state creation failed (error %lu)", (unsigned long)(Mapping ? MappingError : GetLastError()));
-		if(Mapping)
-			CloseHandle(Mapping);
-		return false;
-	}
-	void *pStateView = MapViewOfFile(Mapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(AmfDiscordPriorityRestore::CSharedState));
-	if(!pStateView)
-	{
-		log_error("amf-priority", "Discord crash restore state mapping failed (error %lu)", (unsigned long)GetLastError());
-		CloseHandle(Mapping);
-		return false;
-	}
-	mem_zero(pStateView, sizeof(AmfDiscordPriorityRestore::CSharedState));
-	auto *pState = static_cast<AmfDiscordPriorityRestore::CSharedState *>(pStateView);
-	pState->m_Magic = AmfDiscordPriorityRestore::PROTOCOL_MAGIC;
-	pState->m_Version = AmfDiscordPriorityRestore::PROTOCOL_VERSION;
-
-	const HANDLE CancelEvent = CreateEventW(nullptr, TRUE, FALSE, CancelEventName.c_str());
-	const DWORD CancelEventError = GetLastError();
-	const HANDLE ReadyEvent = CreateEventW(nullptr, TRUE, FALSE, ReadyEventName.c_str());
-	const DWORD ReadyEventError = GetLastError();
-	if(!CancelEvent || !ReadyEvent || CancelEventError == ERROR_ALREADY_EXISTS || ReadyEventError == ERROR_ALREADY_EXISTS)
-	{
-		log_error("amf-priority", "Discord crash restore helper event creation failed (error %lu)", (unsigned long)GetLastError());
-		if(CancelEvent)
-			CloseHandle(CancelEvent);
-		if(ReadyEvent)
-			CloseHandle(ReadyEvent);
-		UnmapViewOfFile(pStateView);
-		CloseHandle(Mapping);
-		return false;
-	}
-
-	m_pAmfDiscordRestoreMapping = Mapping;
-	m_pAmfDiscordRestoreState = pStateView;
-	m_pAmfDiscordRestoreCancelEvent = CancelEvent;
-	if(!PublishAmfDiscordPriorityRestoreState())
-	{
-		CloseHandle(ReadyEvent);
-		CancelAmfDiscordPriorityRestoreHelper();
-		return false;
-	}
-
-	std::wstring CommandLine = L"\"" + HelperPath + L"\" " + std::to_wstring(GetCurrentProcessId()) + L" " +
-		std::to_wstring(ClientCreationTime) + L" \"" + StateName + L"\" \"" + CancelEventName + L"\" \"" + ReadyEventName + L"\"";
-	STARTUPINFOW StartupInfo{};
-	StartupInfo.cb = sizeof(StartupInfo);
-	PROCESS_INFORMATION ProcessInfo{};
-	if(!CreateProcessW(HelperPath.c_str(), CommandLine.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &StartupInfo, &ProcessInfo))
-	{
-		log_error("amf-priority", "Discord crash restore helper launch failed (error %lu)", (unsigned long)GetLastError());
-		CloseHandle(ReadyEvent);
-		CancelAmfDiscordPriorityRestoreHelper();
-		return false;
-	}
-	CloseHandle(ProcessInfo.hThread);
-	m_pAmfDiscordRestoreHelperProcess = ProcessInfo.hProcess;
-
-	const DWORD ReadyResult = WaitForSingleObject(ReadyEvent, 1500);
-	CloseHandle(ReadyEvent);
-	if(ReadyResult != WAIT_OBJECT_0)
-	{
-		log_error("amf-priority", "Discord crash restore helper did not arm");
-		CancelAmfDiscordPriorityRestoreHelper();
-		return false;
-	}
-	m_AmfDiscordRestoreHelperLaunched = true;
-	log_info("amf-priority", "Discord crash restore helper armed for this DDNet session");
-	return true;
-#else
-	return false;
-#endif
-}
-
-void CGameClient::CancelAmfDiscordPriorityRestoreHelper()
-{
-#if defined(CONF_FAMILY_WINDOWS)
-	if(m_pAmfDiscordRestoreCancelEvent)
-		SetEvent(static_cast<HANDLE>(m_pAmfDiscordRestoreCancelEvent));
-	if(m_pAmfDiscordRestoreHelperProcess)
-	{
-		const HANDLE HelperProcess = static_cast<HANDLE>(m_pAmfDiscordRestoreHelperProcess);
-		if(WaitForSingleObject(HelperProcess, 1500) == WAIT_TIMEOUT)
-		{
-			log_error("amf-priority", "Discord crash restore helper did not exit after cancellation; terminating it");
-			TerminateProcess(HelperProcess, 1);
-			WaitForSingleObject(HelperProcess, 1000);
-		}
-		CloseHandle(HelperProcess);
-	}
-	if(m_pAmfDiscordRestoreCancelEvent)
-		CloseHandle(static_cast<HANDLE>(m_pAmfDiscordRestoreCancelEvent));
-	if(m_pAmfDiscordRestoreState)
-		UnmapViewOfFile(m_pAmfDiscordRestoreState);
-	if(m_pAmfDiscordRestoreMapping)
-		CloseHandle(static_cast<HANDLE>(m_pAmfDiscordRestoreMapping));
-#endif
-	m_pAmfDiscordRestoreMapping = nullptr;
-	m_pAmfDiscordRestoreState = nullptr;
-	m_pAmfDiscordRestoreCancelEvent = nullptr;
-	m_pAmfDiscordRestoreHelperProcess = nullptr;
-	m_AmfDiscordRestoreHelperLaunched = false;
-}
-
-bool CGameClient::RestoreAmfDiscordProcessPriorities(bool OnShutdown)
-{
-#if defined(CONF_FAMILY_WINDOWS)
-	bool AllRestored = true;
-	for(auto &Process : m_vAmfDiscordProcesses)
-	{
-		if(!Process.m_PriorityChangedByAmf || !Process.m_pProcess)
-			continue;
-
-		const HANDLE Handle = static_cast<HANDLE>(Process.m_pProcess);
-		DWORD ExitCode = 0;
-		if(!GetExitCodeProcess(Handle, &ExitCode) || ExitCode != STILL_ACTIVE)
-		{
-			Process.m_PriorityChangedByAmf = false;
-			continue;
-		}
-		const DWORD PreviousPriority = GetPriorityClass(Handle);
-		if(PreviousPriority == 0)
-		{
-			log_error("amf-priority", "Discord PID %lu GetPriorityClass while restoring failed (error %lu)", Process.m_ProcessId, (unsigned long)GetLastError());
-			AllRestored = false;
-			continue;
-		}
-		// Only restore the exact class AMF itself applied. A process that was
-		// already Below Normal belongs to another owner and is never reset here.
-		if(PreviousPriority != BELOW_NORMAL_PRIORITY_CLASS)
-		{
-			Process.m_PriorityChangedByAmf = false;
-			continue;
-		}
-		if(!SetPriorityClass(Handle, NORMAL_PRIORITY_CLASS) || GetPriorityClass(Handle) != NORMAL_PRIORITY_CLASS)
-		{
-			log_error("amf-priority", "Discord PID %lu could not be restored to Normal (error %lu)", Process.m_ProcessId, (unsigned long)GetLastError());
-			AllRestored = false;
-			continue;
-		}
-		Process.m_PriorityChangedByAmf = false;
-		if(OnShutdown)
-			log_info("amf-priority", "Discord PID %lu priority restored to Normal on shutdown", Process.m_ProcessId);
-		else
-			log_info("amf-priority", "Discord PID %lu priority returned to Normal because Low Priority Discord was disabled", Process.m_ProcessId);
-	}
-	return AllRestored;
-#else
-	(void)OnShutdown;
-	return true;
-#endif
-}
-
-void CGameClient::ScheduleAmfDiscordPriorityVerification(CAmfDiscordTrackedProcess &Process, unsigned long ExpectedPriority)
-{
-#if defined(CONF_FAMILY_WINDOWS)
-	Process.m_ExpectedPriority = ExpectedPriority;
-	Process.m_PriorityVerificationPending = true;
-	Process.m_PriorityVerificationTime = time_get() + time_freq();
-	if(!m_AmfDiscordPriorityVerificationPending || Process.m_PriorityVerificationTime < m_AmfDiscordPriorityVerificationTime)
-		m_AmfDiscordPriorityVerificationTime = Process.m_PriorityVerificationTime;
-	m_AmfDiscordPriorityVerificationPending = true;
-#else
-	(void)Process;
-	(void)ExpectedPriority;
-#endif
-}
-
-void CGameClient::VerifyAmfDiscordProcessPriorities()
-{
-#if defined(CONF_FAMILY_WINDOWS)
-	const int64_t Now = time_get();
-	const bool FinalizeDisabledState = !g_Config.m_AmfDiscordLowPriority;
-	const auto HasOwnedProcesses = [&]() {
-		for(const auto &Process : m_vAmfDiscordProcesses)
-		{
-			if(Process.m_PriorityChangedByAmf)
-				return true;
-		}
-		return false;
-	};
-	m_AmfDiscordPriorityVerificationPending = false;
-	m_AmfDiscordPriorityVerificationTime = 0;
-	for(auto &Process : m_vAmfDiscordProcesses)
-	{
-		if(!Process.m_PriorityVerificationPending)
-			continue;
-		if(Now < Process.m_PriorityVerificationTime)
-		{
-			if(!m_AmfDiscordPriorityVerificationPending || Process.m_PriorityVerificationTime < m_AmfDiscordPriorityVerificationTime)
-				m_AmfDiscordPriorityVerificationTime = Process.m_PriorityVerificationTime;
-			m_AmfDiscordPriorityVerificationPending = true;
-			continue;
-		}
-
-		Process.m_PriorityVerificationPending = false;
-		const HANDLE Handle = static_cast<HANDLE>(Process.m_pProcess);
-		if(!Handle)
-		{
-			Process.m_PriorityChangedByAmf = false;
-			continue;
-		}
-		DWORD ExitCode = 0;
-		if(!GetExitCodeProcess(Handle, &ExitCode) || ExitCode != STILL_ACTIVE)
-		{
-			Process.m_PriorityChangedByAmf = false;
-			continue;
-		}
-
-		const DWORD ExpectedPriority = Process.m_ExpectedPriority;
-		const DWORD ActualPriority = GetPriorityClass(Handle);
-		if(ActualPriority == 0)
-		{
-			log_error("amf-priority", "Discord PID %lu priority verification failed (error %lu)", Process.m_ProcessId, (unsigned long)GetLastError());
-			continue;
-		}
-		if(ActualPriority == ExpectedPriority)
-		{
-			log_info("amf-priority", "Discord PID %lu process priority confirmed as %lu", Process.m_ProcessId, (unsigned long)ExpectedPriority);
-			if(ExpectedPriority == NORMAL_PRIORITY_CLASS)
-				Process.m_PriorityChangedByAmf = false;
-			continue;
-		}
-
-		log_error("amf-priority", "Discord PID %lu priority changed after confirmation: expected %lu, got %lu; correcting once", Process.m_ProcessId, (unsigned long)ExpectedPriority, (unsigned long)ActualPriority);
-		const bool AcquiredOwnership = ExpectedPriority == BELOW_NORMAL_PRIORITY_CLASS && !Process.m_PriorityChangedByAmf;
-		if(AcquiredOwnership)
-		{
-			Process.m_PriorityChangedByAmf = true;
-			if(!EnsureAmfDiscordPriorityRestoreHelper())
-			{
-				Process.m_PriorityChangedByAmf = false;
-				log_error("amf-priority", "Discord PID %lu correction was not applied because the crash restore helper is unavailable", Process.m_ProcessId);
-				continue;
-			}
-		}
-		if(!SetPriorityClass(Handle, ExpectedPriority))
-		{
-			log_error("amf-priority", "Discord PID %lu SetPriorityClass(%lu) correction failed (error %lu)", Process.m_ProcessId, (unsigned long)ExpectedPriority, (unsigned long)GetLastError());
-			if(AcquiredOwnership)
-			{
-				Process.m_PriorityChangedByAmf = false;
-				if(HasOwnedProcesses())
-					PublishAmfDiscordPriorityRestoreState();
-				else
-					CancelAmfDiscordPriorityRestoreHelper();
-			}
-			continue;
-		}
-		const DWORD CorrectedPriority = GetPriorityClass(Handle);
-		if(CorrectedPriority != ExpectedPriority)
-		{
-			log_error("amf-priority", "Discord PID %lu priority correction verification reported %lu instead of %lu (error %lu)", Process.m_ProcessId, (unsigned long)CorrectedPriority, (unsigned long)ExpectedPriority, (unsigned long)(CorrectedPriority == 0 ? GetLastError() : ERROR_SUCCESS));
-			continue;
-		}
-		log_info("amf-priority", "Discord PID %lu process priority confirmed as %lu after one correction", Process.m_ProcessId, (unsigned long)ExpectedPriority);
-		if(ExpectedPriority == NORMAL_PRIORITY_CLASS)
-			Process.m_PriorityChangedByAmf = false;
-	}
-
-	if(FinalizeDisabledState && !m_AmfDiscordPriorityVerificationPending)
-	{
-		if(HasOwnedProcesses())
-			PublishAmfDiscordPriorityRestoreState();
-		else
-			ReleaseAmfDiscordProcessHandles(false);
-	}
-#endif
-}
-
-void CGameClient::UpdateAmfDiscordProcessPriority()
-{
-#if defined(CONF_FAMILY_WINDOWS)
-	const bool WantLowPriority = g_Config.m_AmfDiscordLowPriority != 0;
-	const DWORD RequestedPriority = BELOW_NORMAL_PRIORITY_CLASS;
-	const auto HasOwnedProcesses = [&]() {
-		for(const auto &Process : m_vAmfDiscordProcesses)
-		{
-			if(Process.m_PriorityChangedByAmf)
-				return true;
-		}
-		return false;
-	};
-	const auto DropNewOwnership = [&](CAmfDiscordTrackedProcess &Process) {
-		Process.m_PriorityChangedByAmf = false;
-		if(HasOwnedProcesses())
-			PublishAmfDiscordPriorityRestoreState();
-		else
-			CancelAmfDiscordPriorityRestoreHelper();
-	};
-	const auto ApplyPriority = [&](CAmfDiscordTrackedProcess &Process) {
-		const HANDLE Handle = static_cast<HANDLE>(Process.m_pProcess);
-		// Replace any older pending request before an operation that may fail. The
-		// one-shot verifier is also the single retry for that latest request.
-		ScheduleAmfDiscordPriorityVerification(Process, RequestedPriority);
-		const DWORD PreviousPriority = GetPriorityClass(Handle);
-		if(PreviousPriority == 0)
-		{
-			log_error("amf-priority", "Discord PID %lu GetPriorityClass failed (error %lu)", Process.m_ProcessId, (unsigned long)GetLastError());
-			return;
-		}
-		if(PreviousPriority == RequestedPriority)
-		{
-			// Do not claim a process this DDNet session did not lower itself. This
-			// prevents another AMF instance from restoring a shared Discord process
-			// to Normal while its own Low Priority setting remains enabled.
-			if(Process.m_PriorityChangedByAmf && !m_AmfDiscordRestoreHelperLaunched && !EnsureAmfDiscordPriorityRestoreHelper())
-				log_error("amf-priority", "Discord PID %lu crash restore helper is unavailable", Process.m_ProcessId);
-			return;
-		}
-
-		const bool WasChangedByAmf = Process.m_PriorityChangedByAmf;
-		if(!WasChangedByAmf)
-			Process.m_PriorityChangedByAmf = true;
-		// Publish and arm the one session helper before lowering the process, so
-		// a forced DDNet termination cannot leave Discord below normal.
-		if(!EnsureAmfDiscordPriorityRestoreHelper())
-		{
-			if(!WasChangedByAmf)
-				Process.m_PriorityChangedByAmf = false;
-			return;
-		}
-		log_info("amf-priority", "Discord PID %lu applying priority %lu", Process.m_ProcessId, (unsigned long)RequestedPriority);
-		if(!SetPriorityClass(Handle, RequestedPriority))
-		{
-			log_error("amf-priority", "Discord PID %lu SetPriorityClass(%lu) failed (error %lu)", Process.m_ProcessId, (unsigned long)RequestedPriority, (unsigned long)GetLastError());
-			if(!WasChangedByAmf)
-				DropNewOwnership(Process);
-			return;
-		}
-	};
-
-	const auto ScanDiscordProcesses = [&]() {
-		const HANDLE Snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-		if(Snapshot == INVALID_HANDLE_VALUE)
-		{
-			log_error("amf-priority", "Discord process scan failed (error %lu)", (unsigned long)GetLastError());
-			return;
-		}
-
-		PROCESSENTRY32W Entry{};
-		Entry.dwSize = sizeof(Entry);
-		if(!Process32FirstW(Snapshot, &Entry))
-		{
-			log_error("amf-priority", "Discord process scan initialization failed (error %lu)", (unsigned long)GetLastError());
-			CloseHandle(Snapshot);
-			return;
-		}
-
-		do
-		{
-			// Discord's normal multi-process application uses the exact executable
-			// name Discord.exe. Do not touch similarly named or unrelated processes.
-			if(_wcsicmp(Entry.szExeFile, L"Discord.exe") != 0)
-				continue;
-
-			CAmfDiscordTrackedProcess *pTracked = nullptr;
-			bool ProcessAlreadyTracked = false;
-			for(auto &Tracked : m_vAmfDiscordProcesses)
-			{
-				if(Tracked.m_ProcessId == Entry.th32ProcessID)
-				{
-					pTracked = &Tracked;
-					ProcessAlreadyTracked = true;
-					break;
-				}
-			}
-			if(!pTracked)
-			{
-				const HANDLE Handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SET_INFORMATION, FALSE, Entry.th32ProcessID);
-				if(!Handle)
-				{
-					log_error("amf-priority", "Discord PID %lu OpenProcess failed (error %lu)", (unsigned long)Entry.th32ProcessID, (unsigned long)GetLastError());
-					continue;
-				}
-				uint64_t CreationTime = 0;
-				if(!GetProcessCreationTime(Handle, CreationTime))
-				{
-					log_error("amf-priority", "Discord PID %lu GetProcessTimes failed (error %lu)", (unsigned long)Entry.th32ProcessID, (unsigned long)GetLastError());
-					CloseHandle(Handle);
-					continue;
-				}
-				m_vAmfDiscordProcesses.push_back({Handle, Entry.th32ProcessID, CreationTime});
-				pTracked = &m_vAmfDiscordProcesses.back();
-				log_info("amf-priority", "Discord PID %lu detected", (unsigned long)Entry.th32ProcessID);
-			}
-
-			if(!ProcessAlreadyTracked)
-				ApplyPriority(*pTracked);
-		} while(Process32NextW(Snapshot, &Entry));
-		CloseHandle(Snapshot);
-	};
-
-	const int64_t Now = time_get();
-	if(!WantLowPriority)
-	{
-		if(m_AmfDiscordPriorityRequestInitialized && !m_AmfLastDiscordLowPriorityRequest)
-			return;
-
-		bool VerificationScheduled = false;
-		for(auto &Process : m_vAmfDiscordProcesses)
-		{
-			if(!Process.m_PriorityChangedByAmf)
-			{
-				Process.m_PriorityVerificationPending = false;
-				Process.m_PriorityVerificationTime = 0;
-				Process.m_ExpectedPriority = 0;
-				continue;
-			}
-			if(!Process.m_pProcess)
-			{
-				Process.m_PriorityChangedByAmf = false;
-				Process.m_PriorityVerificationPending = false;
-				continue;
-			}
-			const HANDLE Handle = static_cast<HANDLE>(Process.m_pProcess);
-			DWORD ExitCode = 0;
-			if(!GetExitCodeProcess(Handle, &ExitCode) || ExitCode != STILL_ACTIVE)
-			{
-				Process.m_PriorityChangedByAmf = false;
-				Process.m_PriorityVerificationPending = false;
-				continue;
-			}
-			const DWORD PreviousPriority = GetPriorityClass(Handle);
-			if(PreviousPriority == 0)
-			{
-				log_error("amf-priority", "Discord PID %lu GetPriorityClass while disabling failed (error %lu)", Process.m_ProcessId, (unsigned long)GetLastError());
-			}
-			else if(PreviousPriority != NORMAL_PRIORITY_CLASS)
-			{
-				log_info("amf-priority", "Discord PID %lu applying priority %lu", Process.m_ProcessId, (unsigned long)NORMAL_PRIORITY_CLASS);
-				if(!SetPriorityClass(Handle, NORMAL_PRIORITY_CLASS))
-					log_error("amf-priority", "Discord PID %lu SetPriorityClass(%lu) failed (error %lu)", Process.m_ProcessId, (unsigned long)NORMAL_PRIORITY_CLASS, (unsigned long)GetLastError());
-			}
-			ScheduleAmfDiscordPriorityVerification(Process, NORMAL_PRIORITY_CLASS);
-			VerificationScheduled = true;
-		}
-		m_AmfDiscordPriorityVerificationPending = VerificationScheduled;
-		m_AmfDiscordPriorityVerificationTime = 0;
-		if(VerificationScheduled)
-		{
-			for(const auto &Process : m_vAmfDiscordProcesses)
-			{
-				if(Process.m_PriorityVerificationPending && (m_AmfDiscordPriorityVerificationTime == 0 || Process.m_PriorityVerificationTime < m_AmfDiscordPriorityVerificationTime))
-					m_AmfDiscordPriorityVerificationTime = Process.m_PriorityVerificationTime;
-			}
-		}
-		if(!VerificationScheduled)
-			ReleaseAmfDiscordProcessHandles(false);
-		m_AmfDiscordPriorityRequestInitialized = true;
-		m_AmfLastDiscordLowPriorityRequest = false;
-		m_AmfDiscordPriorityRetryPending = false;
-		m_AmfDiscordPriorityRetryTime = 0;
-		m_AmfDiscordPriorityReconciliationTime = 0;
-		return;
-	}
-
-	const bool EnablingLowPriority = !m_AmfDiscordPriorityRequestInitialized || !m_AmfLastDiscordLowPriorityRequest;
-	bool NeedFullScan = EnablingLowPriority || m_vAmfDiscordProcesses.empty();
-	if(m_pAmfDiscordRestoreHelperProcess && WaitForSingleObject(static_cast<HANDLE>(m_pAmfDiscordRestoreHelperProcess), 0) == WAIT_OBJECT_0)
-	{
-		log_error("amf-priority", "Discord crash restore helper exited unexpectedly; re-arming one session helper");
-		CancelAmfDiscordPriorityRestoreHelper();
-	}
-	bool TrackingChanged = false;
-	for(size_t i = 0; i < m_vAmfDiscordProcesses.size();)
-	{
-		auto &Process = m_vAmfDiscordProcesses[i];
-		const HANDLE Handle = static_cast<HANDLE>(Process.m_pProcess);
-		DWORD ExitCode = 0;
-		const BOOL GotExitCode = GetExitCodeProcess(Handle, &ExitCode);
-		if(!GotExitCode || ExitCode != STILL_ACTIVE)
-		{
-			if(!GotExitCode)
-				log_error("amf-priority", "Discord PID %lu GetExitCodeProcess failed (error %lu)", Process.m_ProcessId, (unsigned long)GetLastError());
-			else
-				log_info("amf-priority", "Discord PID %lu tracked process exited", Process.m_ProcessId);
-			CloseHandle(Handle);
-			m_vAmfDiscordProcesses.erase(m_vAmfDiscordProcesses.begin() + i);
-			NeedFullScan = true;
-			TrackingChanged = true;
-			continue;
-		}
-		if(EnablingLowPriority)
-			ApplyPriority(Process);
-		++i;
-	}
-	if(TrackingChanged && HasOwnedProcesses())
-		PublishAmfDiscordPriorityRestoreState();
-	else if(TrackingChanged)
-		CancelAmfDiscordPriorityRestoreHelper();
-	if(HasOwnedProcesses() && !m_AmfDiscordRestoreHelperLaunched && !EnsureAmfDiscordPriorityRestoreHelper())
-		log_error("amf-priority", "Discord crash restore helper could not be re-armed for this DDNet session");
-
-	NeedFullScan = NeedFullScan || m_vAmfDiscordProcesses.empty() || Now >= m_AmfDiscordPriorityReconciliationTime;
-	if(NeedFullScan)
-	{
-		ScanDiscordProcesses();
-		m_AmfDiscordPriorityReconciliationTime = m_vAmfDiscordProcesses.empty() ? 0 : Now + 5 * 60 * time_freq();
-	}
-
-	m_AmfDiscordPriorityRequestInitialized = true;
-	m_AmfLastDiscordLowPriorityRequest = true;
-	// Check tracked handles every 30 seconds. A full Tool Help scan only happens
-	// when none are left or during the five-minute reconciliation for new ones.
-	m_AmfDiscordPriorityRetryPending = true;
-	m_AmfDiscordPriorityRetryTime = Now + 30 * time_freq();
-#endif
-}
-
-void CGameClient::ReleaseAmfDiscordProcessHandles(bool PreserveOwnedRestoreHelpers)
-{
-#if defined(CONF_FAMILY_WINDOWS)
-	bool HasOwnedProcess = false;
-	for(const auto &Process : m_vAmfDiscordProcesses)
-	{
-		if(Process.m_PriorityChangedByAmf)
-		{
-			HasOwnedProcess = true;
-			break;
-		}
-	}
-	const bool KeepCrashRestoreHelper = PreserveOwnedRestoreHelpers && m_AmfDiscordRestoreHelperLaunched && HasOwnedProcess;
-	if(!KeepCrashRestoreHelper)
-	{
-		CancelAmfDiscordPriorityRestoreHelper();
-	}
-	else
-	{
-		// Direct restoration failed during shutdown. Leave the single helper its
-		// published identity list; it will observe DDNet's exit and retry once.
-		if(m_pAmfDiscordRestoreHelperProcess)
-			CloseHandle(static_cast<HANDLE>(m_pAmfDiscordRestoreHelperProcess));
-		if(m_pAmfDiscordRestoreCancelEvent)
-			CloseHandle(static_cast<HANDLE>(m_pAmfDiscordRestoreCancelEvent));
-		if(m_pAmfDiscordRestoreState)
-			UnmapViewOfFile(m_pAmfDiscordRestoreState);
-		if(m_pAmfDiscordRestoreMapping)
-			CloseHandle(static_cast<HANDLE>(m_pAmfDiscordRestoreMapping));
-		m_pAmfDiscordRestoreMapping = nullptr;
-		m_pAmfDiscordRestoreState = nullptr;
-		m_pAmfDiscordRestoreCancelEvent = nullptr;
-		m_pAmfDiscordRestoreHelperProcess = nullptr;
-		m_AmfDiscordRestoreHelperLaunched = false;
-	}
-	for(auto &Process : m_vAmfDiscordProcesses)
-	{
-		if(Process.m_pProcess)
-			CloseHandle(static_cast<HANDLE>(Process.m_pProcess));
-	}
-#else
-	(void)PreserveOwnedRestoreHelpers;
-#endif
-	m_vAmfDiscordProcesses.clear();
-	m_AmfDiscordPriorityVerificationPending = false;
-	m_AmfDiscordPriorityVerificationTime = 0;
-}
-
-void CGameClient::UpdateAmfConfigPersistence()
-{
-	constexpr int64_t SAVE_DEBOUNCE = 250;
-	const int64_t Now = time_get();
-	const int64_t DebounceTicks = time_freq() * SAVE_DEBOUNCE / 1000;
-	if(m_AmfConfigSavePending && Now >= m_AmfConfigSaveDeadline)
-	{
-		if(!ConfigManager()->SaveDomain(ConfigDomain::AMFCLIENT))
-			log_error("amf-config", "failed to save settings_amfclient.cfg");
-		else
-			m_AmfConfigLastSaveTime = Now;
-		m_AmfConfigSavePending = false;
-	}
-}
-
-void CGameClient::NotifyAmfConfigChanged()
-{
-	const uint64_t CurrentHash = ConfigManager()->DomainHash(ConfigDomain::AMFCLIENT);
-	if(!m_AmfConfigPersistenceInitialized)
-	{
-		m_AmfConfigObservedHash = CurrentHash;
-		m_AmfConfigPersistenceInitialized = true;
-		return;
-	}
-	if(CurrentHash == m_AmfConfigObservedHash)
-		return;
-
-	m_AmfConfigObservedHash = CurrentHash;
-	constexpr int64_t SAVE_DEBOUNCE = 250;
-	const int64_t Now = time_get();
-	const int64_t DebounceTicks = time_freq() * SAVE_DEBOUNCE / 1000;
-	// Discrete settings are committed immediately. Slider updates remain live,
-	// but consecutive values are coalesced until the drag has settled.
-	if(Now - m_AmfConfigLastSaveTime >= DebounceTicks)
-	{
-		if(!ConfigManager()->SaveDomain(ConfigDomain::AMFCLIENT))
-			log_error("amf-config", "failed to save settings_amfclient.cfg");
-		else
-			m_AmfConfigLastSaveTime = Now;
-		m_AmfConfigSavePending = false;
-	}
-	else
-	{
-		m_AmfConfigSavePending = true;
-		m_AmfConfigSaveDeadline = Now + DebounceTicks;
-	}
-}
-
-void CGameClient::ApplyAmfProcessPriority()
-{
-	UpdateAmfProcessPriority();
-}
-
-void CGameClient::ApplyAmfDiscordProcessPriority(bool Force)
-{
-	if(Force)
-		m_AmfDiscordPriorityRequestInitialized = false;
-	UpdateAmfDiscordProcessPriority();
-}
-
 int CGameClient::LastRaceTick() const
 {
 	return m_LastRaceTick;
@@ -1840,6 +1124,18 @@ bool CGameClient::IsTeamPlay() const
 {
 	return m_Snap.m_pGameInfoObj &&
 	       (m_Snap.m_pGameInfoObj->m_GameFlags & GAMEFLAG_TEAMS) != 0;
+}
+
+int CGameClient::MinTeamSize() const
+{
+	// old servers only expose it if the map settings happen to contain it
+	return m_GameInfo.m_MinTeamSize != 0 ? m_GameInfo.m_MinTeamSize : Config()->m_SvMinTeamSize;
+}
+
+int CGameClient::MaxTeamSize() const
+{
+	// old servers only expose it if the map settings happen to contain it
+	return m_GameInfo.m_MaxTeamSize != 0 ? m_GameInfo.m_MaxTeamSize : Config()->m_SvMaxTeamSize;
 }
 
 bool CGameClient::IsWorldPaused() const
@@ -1867,18 +1163,18 @@ float CGameClient::GetAnimationPlaybackSpeed() const
 	return 1.0f;
 }
 
-bool CGameClient::AntiPingPlayers() const
+int CGameClient::AntiPingPlayers() const
 {
 	if(m_FastPractice.ForcePredictPlayers())
-		return true;
+		return 1;
 	if(g_Config.m_ClAntiPing &&
 		g_Config.m_ClAntiPingPlayers &&
 		!m_Snap.m_SpecInfo.m_Active &&
 		Client()->State() != IClient::STATE_DEMOPLAYBACK)
 	{
-		return true;
+		return g_Config.m_ClAntiPingPlayers;
 	}
-	return false;
+	return 0;
 }
 
 bool CGameClient::AntiPingGrenade() const
@@ -1920,6 +1216,11 @@ bool CGameClient::Predict() const
 
 bool CGameClient::PredictDummy() const
 {
+	// The old AMF path did not predict a server dummy while Fast Practice was
+	// enabled but had not finished initializing its isolated participant IDs.
+	if(m_FastPractice.Enabled() && !m_FastPractice.Active())
+		return false;
+
 	if(m_FastPractice.Active())
 	{
 		const int FastPracticeDummyId = m_FastPractice.CurrentPracticeDummyId();
@@ -1928,13 +1229,13 @@ bool CGameClient::PredictDummy() const
 	return g_Config.m_ClPredictDummy &&
 	       Client()->DummyConnected() &&
 	       m_Snap.m_LocalClientId >= 0 &&
-	       m_PredictedDummyId >= 0 &&
-	       !m_aClients[m_PredictedDummyId].m_Paused;
+	       m_aLocalIds[!g_Config.m_ClDummy] >= 0 &&
+	       !m_aClients[m_aLocalIds[!g_Config.m_ClDummy]].m_Paused;
 }
 
 ColorRGBA CGameClient::GetDDTeamColor(int DDTeam, float Lightness) const
 {
-	// TClient
+	// TClient keeps its legacy team hue mapping when requested.
 	if(g_Config.m_TcOldTeamColors)
 		return color_cast<ColorRGBA>(ColorHSLA(DDTeam / 64.0f, 1.0f, Lightness));
 
@@ -2017,6 +1318,7 @@ void CGameClient::OnMessage(int MsgId, CUnpacker *pUnpacker, int Conn, bool Dumm
 	}
 
 	void *pRawMsg = TranslateGameMsg(&MsgId, pUnpacker, Conn);
+	m_ImpactSystem.DebugLogRawNetworkMessage(MsgId, Conn, pRawMsg != nullptr);
 
 	if(!pRawMsg)
 	{
@@ -2039,7 +1341,16 @@ void CGameClient::OnMessage(int MsgId, CUnpacker *pUnpacker, int Conn, bool Dumm
 
 	if(Dummy)
 	{
-		if(MsgId == NETMSGTYPE_SV_CHAT && m_aLocalIds[0] >= 0 && m_aLocalIds[1] >= 0)
+		// Preserve Impact's existing dual-connection kill/finish evidence path.
+		// Main-connection messages are delivered through the component callback
+		// below; dummy messages are otherwise ignored by native components.
+		if(MsgId == NETMSGTYPE_SV_KILLMSG || MsgId == NETMSGTYPE_SV_KILLMSGTEAM || MsgId == NETMSGTYPE_SV_RACEFINISH)
+			m_ImpactSystem.OnMessageFromConnection(MsgId, pRawMsg, Conn);
+		if(MsgId == NETMSGTYPE_SV_READYTOENTER)
+		{
+			Client()->EnterGame(Conn);
+		}
+		else if(MsgId == NETMSGTYPE_SV_CHAT && m_aLocalIds[0] >= 0 && m_aLocalIds[1] >= 0)
 		{
 			CNetMsg_Sv_Chat *pMsg = (CNetMsg_Sv_Chat *)pRawMsg;
 
@@ -2105,6 +1416,9 @@ void CGameClient::OnMessage(int MsgId, CUnpacker *pUnpacker, int Conn, bool Dumm
 				break;
 			}
 		}
+
+		if(i <= VANILLA_MAX_CLIENTS)
+			m_Teams.m_NumDDRaceTeams = VANILLA_MAX_CLIENTS + 1;
 
 		m_Ghost.m_AllowRestart = true;
 		m_RaceDemo.m_AllowRestart = true;
@@ -2177,9 +1491,6 @@ void CGameClient::OnMessage(int MsgId, CUnpacker *pUnpacker, int Conn, bool Dumm
 		if(m_SuppressEvents)
 			return;
 
-		if(!g_Config.m_SndGame)
-			return;
-
 		CNetMsg_Sv_MapSoundGlobal *pMsg = (CNetMsg_Sv_MapSoundGlobal *)pRawMsg;
 		m_MapSounds.Play(CSounds::CHN_GLOBAL, pMsg->m_SoundId);
 	}
@@ -2187,7 +1498,6 @@ void CGameClient::OnMessage(int MsgId, CUnpacker *pUnpacker, int Conn, bool Dumm
 	{
 		CNetMsg_Sv_PreInput *pMsg = (CNetMsg_Sv_PreInput *)pRawMsg;
 		m_aClients[pMsg->m_Owner].m_aPreInputs[pMsg->m_IntendedTick % 200] = *pMsg;
-		m_ReceivedPreInput = true;
 	}
 	else if(MsgId == NETMSGTYPE_SV_SAVECODE)
 	{
@@ -2228,12 +1538,7 @@ void CGameClient::OnStateChange(int NewState, int OldState)
 void CGameClient::OnShutdown()
 {
 	m_AmfPriorityVerificationPending = false;
-	m_AmfDiscordPriorityVerificationPending = false;
-	const bool DiscordPrioritiesRestored = RestoreAmfDiscordProcessPriorities(true);
-	// Keep a crash-restore helper alive only if the direct shutdown restore
-	// failed. Normally every helper is cancelled here after its process was
-	// confirmed back at Normal priority.
-	ReleaseAmfDiscordProcessHandles(!DiscordPrioritiesRestored);
+	StopAmfProcessPriorityWorker();
 	for(auto &pComponent : m_vpAll)
 		pComponent->OnShutdown();
 
@@ -2242,8 +1547,8 @@ void CGameClient::OnShutdown()
 
 void CGameClient::OnBeforeHttpShutdown()
 {
-	// The presence worker owns direct libcurl handles. Stop it before the shared
-	// HTTP worker can reach curl_global_cleanup during application shutdown.
+	// Stop the AMF presence worker before the shared HTTP service tears down
+	// libcurl globally. OnShutdown remains the general component teardown path.
 	m_AmfPresenceTransport.OnShutdown();
 }
 
@@ -2306,12 +1611,6 @@ void CGameClient::HandleLanguageChanged()
 	m_LanguageChanged = false;
 
 	g_Localization.Load(g_Config.m_ClLanguagefile, Storage(), Console());
-
-	// TClient
-	char aBuf[512];
-	str_format(aBuf, sizeof(aBuf), "tclient/%s", g_Config.m_ClLanguagefile);
-	g_Localization.Load(aBuf, Storage(), Console(), false);
-
 	TextRender()->SetFontLanguageVariant(g_Config.m_ClLanguagefile);
 
 	// Clear all text containers
@@ -2377,6 +1676,30 @@ void CGameClient::ProcessEvents()
 	if(m_SuppressEvents)
 		return;
 
+	bool aLocalJustFiredHammer[NUM_DUMMIES] = {};
+	vec2 aLocalHammerPos[NUM_DUMMIES] = {};
+	for(int Dummy = 0; Dummy < NUM_DUMMIES; Dummy++)
+	{
+		const int LocalId = m_aLocalIds[Dummy];
+		if(LocalId < 0 || LocalId >= MAX_CLIENTS)
+			continue;
+		const auto *pCur = static_cast<const CNetObj_Character *>(Client()->SnapFindItem(IClient::SNAP_CURRENT, NETOBJTYPE_CHARACTER, LocalId));
+		const auto *pPrev = static_cast<const CNetObj_Character *>(Client()->SnapFindItem(IClient::SNAP_PREV, NETOBJTYPE_CHARACTER, LocalId));
+		if(!pCur || !pPrev)
+			continue;
+		if(pCur->m_AttackTick != pPrev->m_AttackTick && pCur->m_Weapon == WEAPON_HAMMER)
+		{
+			aLocalJustFiredHammer[Dummy] = true;
+			aLocalHammerPos[Dummy] = vec2(pCur->m_X, pCur->m_Y);
+		}
+	}
+	auto IsLocalHammerHit = [&](vec2 HitPos) {
+		for(int Dummy = 0; Dummy < NUM_DUMMIES; Dummy++)
+			if(aLocalJustFiredHammer[Dummy] && distance(HitPos, aLocalHammerPos[Dummy]) <= 120.0f)
+				return true;
+		return false;
+	};
+
 	int SnapType = IClient::SNAP_CURRENT;
 	int Num = Client()->SnapNumItems(SnapType);
 	for(int Index = 0; Index < Num; Index++)
@@ -2414,7 +1737,7 @@ void CGameClient::ProcessEvents()
 			vec2 HammerHitPos = vec2(pEvent->m_X, pEvent->m_Y);
 			if(!m_PredictedWorld.CheckPredictedEventHandled(CGameWorld::CPredictedEvent(Item.m_Type, HammerHitPos, -1, Client()->GameTick(g_Config.m_ClDummy))))
 			{
-				m_Effects.HammerHit(HammerHitPos, Alpha, Volume);
+				m_Effects.HammerHit(HammerHitPos, Alpha, Volume, !IsLocalHammerHit(HammerHitPos));
 			}
 		}
 		else if(Item.m_Type == NETEVENTTYPE_BIRTHDAY)
@@ -2455,9 +1778,6 @@ void CGameClient::ProcessEvents()
 		else if(Item.m_Type == NETEVENTTYPE_MAPSOUNDWORLD)
 		{
 			CNetEvent_MapSoundWorld *pEvent = (CNetEvent_MapSoundWorld *)Item.m_pData;
-			if(!Config()->m_SndGame)
-				continue;
-
 			m_MapSounds.PlayAt(CSounds::CHN_WORLD, pEvent->m_SoundId, vec2(pEvent->m_X, pEvent->m_Y));
 		}
 	}
@@ -2569,6 +1889,10 @@ static CGameInfo GetGameInfo(const CNetObj_GameInfoEx *pInfoEx, int InfoExSize, 
 	Info.m_NoSkinChangeForFrozen = false;
 	Info.m_DDRaceTeam = false;
 	Info.m_PredictEvents = Vanilla;
+	Info.m_MinTeamSize = 0;
+	Info.m_MaxTeamSize = 0;
+	Info.m_NumDDRaceTeams = 65; // `TEAM_SUPER + 1`, fallback for ddrace64 servers
+	Info.m_OldLaser = false;
 
 	if(Version >= 0)
 	{
@@ -2636,8 +1960,16 @@ static CGameInfo GetGameInfo(const CNetObj_GameInfoEx *pInfoEx, int InfoExSize, 
 	{
 		Info.m_PredictEvents = Flags2 & GAMEINFOFLAG2_PREDICT_EVENTS;
 	}
-	// TClient
-	str_copy(Info.m_aGameType, pFallbackServerInfo->m_aGameType);
+	if(Version >= 12)
+	{
+		Info.m_MinTeamSize = pInfoEx->m_MinTeamSize;
+		Info.m_MaxTeamSize = pInfoEx->m_MaxTeamSize;
+		// Servers from before this field was added send 0, and this client cannot represent more
+		// teams than it was compiled with. Fall back to our own count for anything out of range.
+		const int NumDDRaceTeams = pInfoEx->m_NumDDRaceTeams;
+		Info.m_NumDDRaceTeams = NumDDRaceTeams > TEAM_FLOCK + 1 && NumDDRaceTeams <= NUM_DDRACE_TEAMS ? NumDDRaceTeams : NUM_DDRACE_TEAMS;
+		Info.m_OldLaser = Flags2 & GAMEINFOFLAG2_OLD_LASER;
+	}
 
 	return Info;
 }
@@ -2673,6 +2005,9 @@ void CGameClient::OnNewSnapshot(bool DummySwapped)
 	};
 
 	InvalidateSnapshot();
+	const bool DemoPlayback = Client()->State() == IClient::STATE_DEMOPLAYBACK;
+	m_RawAuthoritativeSnapshotAdapter.BeginSnapshot(DemoPlayback ? -1 : g_Config.m_ClDummy, DummySwapped,
+		Client()->GameTick(g_Config.m_ClDummy), Client()->PrevGameTick(g_Config.m_ClDummy), DemoPlayback);
 
 	m_NewTick = true;
 
@@ -2692,8 +2027,7 @@ void CGameClient::OnNewSnapshot(bool DummySwapped)
 		}
 	}
 
-	CServerInfo ServerInfo;
-	Client()->GetServerInfo(&ServerInfo);
+	const CServerInfo &ServerInfo = Client()->ServerInfo();
 
 	bool FoundGameInfoEx = false;
 	bool GotSwitchStateTeam = false;
@@ -2752,6 +2086,7 @@ void CGameClient::OnNewSnapshot(bool DummySwapped)
 
 				if(pInfo->m_ClientId < MAX_CLIENTS && pInfo->m_ClientId == Item.m_Id)
 				{
+					m_RawAuthoritativeSnapshotAdapter.ObservePlayerInfo(pInfo->m_ClientId, pInfo->m_Team, pInfo->m_Local != 0);
 					m_aClients[pInfo->m_ClientId].m_Team = pInfo->m_Team;
 					m_aClients[pInfo->m_ClientId].m_Active = true;
 					m_Snap.m_apPlayerInfos[pInfo->m_ClientId] = pInfo;
@@ -2813,7 +2148,10 @@ void CGameClient::OnNewSnapshot(bool DummySwapped)
 				if(Item.m_Id < MAX_CLIENTS)
 				{
 					const void *pOld = Client()->SnapFindItem(IClient::SNAP_PREV, NETOBJTYPE_CHARACTER, Item.m_Id);
-					m_Snap.m_aCharacters[Item.m_Id].m_Cur = *((const CNetObj_Character *)Item.m_pData);
+					const CNetObj_Character *pCurrent = static_cast<const CNetObj_Character *>(Item.m_pData);
+					m_RawAuthoritativeSnapshotAdapter.ObserveCharacter(Item.m_Id, *pCurrent,
+						static_cast<const CNetObj_Character *>(pOld), m_aClients[Item.m_Id].m_Team);
+					m_Snap.m_aCharacters[Item.m_Id].m_Cur = *pCurrent;
 					if(pOld)
 					{
 						m_Snap.m_aCharacters[Item.m_Id].m_Active = true;
@@ -2852,8 +2190,10 @@ void CGameClient::OnNewSnapshot(bool DummySwapped)
 
 				if(Item.m_Id < MAX_CLIENTS)
 				{
+					const CNetObj_DDNetCharacter *pRawPreviousExtended = static_cast<const CNetObj_DDNetCharacter *>(Client()->SnapFindItem(IClient::SNAP_PREV, NETOBJTYPE_DDNETCHARACTER, Item.m_Id));
+					m_RawAuthoritativeSnapshotAdapter.ObserveExtendedCharacter(Item.m_Id, *pCharacterData, pRawPreviousExtended);
 					m_Snap.m_aCharacters[Item.m_Id].m_ExtendedData = *pCharacterData;
-					m_Snap.m_aCharacters[Item.m_Id].m_pPrevExtendedData = (const CNetObj_DDNetCharacter *)Client()->SnapFindItem(IClient::SNAP_PREV, NETOBJTYPE_DDNETCHARACTER, Item.m_Id);
+					m_Snap.m_aCharacters[Item.m_Id].m_pPrevExtendedData = pRawPreviousExtended;
 					m_Snap.m_aCharacters[Item.m_Id].m_HasExtendedData = true;
 					m_Snap.m_aCharacters[Item.m_Id].m_HasExtendedDisplayInfo = false;
 					if(pCharacterData->m_JumpedTotal != -1)
@@ -2888,9 +2228,6 @@ void CGameClient::OnNewSnapshot(bool DummySwapped)
 					pClient->m_HasTelegunLaser = pCharacterData->m_Flags & CHARACTERFLAG_TELEGUN_LASER;
 
 					pClient->m_Predicted.ReadDDNet(pCharacterData);
-
-					// TClient
-					pClient->m_RegularPredicted.ReadDDNet(pCharacterData);
 
 					m_Teams.SetSolo(Item.m_Id, pClient->m_Solo);
 				}
@@ -3061,6 +2398,9 @@ void CGameClient::OnNewSnapshot(bool DummySwapped)
 		m_GameInfo = GetGameInfo(nullptr, 0, &ServerInfo);
 	}
 
+	// Sv_TeamsState can arrive before the first snapshot, so derive this here instead of in the message handler
+	m_Teams.m_NumDDRaceTeams = m_GameInfo.m_NumDDRaceTeams;
+
 	for(CClientData &Client : m_aClients)
 	{
 		Client.UpdateSkinInfo();
@@ -3087,14 +2427,6 @@ void CGameClient::OnNewSnapshot(bool DummySwapped)
 			m_Controls.OnPlayerDeath();
 		}
 	}
-
-	if(m_FastPractice.Enabled())
-		m_PredictedDummyId = m_FastPractice.CurrentPracticeDummyId();
-	else if(Client()->DummyConnected() && m_aLocalIds[!g_Config.m_ClDummy] >= 0)
-		m_PredictedDummyId = m_aLocalIds[!g_Config.m_ClDummy];
-	else
-		m_PredictedDummyId = -1;
-
 	if(Client()->State() == IClient::STATE_DEMOPLAYBACK)
 	{
 		if(m_Snap.m_LocalClientId == -1 && m_DemoSpecId == SPEC_FOLLOW)
@@ -3193,9 +2525,12 @@ void CGameClient::OnNewSnapshot(bool DummySwapped)
 
 	if(ServerInfo.m_aGameType[0] != '0')
 	{
+		// Vanilla servers send laser_bounce_num 1, DDNet has laser_bounce_num 1000 since ~2014
+		CTuningParams VanillaTuning;
+		VanillaTuning.m_LaserBounceNum = 1;
 		if(str_comp(ServerInfo.m_aGameType, "DM") != 0 && str_comp(ServerInfo.m_aGameType, "TDM") != 0 && str_comp(ServerInfo.m_aGameType, "CTF") != 0)
 			m_ServerMode = SERVERMODE_MOD;
-		else if(mem_comp(&CTuningParams::DEFAULT, &m_aTuning[g_Config.m_ClDummy], 33) == 0)
+		else if(mem_comp(&VanillaTuning, &m_aTuning[g_Config.m_ClDummy], 33 * sizeof(CTuneParam)) == 0)
 			m_ServerMode = SERVERMODE_PURE;
 		else
 			m_ServerMode = SERVERMODE_PUREMOD;
@@ -3387,20 +2722,10 @@ void CGameClient::OnNewSnapshot(bool DummySwapped)
 					Alpha = g_Config.m_ClShowOthersAlpha / 100.0f;
 				const float Volume = 1.0f; // TODO snd_game_volume_others
 
-				bool Grounded = false;
-				if(Collision()->CheckPoint(m_Snap.m_aCharacters[i].m_Prev.m_X + CCharacterCore::PhysicalSize() / 2,
-					   m_Snap.m_aCharacters[i].m_Prev.m_Y + CCharacterCore::PhysicalSize() / 2 + 5))
-				{
-					Grounded = true;
-				}
-				if(Collision()->CheckPoint(m_Snap.m_aCharacters[i].m_Prev.m_X - CCharacterCore::PhysicalSize() / 2,
-					   m_Snap.m_aCharacters[i].m_Prev.m_Y + CCharacterCore::PhysicalSize() / 2 + 5))
-				{
-					Grounded = true;
-				}
+				const bool Grounded = Collision()->IsOnGround(vec2(m_Snap.m_aCharacters[i].m_Prev.m_X, m_Snap.m_aCharacters[i].m_Prev.m_Y), CCharacterCore::PhysicalSize());
 				if(!Grounded)
 				{
-					m_Effects.AirJump(Pos, Alpha, Volume);
+					m_Effects.AirJump(Pos, Alpha, Volume, !AmfIsOwnTee(this, i));
 				}
 			}
 		}
@@ -3514,7 +2839,46 @@ void CGameClient::UpdateEditorIngameMoved()
 	}
 }
 
-// TClient
+void CGameClient::ApplyPreInputs(int Tick, bool Direct, CGameWorld &GameWorld)
+{
+	if(!g_Config.m_ClAntiPingPreInput)
+		return;
+
+	for(int ClientId = 0; ClientId < MAX_CLIENTS; ClientId++)
+	{
+		if(CCharacter *pChar = GameWorld.GetCharacterById(ClientId))
+		{
+			if(ClientId == m_aLocalIds[0] || (Client()->DummyConnected() && ClientId == m_aLocalIds[1]))
+				continue;
+
+			const CNetMsg_Sv_PreInput PreInput = m_aClients[ClientId].m_aPreInputs[Tick % 200];
+			if(PreInput.m_IntendedTick != Tick)
+				continue;
+
+			//convert preinput to input
+			CNetObj_PlayerInput Input = {0};
+			Input.m_Direction = PreInput.m_Direction;
+			Input.m_TargetX = PreInput.m_TargetX;
+			Input.m_TargetY = PreInput.m_TargetY;
+			Input.m_Jump = PreInput.m_Jump;
+			Input.m_Fire = PreInput.m_Fire;
+			Input.m_Hook = PreInput.m_Hook;
+			Input.m_WantedWeapon = PreInput.m_WantedWeapon;
+			Input.m_NextWeapon = PreInput.m_NextWeapon;
+			Input.m_PrevWeapon = PreInput.m_PrevWeapon;
+
+			if(Direct)
+			{
+				pChar->OnDirectInput(&Input);
+			}
+			else
+			{
+				pChar->OnPredictedInput(&Input);
+			}
+		}
+	}
+}
+
 bool CGameClient::GetDummyFastInput(CNetObj_PlayerInput &DummyFastInput, const CNetObj_PlayerInput *pDummyInputData, const CCharacter *pDummyChar, int LocalTee, int DummyTee) const
 {
 	if(!PredictDummy() || !pDummyChar)
@@ -3560,111 +2924,15 @@ bool CGameClient::GetDummyFastInput(CNetObj_PlayerInput &DummyFastInput, const C
 	return false;
 }
 
-void CGameClient::PrepareInputForSend(int *pData, int Size, bool Dummy)
-{
-	m_FastPractice.PrepareInputForSend(pData, Size, Dummy);
-}
-
-bool CGameClient::IsCloudInputMode() const
-{
-	return m_CloudInput.IsActive() || m_CloudInputOld.IsActive();
-}
-
-bool CGameClient::IsCloudInputOldMode() const
-{
-	return m_CloudInputOld.IsActive();
-}
-
-bool CGameClient::CloudInputOthersEnabled() const
-{
-	return IsCloudInputOldMode() ? g_Config.m_AmfCloudInputOldOthers != 0 : g_Config.m_AmfCloudInputOthers != 0;
-}
-
-int CGameClient::CloudInputSelfTickOffset() const
-{
-	return IsCloudInputOldMode() ? m_CloudInputOld.SelfTickOffset() : m_CloudInput.SelfTickOffset();
-}
-
-int CGameClient::CloudInputOthersTickOffset() const
-{
-	return IsCloudInputOldMode() ? m_CloudInputOld.OthersTickOffset() : m_CloudInput.OthersTickOffset();
-}
-
-CNetObj_PlayerInput &CGameClient::CloudInputInput(int Dummy)
-{
-	return IsCloudInputOldMode() ? m_CloudInputOld.Input(Dummy) : m_CloudInput.Input(Dummy);
-}
-
-const CNetObj_PlayerInput &CGameClient::CloudInputInput(int Dummy) const
-{
-	return IsCloudInputOldMode() ? m_CloudInputOld.Input(Dummy) : m_CloudInput.Input(Dummy);
-}
-
-bool CGameClient::CheckCloudInputNewInput()
-{
-	return IsCloudInputOldMode() ? m_CloudInputOld.CheckNewInput(m_Controls) : m_CloudInput.CheckNewInput(m_Controls);
-}
-
-void CGameClient::ApplyCloudInputOffset(int ClientId, int &Tick, float &Intra) const
-{
-	if(IsCloudInputOldMode())
-		m_CloudInputOld.ApplyOffset(*this, ClientId, Tick, Intra);
-	else
-		m_CloudInput.ApplyOffset(*this, ClientId, Tick, Intra);
-}
-
-bool CGameClient::TryGetCloudInputPredPos(int ClientId, int Tick, float Intra, vec2 &OutPos) const
-{
-	return IsCloudInputOldMode() ? m_CloudInputOld.TryGetPredPos(*this, ClientId, Tick, Intra, OutPos) : m_CloudInput.TryGetPredPos(*this, ClientId, Tick, Intra, OutPos);
-}
-
-bool CGameClient::IsFastInputLocalClient(int ClientId) const
-{
-	return ClientId == m_Snap.m_LocalClientId || (PredictDummy() && ClientId == m_aLocalIds[!g_Config.m_ClDummy]);
-}
-
-void CGameClient::ApplyPreInputs(int Tick, bool Direct, CGameWorld &GameWorld)
-{
-	if(!g_Config.m_ClAntiPingPreInput)
-		return;
-
-	for(int ClientId = 0; ClientId < MAX_CLIENTS; ClientId++)
-	{
-		if(CCharacter *pChar = GameWorld.GetCharacterById(ClientId))
-		{
-			if(ClientId == m_aLocalIds[0] || (Client()->DummyConnected() && ClientId == m_aLocalIds[1]))
-				continue;
-
-			const CNetMsg_Sv_PreInput PreInput = m_aClients[ClientId].m_aPreInputs[Tick % 200];
-			if(PreInput.m_IntendedTick != Tick)
-				continue;
-
-			//convert preinput to input
-			CNetObj_PlayerInput Input = {0};
-			Input.m_Direction = PreInput.m_Direction;
-			Input.m_TargetX = PreInput.m_TargetX;
-			Input.m_TargetY = PreInput.m_TargetY;
-			Input.m_Jump = PreInput.m_Jump;
-			Input.m_Fire = PreInput.m_Fire;
-			Input.m_Hook = PreInput.m_Hook;
-			Input.m_WantedWeapon = PreInput.m_WantedWeapon;
-			Input.m_NextWeapon = PreInput.m_NextWeapon;
-			Input.m_PrevWeapon = PreInput.m_PrevWeapon;
-
-			if(Direct)
-			{
-				pChar->OnDirectInput(&Input);
-			}
-			else
-			{
-				pChar->OnPredictedInput(&Input);
-			}
-		}
-	}
-}
-
 void CGameClient::OnPredict()
 {
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	auto CheckSnapshotForensics = [this](const char *pBoundary) {
+		const bool Intact = Client()->DebugCheckSnapshotStorage(pBoundary);
+		dbg_assert(Intact, "Snapshot storage mutation detected at prediction boundary '%s'", pBoundary);
+	};
+#endif
+
 	// store the previous values so we can detect prediction errors
 	CCharacterCore BeforePrevChar = m_PredictedPrevChar;
 	CCharacterCore BeforeChar = m_PredictedChar;
@@ -3673,7 +2941,18 @@ void CGameClient::OnPredict()
 	if(m_Snap.m_LocalClientId == -1 || !m_Snap.m_aCharacters[m_Snap.m_LocalClientId].m_Active)
 	{
 		if(m_FastPractice.Enabled())
+		{
+#if defined(CONF_SNAPSHOT_FORENSICS)
+			CheckSnapshotForensics("predict_before_early_fast_practice_sync");
+#endif
 			m_FastPractice.SyncFromPrediction();
+#if defined(CONF_SNAPSHOT_FORENSICS)
+			CheckSnapshotForensics("predict_after_early_fast_practice_sync");
+#endif
+		}
+#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_early_return");
+#endif
 		return;
 	}
 
@@ -3691,10 +2970,24 @@ void CGameClient::OnPredict()
 			m_PredictedPrevChar.m_ActiveWeapon = m_Snap.m_pLocalPrevCharacter->m_Weapon;
 		}
 		if(m_FastPractice.Enabled())
+		{
+#if defined(CONF_SNAPSHOT_FORENSICS)
+			CheckSnapshotForensics("predict_before_paused_fast_practice_sync");
+#endif
 			m_FastPractice.SyncFromPrediction();
+#if defined(CONF_SNAPSHOT_FORENSICS)
+			CheckSnapshotForensics("predict_after_paused_fast_practice_sync");
+#endif
+		}
+#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_paused_return");
+#endif
 		return;
 	}
 
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	CheckSnapshotForensics("predict_before_input_preparation");
+#endif
 	const bool CloudInputMode = IsCloudInputMode();
 	vec2 aBeforeRender[MAX_CLIENTS];
 	for(int i = 0; i < MAX_CLIENTS; i++)
@@ -3710,13 +3003,22 @@ void CGameClient::OnPredict()
 		m_FastPractice.BuildNeutralInput(PracticeNeutralInput, m_IsDummySwapping != 0, true);
 		m_FastPractice.BuildNeutralInput(PracticeNeutralDummyInput, (m_IsDummySwapping ^ 1) != 0, true);
 	}
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	CheckSnapshotForensics("predict_after_input_preparation");
+#endif
 
 	// init
 	bool Dummy = g_Config.m_ClDummy ^ m_IsDummySwapping;
 
 	// PredictedEvents are only handled in predicted world, so update them here
 	m_GameWorld.m_PredictedEvents = m_PredictedWorld.m_PredictedEvents;
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	CheckSnapshotForensics("predict_before_copy_world");
+#endif
 	m_PredictedWorld.CopyWorld(&m_GameWorld);
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	CheckSnapshotForensics("predict_after_copy_world");
+#endif
 
 	// don't predict inactive players, or entities from other teams
 	for(int i = 0; i < MAX_CLIENTS; i++)
@@ -3733,6 +3035,9 @@ void CGameClient::OnPredict()
 			pProj->Destroy();
 		}
 	}
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	CheckSnapshotForensics("predict_after_world_filtering");
+#endif
 
 	CCharacter *pLocalChar = m_PredictedWorld.GetCharacterById(m_Snap.m_LocalClientId);
 	if(!pLocalChar)
@@ -3741,28 +3046,43 @@ void CGameClient::OnPredict()
 	if(PredictDummy())
 		pDummyChar = m_PredictedWorld.GetCharacterById(m_aLocalIds[!g_Config.m_ClDummy]);
 
-	bool RealPredTick = false;
-	// predict
-
 	const float FastInputOffsetTicks = CloudInputMode ? 0.0f : TClientInputs::EffectiveOffsetTicks();
 	const int FastInputTicks = CloudInputMode ? CloudInputSelfTickOffset() : TClientInputs::PredictionTicks(FastInputOffsetTicks);
 	const bool FastInputOthers = CloudInputMode ? (CloudInputOthersEnabled() && m_ReceivedPreInput) : TClientInputs::AnyOthers();
 	const int FastInputTicksOthers = CloudInputMode ? (FastInputOthers ? CloudInputOthersTickOffset() : 0) : (FastInputOthers ? TClientInputs::PredictionTicksOthers(FastInputOffsetTicks) : 0);
-
-	int FinalTickRegular = Client()->PredGameTick(g_Config.m_ClDummy); // The vanilla final tick disregarding fast input
-
-	int FinalTickSelf = FinalTickRegular + FastInputTicks; // the final tick for just our local tee
-	int FinalTickOthers = FinalTickRegular + FastInputTicksOthers; // the final tick for all other tees
-
-	int LocalTee = g_Config.m_ClDummy ^ m_IsDummySwapping;
-	int DummyTee = LocalTee ^ 1;
-
+	const int FinalTickRegular = Client()->PredGameTick(g_Config.m_ClDummy);
+	const int FinalTickSelf = FinalTickRegular + FastInputTicks;
+	const int FinalTickOthers = FinalTickRegular + FastInputTicksOthers;
+	const int LocalTee = g_Config.m_ClDummy ^ m_IsDummySwapping;
+	const int DummyTee = LocalTee ^ 1;
+	const int PredictionTick = Client()->GetPredictionTick();
+	bool RealPredTick = false;
+	// predict
 	for(int Tick = Client()->GameTick(g_Config.m_ClDummy) + 1; Tick <= FinalTickSelf; Tick++)
 	{
 		// fetch the previous characters
+		if(Tick == PredictionTick)
+		{
+#if defined(CONF_SNAPSHOT_FORENSICS)
+			CheckSnapshotForensics("predict_before_prev_world_copy");
+#endif
+			m_PrevPredictedWorld.CopyWorld(&m_PredictedWorld);
+#if defined(CONF_SNAPSHOT_FORENSICS)
+			CheckSnapshotForensics("predict_after_prev_world_copy");
+#endif
+			for(int i = 0; i < MAX_CLIENTS; i++)
+				if(CCharacter *pChar = m_PredictedWorld.GetCharacterById(i))
+					m_aClients[i].m_PrevPredicted = pChar->GetCore();
+		}
 		if(Tick == FinalTickSelf)
 		{
-			m_PrevPredictedWorld.CopyWorld(&m_PredictedWorld);
+#if defined(CONF_SNAPSHOT_FORENSICS)
+			CheckSnapshotForensics("predict_before_fast_prev_world_copy");
+#endif
+			m_FastPrevPredictedWorld.CopyWorld(&m_PredictedWorld);
+#if defined(CONF_SNAPSHOT_FORENSICS)
+			CheckSnapshotForensics("predict_after_fast_prev_world_copy");
+#endif
 			m_PredictedPrevChar = pLocalChar->GetCore();
 			m_aClients[m_Snap.m_LocalClientId].m_PrevPredicted = pLocalChar->GetCore();
 		}
@@ -3773,6 +3093,20 @@ void CGameClient::OnPredict()
 					m_aClients[i].m_PrevPredicted = pChar->GetCore();
 		}
 
+		if(Tick == FinalTickRegular)
+		{
+		#if defined(CONF_SNAPSHOT_FORENSICS)
+			CheckSnapshotForensics("predict_before_prev_regular_world_copy");
+		#endif
+			m_PrevRegularPredictedWorld.CopyWorldClean(&m_PredictedWorld);
+		#if defined(CONF_SNAPSHOT_FORENSICS)
+			CheckSnapshotForensics("predict_after_prev_regular_world_copy");
+		#endif
+		}
+
+		if(g_Config.m_ClPredictFreeze == 2 && Client()->PredGameTick(g_Config.m_ClDummy) - 1 - Client()->PredGameTick(g_Config.m_ClDummy) % 2 <= Tick)
+			pLocalChar->m_CanMoveInFreeze = true;
+
 		if(Tick == Client()->PredGameTick(g_Config.m_ClDummy))
 		{
 			m_PredictedPrevChar = pLocalChar->GetCore();
@@ -3782,19 +3116,12 @@ void CGameClient::OnPredict()
 				m_aClients[m_aLocalIds[!g_Config.m_ClDummy]].m_PrevPredicted = pDummyChar->GetCore();
 		}
 
-		if(Tick == FinalTickRegular)
-			m_PrevRegularPredictedWorld.CopyWorldClean(&m_PredictedWorld);
-
 		// optionally allow some movement in freeze by not predicting freeze the last one to two ticks
-		if(g_Config.m_ClPredictFreeze == 2 && Client()->PredGameTick(g_Config.m_ClDummy) - 1 - Client()->PredGameTick(g_Config.m_ClDummy) % 2 <= Tick)
-			pLocalChar->m_CanMoveInFreeze = true;
-
 		// apply inputs and tick
 		CNetObj_PlayerInput *pInputData = (CNetObj_PlayerInput *)Client()->GetInput(Tick, m_IsDummySwapping);
 		CNetObj_PlayerInput *pDummyInputData = !pDummyChar ? nullptr : (CNetObj_PlayerInput *)Client()->GetInput(Tick, m_IsDummySwapping ^ 1);
-		CNetObj_PlayerInput DummyFastInput{};
 		bool DummyFirst = pInputData && pDummyInputData && pDummyChar->GetCid() < pLocalChar->GetCid();
-
+		CNetObj_PlayerInput DummyFastInput{};
 		if(PracticeActive)
 		{
 			pInputData = &PracticeNeutralInput;
@@ -3808,36 +3135,76 @@ void CGameClient::OnPredict()
 				GetDummyFastInput(DummyFastInput, pDummyInputData, pDummyChar, LocalTee, DummyTee))
 				pDummyInputData = &DummyFastInput;
 		}
-		// TClient
-		// Disable predicted events during fastinput over-run prediction ticks because they are not real
-		// This has to be before direct input because physics happens in there
-		bool TempPredEventState = m_PredictedWorld.m_WorldConfig.m_PredictEvents;
+		const bool TempPredEventState = m_PredictedWorld.m_WorldConfig.m_PredictEvents;
 		if(Tick > FinalTickRegular)
 			m_PredictedWorld.m_WorldConfig.m_PredictEvents = false;
 
+#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_before_direct_input");
+#endif
 		if(DummyFirst)
 			pDummyChar->OnDirectInput(pDummyInputData);
 		if(pInputData)
 			pLocalChar->OnDirectInput(pInputData);
 		if(pDummyInputData && !DummyFirst)
 			pDummyChar->OnDirectInput(pDummyInputData);
+#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_after_direct_input");
+#endif
 
+#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_before_apply_pre_inputs_direct");
+#endif
 		ApplyPreInputs(Tick, true, m_PredictedWorld);
+#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_after_apply_pre_inputs_direct");
+#endif
 
 		m_PredictedWorld.m_GameTick = Tick;
+#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_before_predicted_input");
+#endif
 		if(pInputData)
 			pLocalChar->OnPredictedInput(pInputData);
 		if(pDummyInputData)
 			pDummyChar->OnPredictedInput(pDummyInputData);
+#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_after_predicted_input");
+#endif
 
+#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_before_apply_pre_inputs_predicted");
+#endif
 		ApplyPreInputs(Tick, false, m_PredictedWorld);
+#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_after_apply_pre_inputs_predicted");
+#endif
 
+#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_before_game_world_tick");
+#endif
 		m_PredictedWorld.Tick();
-
-		// TClient
 		m_PredictedWorld.m_WorldConfig.m_PredictEvents = TempPredEventState;
+#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_after_game_world_tick");
+#endif
 
 		// fetch the current characters
+		if(Tick == PredictionTick)
+		{
+#if defined(CONF_SNAPSHOT_FORENSICS)
+			CheckSnapshotForensics("predict_before_current_prev_world_copy");
+#endif
+			m_PrevPredictedWorld.CopyWorld(&m_PredictedWorld);
+#if defined(CONF_SNAPSHOT_FORENSICS)
+			CheckSnapshotForensics("predict_after_current_prev_world_copy");
+#endif
+
+			for(int i = 0; i < MAX_CLIENTS; i++)
+				if(CCharacter *pChar = m_PredictedWorld.GetCharacterById(i))
+					m_aClients[i].m_Predicted = pChar->GetCore();
+		}
+
 		if(Tick == FinalTickSelf)
 		{
 			m_PredictedChar = pLocalChar->GetCore();
@@ -3854,6 +3221,13 @@ void CGameClient::OnPredict()
 			for(int i = 0; i < MAX_CLIENTS; i++)
 				if(CCharacter *pChar = m_PredictedWorld.GetCharacterById(i))
 					m_aClients[i].m_RegularPredicted = pChar->GetCore();
+#if defined(CONF_SNAPSHOT_FORENSICS)
+			CheckSnapshotForensics("predict_before_regular_world_copy");
+#endif
+			m_RegularPredictedWorld.CopyWorldClean(&m_PredictedWorld);
+#if defined(CONF_SNAPSHOT_FORENSICS)
+			CheckSnapshotForensics("predict_after_regular_world_copy");
+#endif
 		}
 
 		if(Tick == Client()->PredGameTick(g_Config.m_ClDummy))
@@ -3877,17 +3251,16 @@ void CGameClient::OnPredict()
 			}
 
 		// check if we want to trigger effects
-		if(Tick > m_aLastNewPredictedTick[Dummy] && (Tick <= FinalTickRegular))
+		if(Tick > m_aLastNewPredictedTick[Dummy] && Tick <= FinalTickRegular)
 		{
 			m_aLastNewPredictedTick[Dummy] = Tick;
 			m_NewPredictedTick = true;
 			RealPredTick = true;
 			vec2 Pos = pLocalChar->Core()->m_Pos;
 			int Events = pLocalChar->Core()->m_TriggeredEvents;
-
 			if(g_Config.m_ClPredict && !m_SuppressEvents)
 				if(Events & COREEVENT_AIR_JUMP)
-					m_Effects.AirJump(Pos, 1.0f, 1.0f);
+					m_Effects.AirJump(Pos, 1.0f, 1.0f, !AmfIsOwnTee(this, pLocalChar->GetCid()));
 			if(g_Config.m_SndGame && !m_SuppressEvents)
 			{
 				if(Events & COREEVENT_GROUND_JUMP)
@@ -3911,27 +3284,45 @@ void CGameClient::OnPredict()
 			int Events = pDummyChar->Core()->m_TriggeredEvents;
 			if(g_Config.m_ClPredict && !m_SuppressEvents)
 				if(Events & COREEVENT_AIR_JUMP)
-					m_Effects.AirJump(Pos, 1.0f, 1.0f);
+					m_Effects.AirJump(Pos, 1.0f, 1.0f, !AmfIsOwnTee(this, pDummyChar->GetCid()));
 		}
 
 		if(Tick <= FinalTickRegular && !PracticeActive)
+		{
+#if defined(CONF_SNAPSHOT_FORENSICS)
+			CheckSnapshotForensics("predict_before_handle_predicted_events");
+#endif
 			HandlePredictedEvents(Tick);
-
-		if(Tick == FinalTickRegular)
-			m_RegularPredictedWorld.CopyWorldClean(&m_PredictedWorld);
+#if defined(CONF_SNAPSHOT_FORENSICS)
+			CheckSnapshotForensics("predict_after_handle_predicted_events");
+#endif
+		}
 	}
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	CheckSnapshotForensics("predict_after_main_tick_loop");
+#endif
 
 	if(FastInputTicks > 0)
 	{
+#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_before_fast_input_world_copy");
+#endif
 		m_PredictedWorld.CopyWorld(&m_RegularPredictedWorld);
-		// m_PrevPredictedWorld.CopyWorld(&m_PrevRegularPredictedWorld); // not sure if this is worth performance cost, it seems to not matter
+#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_after_fast_input_world_copy_call");
+#endif
 	}
-
 	if(g_Config.m_TcRemoveAnti)
 	{
+	#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_before_extra_world_copy");
+	#endif
 		m_ExtraPredictedWorld.CopyWorldClean(&m_PredictedWorld);
+	#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_after_extra_world_copy");
+	#endif
 
-		// Remove other tees to reduce lag and because they aren't really important in this case
+		// Remove other tees to reduce lag and because they aren't really important in this case.
 		for(int i = 0; i < MAX_CLIENTS; i++)
 			if(i != m_Snap.m_LocalClientId)
 				if(CCharacter *pDelChar = m_ExtraPredictedWorld.GetCharacterById(i))
@@ -3944,9 +3335,6 @@ void CGameClient::OnPredict()
 			bool Frozen = false;
 			for(int i = 0; i < g_Config.m_TcUnfreezeLagDelayTicks; i++)
 			{
-				if(!pExtraChar)
-					continue;
-
 				if(Frozen && pExtraChar->m_AliveAccumulation > 0)
 					Unfrozen = true;
 
@@ -3956,7 +3344,13 @@ void CGameClient::OnPredict()
 				if(!Unfrozen)
 				{
 					m_ExtraPredictedWorld.m_GameTick++;
+				#if defined(CONF_SNAPSHOT_FORENSICS)
+					CheckSnapshotForensics("predict_before_extra_world_tick");
+				#endif
 					m_ExtraPredictedWorld.Tick();
+				#if defined(CONF_SNAPSHOT_FORENSICS)
+					CheckSnapshotForensics("predict_after_extra_world_tick");
+				#endif
 				}
 				else
 				{
@@ -3964,15 +3358,17 @@ void CGameClient::OnPredict()
 					pExtraChar->m_AliveAccumulation = std::min(pExtraChar->m_AliveAccumulation + 1, g_Config.m_TcUnfreezeLagDelayTicks);
 				}
 			}
-		}
 	}
+	}
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	CheckSnapshotForensics("predict_after_extra_world_prediction");
+#endif
 
 	// detect mispredictions of other players and make corrections smoother when possible
-	if(!CloudInputMode && g_Config.m_ClAntiPingSmooth &&
-		Predict() && AntiPingPlayers() &&
-		m_NewTick && m_PredictedTick >= MIN_TICK &&
-		absolute(m_PredictedTick - Client()->PredGameTick(g_Config.m_ClDummy)) <= 1 &&
-		absolute(Client()->GameTick(g_Config.m_ClDummy) - Client()->PrevGameTick(g_Config.m_ClDummy)) <= 2)
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	CheckSnapshotForensics("predict_before_antiping_smoothing");
+#endif
+	if(g_Config.m_ClAntiPingSmooth && Predict() && AntiPingPlayers() && m_NewTick && m_PredictedTick >= MIN_TICK && absolute(m_PredictedTick - Client()->PredGameTick(g_Config.m_ClDummy)) <= 1 && absolute(Client()->GameTick(g_Config.m_ClDummy) - Client()->PrevGameTick(g_Config.m_ClDummy)) <= 2)
 	{
 		int PredTime = std::clamp(Client()->GetPredictionTime(), 0, 800);
 		float SmoothPace = 4 - 1.5f * PredTime / 800.f; // smoothing pace (a lower value will make the smoothing quicker)
@@ -3982,7 +3378,7 @@ void CGameClient::OnPredict()
 		{
 			if(!m_Snap.m_aCharacters[i].m_Active || i == m_Snap.m_LocalClientId || !m_aLastActive[i])
 				continue;
-			vec2 NewPos = m_aClients[i].m_Predicted.m_Pos;
+			vec2 NewPos = (m_PredictedTick == Client()->PredGameTick(g_Config.m_ClDummy)) ? m_aClients[i].m_Predicted.m_Pos : m_aClients[i].m_PrevPredicted.m_Pos;
 			vec2 PredErr = (m_aLastPos[i] - NewPos) / (float)std::min(Client()->GetPredictionTime(), 200);
 			if(in_range(length(PredErr), 0.05f, 5.f))
 			{
@@ -4032,52 +3428,72 @@ void CGameClient::OnPredict()
 			}
 		}
 	}
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	CheckSnapshotForensics("predict_after_antiping_smoothing");
+#endif
 
-	// TClient
-	// New antiping smoothing
 	CCharacter *pSmoothLocalChar = m_PredSmoothingWorld.GetCharacterById(m_Snap.m_LocalClientId);
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	CheckSnapshotForensics("predict_before_improved_antiping");
+#endif
 	if(g_Config.m_TcAntiPingImproved &&
 		(!CloudInputMode || FastInputOthers) &&
 		Predict() && AntiPingPlayers() &&
 		pSmoothLocalChar &&
 		RealPredTick && m_PredictedTick >= MIN_TICK)
 	{
-		int PredTime = std::clamp(Client()->GetPredictionTime(), 0, 8000); // Milliseconds for some reason?? TODO: Use more precision
+		const int PredTime = std::clamp(Client()->GetPredictionTime(), 0, 8000);
 		const int PredEndTick = CloudInputMode ? FinalTickRegular + FastInputTicksOthers : FinalTickRegular;
 		const int SmoothTick = PredEndTick;
 
-		// Nightmare: in order to get 100% accurate comparison to detect mispredictions we must
-		// tick the PREVIOUS predicted world with our CURRENT predicted inputs
-		CCharacter *pSmoothDummyChar = 0;
-		CCharacter *pPredDummyChar = 0;
+		CCharacter *pSmoothDummyChar = nullptr;
+		CCharacter *pPredDummyChar = nullptr;
 		if(PredictDummy())
 		{
 			pSmoothDummyChar = m_PredSmoothingWorld.GetCharacterById(m_aLocalIds[!g_Config.m_ClDummy]);
 			pPredDummyChar = m_PredictedWorld.GetCharacterById(m_aLocalIds[!g_Config.m_ClDummy]);
 		}
 		CNetObj_PlayerInput *pInputData = m_PredictedWorld.GetCharacterById(m_Snap.m_LocalClientId)->LatestInput();
-		CNetObj_PlayerInput *pDummyInputData = !pPredDummyChar ? 0 : m_PredictedWorld.GetCharacterById(m_aLocalIds[!g_Config.m_ClDummy])->LatestInput();
-		bool DummyFirst = pSmoothLocalChar && pSmoothDummyChar && pSmoothDummyChar->GetCid() < pSmoothLocalChar->GetCid();
+		CNetObj_PlayerInput *pDummyInputData = !pPredDummyChar ? nullptr : m_PredictedWorld.GetCharacterById(m_aLocalIds[!g_Config.m_ClDummy])->LatestInput();
+		const bool DummyFirst = pSmoothLocalChar && pSmoothDummyChar && pSmoothDummyChar->GetCid() < pSmoothLocalChar->GetCid();
 
+	#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_before_smoothing_direct_input");
+	#endif
 		if(DummyFirst && pSmoothDummyChar && pDummyInputData)
 			pSmoothDummyChar->OnDirectInput(pDummyInputData);
-
 		if(pInputData && pSmoothLocalChar)
 			pSmoothLocalChar->OnDirectInput(pInputData);
-
 		if(!DummyFirst && pSmoothDummyChar && pDummyInputData)
 			pSmoothDummyChar->OnDirectInput(pDummyInputData);
 
+	#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_after_smoothing_direct_input");
+		CheckSnapshotForensics("predict_before_smoothing_apply_pre_inputs_direct");
+	#endif
 		ApplyPreInputs(SmoothTick, true, m_PredSmoothingWorld);
 		m_PredSmoothingWorld.m_GameTick = SmoothTick;
-
+	#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_after_smoothing_apply_pre_inputs_direct");
+		CheckSnapshotForensics("predict_before_smoothing_predicted_input");
+	#endif
 		if(pInputData && pSmoothLocalChar)
 			pSmoothLocalChar->OnPredictedInput(pInputData);
-
 		if(pDummyInputData && pSmoothDummyChar)
 			pSmoothDummyChar->OnPredictedInput(pDummyInputData);
+	#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_after_smoothing_predicted_input");
+		CheckSnapshotForensics("predict_before_smoothing_apply_pre_inputs_predicted");
+	#endif
 		ApplyPreInputs(SmoothTick, false, m_PredSmoothingWorld);
+	#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_after_smoothing_apply_pre_inputs_predicted");
+		CheckSnapshotForensics("predict_before_smoothing_world_tick");
+	#endif
 		m_PredSmoothingWorld.Tick();
+#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_after_smoothing_world_tick");
+#endif
 
 		for(int i = 0; i < MAX_CLIENTS; i++)
 		{
@@ -4108,30 +3524,26 @@ void CGameClient::OnPredict()
 					PredPos = mix(m_aClients[i].m_PrevPredicted.m_Pos, m_aClients[i].m_Predicted.m_Pos, Client()->PredIntraGameTick(g_Config.m_ClDummy));
 			}
 
-			vec2 PrevPredPos = pChar->GetCore().m_Pos;
-
-			// Cursed hack to get the game tick consistently
+			const vec2 PrevPredPos = pChar->GetCore().m_Pos;
 			int GameTick = Client()->GameTick(g_Config.m_ClDummy) + (int)Client()->IntraGameTick(g_Config.m_ClDummy);
 			static int s_PrevGameTick = 0;
 			if(s_PrevGameTick == GameTick)
 				GameTick++;
 			s_PrevGameTick = Client()->GameTick(g_Config.m_ClDummy) + (int)Client()->IntraGameTick(g_Config.m_ClDummy);
 
-			vec2 ServerPos = m_aClients[i].m_aPredPos[GameTick % 200];
-			vec2 PrevServerPos = m_aClients[i].m_aPredPos[(GameTick - 1) % 200];
+			const vec2 ServerPos = m_aClients[i].m_aPredPos[GameTick % 200];
+			const vec2 PrevServerPos = m_aClients[i].m_aPredPos[(GameTick - 1) % 200];
+			const vec2 PredDir = normalize(PredPos - ServerPos);
+			const vec2 LastDir = normalize(PrevPredPos - ServerPos);
 
-			vec2 PredDir = normalize(PredPos - ServerPos);
-			vec2 LastDir = normalize(PrevPredPos - ServerPos);
-
-			vec2 MaxPos = vec2(0, 0);
-			vec2 MinPos = vec2(0, 0);
+			vec2 MaxPos(0.0f, 0.0f);
+			vec2 MinPos(0.0f, 0.0f);
 			bool FoundBoundingBox = false;
-			// Get a bounding box for our final prediction position to minimize going through walls
 			for(int Tick = GameTick - 1; Tick <= PredEndTick; Tick++)
 			{
 				if(m_aClients[i].m_aPredTick[Tick % 200] != Tick)
 					continue;
-				vec2 Pos = m_aClients[i].m_aPredPos[Tick % 200];
+				const vec2 Pos = m_aClients[i].m_aPredPos[Tick % 200];
 				if(!FoundBoundingBox)
 				{
 					MaxPos = Pos;
@@ -4146,135 +3558,118 @@ void CGameClient::OnPredict()
 					MinPos.y = std::min(Pos.y, MinPos.y);
 				}
 			}
-			int PredStartTick = GameTick;
-			int HistoryStartTick = PredStartTick - (PredEndTick - PredStartTick);
-			HistoryStartTick = std::max(1, HistoryStartTick);
-			vec2 HistoryVector = vec2(0, 0);
+
+			const int PredStartTick = GameTick;
+		int HistoryStartTick = std::max(1, PredStartTick - (PredEndTick - PredStartTick));
+			vec2 HistoryVector(0.0f, 0.0f);
 			float HistoryDistance = 0.0f;
 			int HistoryCount = 0;
-			// Find the average history vector
 			for(int Tick = HistoryStartTick; Tick <= PredStartTick; Tick++)
 			{
 				if(m_aClients[i].m_aPredTick[Tick % 200] != Tick || m_aClients[i].m_aPredTick[(Tick - 1) % 200] != Tick - 1)
 					continue;
-				vec2 DirVector = m_aClients[i].m_aPredPos[Tick % 200] - m_aClients[i].m_aPredPos[(Tick - 1) % 200];
+				const vec2 DirVector = m_aClients[i].m_aPredPos[Tick % 200] - m_aClients[i].m_aPredPos[(Tick - 1) % 200];
 				HistoryVector += DirVector;
 				HistoryDistance += length(DirVector);
 				HistoryCount++;
 			}
 
-			bool ValidRecentPositions = m_aClients[i].m_aPredTick[GameTick % 200] == GameTick && m_aClients[i].m_aPredTick[(GameTick - 1) % 200] == GameTick - 1;
-			// Not enough history data
-			if(!ValidRecentPositions || !FoundBoundingBox || HistoryCount == 0 || /*HistoryDistance <= 0.0f ||*/ GameTick <= 0)
+			const bool ValidRecentPositions = m_aClients[i].m_aPredTick[GameTick % 200] == GameTick && m_aClients[i].m_aPredTick[(GameTick - 1) % 200] == GameTick - 1;
+			if(!ValidRecentPositions || !FoundBoundingBox || HistoryCount == 0 || GameTick <= 0)
 			{
 				m_aClients[i].m_PrevImprovedPredPos = PrevPredPos;
 				m_aClients[i].m_ImprovedPredPos = PredPos;
 				continue;
 			}
 
-			HistoryVector = HistoryVector / HistoryCount;
-			HistoryVector = normalize(HistoryVector);
+			HistoryVector = normalize(HistoryVector / HistoryCount);
 			float Variance = 0.0f;
-			// Find the variance over the history window
 			if(length(HistoryVector) > 0.0f)
 			{
 				for(int Tick = HistoryStartTick; Tick <= PredStartTick; Tick++)
 				{
 					if(m_aClients[i].m_aPredTick[Tick % 200] != Tick || m_aClients[i].m_aPredTick[(Tick - 1) % 200] != Tick - 1)
 						continue;
-					vec2 DirVector = m_aClients[i].m_aPredPos[Tick % 200] - m_aClients[i].m_aPredPos[(Tick - 1) % 200];
-					vec2 Diff = normalize(DirVector) - HistoryVector;
+					const vec2 DirVector = m_aClients[i].m_aPredPos[Tick % 200] - m_aClients[i].m_aPredPos[(Tick - 1) % 200];
+					const vec2 Diff = normalize(DirVector) - HistoryVector;
 					Variance += dot(Diff, Diff);
 				}
 				Variance /= HistoryCount;
 			}
-			else
-			{
-				Variance = 0.0f;
-			}
-			float Sigma = 1.5f; // Can be adjusted
-			float SigmaScale = length(PredPos - ServerPos) / HistoryDistance;
-			if(SigmaScale > 0)
-				Sigma /= SigmaScale;
-			float TrustFactor = std::max(0.0f, 1.0f - (std::sqrt(Variance) / Sigma));
-			vec2 TrustedVector = HistoryVector;
 
-			// Detect mispredictions
+			float Sigma = 1.5f;
+			const float SigmaScale = length(PredPos - ServerPos) / HistoryDistance;
+			if(SigmaScale > 0.0f)
+				Sigma /= SigmaScale;
+			const float TrustFactor = std::max(0.0f, 1.0f - (std::sqrt(Variance) / Sigma));
+			const vec2 TrustedVector = HistoryVector;
+
 			float Confidence = 1.0f;
-			if(PredDir == vec2(0, 0))
-				Confidence = 1.0f;
-			else
+			if(PredDir != vec2(0.0f, 0.0f))
 			{
 				Confidence = std::max(0.0f, dot(LastDir, PredDir));
-				Confidence = std::pow(Confidence, 4.0f); // Can be adjusted
+				Confidence = std::pow(Confidence, 4.0f);
 			}
-			float Uncertainty = 1.0f - Confidence;
-			float TickDuration = (float)1000 / (float)Client()->GameTickSpeed();
-
-			// Manage uncertainty value
-			float PredTimeScale = (float)g_Config.m_TcAntiPingUncertaintyScale / 100.0f;
-			float TickSize = TickDuration / ((float)PredTime * PredTimeScale); // 20ms / PredTime
-			float PrevConfidence = 1.0f - m_aClients[i].m_Uncertainty;
+			const float Uncertainty = 1.0f - Confidence;
+			const float TickDuration = 1000.0f / (float)Client()->GameTickSpeed();
+			const float PredTimeScale = (float)g_Config.m_TcAntiPingUncertaintyScale / 100.0f;
+			const float TickSize = TickDuration / ((float)PredTime * PredTimeScale);
+			const float PrevConfidence = 1.0f - m_aClients[i].m_Uncertainty;
 			float NewConfidence = PrevConfidence - Uncertainty + TickSize;
-			float MinConfidence = g_Config.m_TcAntiPingNegativeBuffer ? -1.0f : 0.0f;
-			NewConfidence = std::clamp(NewConfidence, MinConfidence, 1.0f); // A certain about of "negative buffer" is allowed
+			const float MinConfidence = g_Config.m_TcAntiPingNegativeBuffer ? -1.0f : 0.0f;
+			NewConfidence = std::clamp(NewConfidence, MinConfidence, 1.0f);
 			m_aClients[i].m_Uncertainty = 1.0f - NewConfidence;
 			NewConfidence = std::max(0.0f, NewConfidence);
 
-			// Decompose prediction vector into 2 components based on the trusted vector
-			vec2 PredVector = PredPos - ServerPos;
-			vec2 Forward = normalize(TrustedVector);
-			float DotPf = std::max(0.0f, dot(normalize(PredVector), Forward));
+			const vec2 PredVector = PredPos - ServerPos;
+			const vec2 Forward = normalize(TrustedVector);
+			const float DotPf = std::max(0.0f, dot(normalize(PredVector), Forward));
 			vec2 ConfidenceParallel = Forward * DotPf * length(PredVector);
 			if(DotPf == 0.0f)
-				ConfidenceParallel = vec2(0, 0);
-			vec2 ConfidencePerp = PredVector - ConfidenceParallel;
-
-			if(!g_Config.m_TcAntiPingStableDirection)
-				TrustFactor = 0.0f;
-
-			vec2 ConfidenceVector = ConfidenceParallel * std::max(TrustFactor, NewConfidence) + ConfidencePerp * NewConfidence;
-
-			// Minor safe guard against insane predictions
+				ConfidenceParallel = vec2(0.0f, 0.0f);
+			const vec2 ConfidencePerp = PredVector - ConfidenceParallel;
+			const float EffectiveTrust = g_Config.m_TcAntiPingStableDirection ? TrustFactor : 0.0f;
+			vec2 ConfidenceVector = ConfidenceParallel * std::max(EffectiveTrust, NewConfidence) + ConfidencePerp * NewConfidence;
 			if(length(ConfidenceVector) > HistoryDistance)
 				ConfidenceVector = mix(normalize(ConfidenceVector) * HistoryDistance, ConfidenceVector, NewConfidence);
-
 			vec2 ConfidencePos = ServerPos + ConfidenceVector;
-
-			// Clamp final position to bounding box
 			ConfidencePos.x = std::clamp(ConfidencePos.x, MinPos.x, MaxPos.x);
 			ConfidencePos.y = std::clamp(ConfidencePos.y, MinPos.y, MaxPos.y);
 
 			m_aClients[i].m_PrevImprovedPredPos = m_aClients[i].m_ImprovedPredPos;
 			m_aClients[i].m_ImprovedPredPos = ConfidencePos;
 			if(distance(ServerPos, PrevServerPos) > 600.0f || distance(m_aClients[i].m_PrevImprovedPredPos, m_aClients[i].m_ImprovedPredPos) > 600.0f)
-			{
 				m_aClients[i].m_PrevImprovedPredPos = m_aClients[i].m_ImprovedPredPos;
-			}
 			m_aClients[i].m_ValidAntipingSmooth = true;
 		}
 	}
-	// Copy the current pred world so on the next tick we have the "previous" pred world to advance and test against
 	if(m_NewPredictedTick && g_Config.m_TcAntiPingImproved)
+	{
+	#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_before_improved_world_copy");
+	#endif
 		m_PredSmoothingWorld.CopyWorldClean(&m_RegularPredictedWorld);
+	#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_after_improved_world_copy");
+	#endif
+	}
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	CheckSnapshotForensics("predict_after_improved_antiping");
+#endif
 
 	for(int i = 0; i < MAX_CLIENTS; i++)
 	{
 		if(m_Snap.m_aCharacters[i].m_Active)
 		{
-			if(m_NewPredictedTick)
-			{
-				m_aLastPos[i] = m_aClients[i].m_Predicted.m_Pos;
-				m_aLastActive[i] = true;
-			}
+			m_aLastPos[i] = m_aClients[i].m_Predicted.m_Pos;
+			m_aLastActive[i] = true;
 		}
 		else
 		{
 			m_aLastActive[i] = false;
 		}
 	}
-
-	if(g_Config.m_Debug && g_Config.m_ClPredict && FastInputTicks == 0 && m_PredictedTick == Client()->PredGameTick(g_Config.m_ClDummy))
+	if(g_Config.m_Debug && g_Config.m_ClPredict && m_PredictedTick == Client()->PredGameTick(g_Config.m_ClDummy))
 	{
 		CNetObj_CharacterCore Before = {0}, Now = {0}, BeforePrev = {0}, NowPrev = {0};
 		BeforeChar.Write(&Before);
@@ -4298,9 +3693,23 @@ void CGameClient::OnPredict()
 	m_PredictedTick = FinalTickRegular;
 
 	if(m_NewPredictedTick)
+	{
+	#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_before_ghost_snapshot");
+	#endif
 		m_Ghost.OnNewPredictedSnapshot();
+	#if defined(CONF_SNAPSHOT_FORENSICS)
+		CheckSnapshotForensics("predict_after_ghost_snapshot");
+	#endif
+	}
 
+	#if defined(CONF_SNAPSHOT_FORENSICS)
+	CheckSnapshotForensics("predict_before_fast_practice_sync");
+	#endif
 	m_FastPractice.SyncFromPrediction();
+#if defined(CONF_SNAPSHOT_FORENSICS)
+	CheckSnapshotForensics("predict_after_fast_practice_sync");
+#endif
 }
 
 void CGameClient::OnActivateEditor()
@@ -4473,9 +3882,6 @@ void CGameClient::CClientData::Reset()
 
 	m_Predicted.Reset();
 	m_PrevPredicted.Reset();
-
-	// TClient
-	m_RegularPredicted.Reset();
 
 	if(m_pSkinInfo != nullptr)
 	{
@@ -4780,6 +4186,30 @@ void CGameClient::ConchainLanguageUpdate(IConsole::IResult *pResult, void *pUser
 	}
 }
 
+void CGameClient::ConchainAmfHighPriority(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData)
+{
+	pfnCallback(pResult, pCallbackUserData);
+	CGameClient *pGameClient = static_cast<CGameClient *>(pUserData);
+	if(pResult->NumArguments())
+		pGameClient->ApplyAmfProcessPriority();
+}
+
+void CGameClient::ConchainAmfDiscordLowPriority(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData)
+{
+	pfnCallback(pResult, pCallbackUserData);
+	CGameClient *pGameClient = static_cast<CGameClient *>(pUserData);
+	if(pResult->NumArguments() && pGameClient->m_AmfConfigPersistenceInitialized)
+		pGameClient->UpdateAmfProcessPriorityTargets();
+}
+
+void CGameClient::ConchainAmfSpotifySoundCloudLowPriority(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData)
+{
+	pfnCallback(pResult, pCallbackUserData);
+	CGameClient *pGameClient = static_cast<CGameClient *>(pUserData);
+	if(pResult->NumArguments() && pGameClient->m_AmfConfigPersistenceInitialized)
+		pGameClient->UpdateAmfProcessPriorityTargets();
+}
+
 void CGameClient::ConchainSpecialInfoupdate(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData)
 {
 	pfnCallback(pResult, pCallbackUserData);
@@ -4953,6 +4383,7 @@ void CGameClient::UpdatePrediction()
 	m_GameWorld.m_WorldConfig.m_BugDDRaceInput = m_GameInfo.m_BugDDRaceInput;
 	m_GameWorld.m_WorldConfig.m_NoWeakHookAndBounce = m_GameInfo.m_NoWeakHookAndBounce;
 	m_GameWorld.m_WorldConfig.m_PredictEvents = m_GameInfo.m_PredictEvents;
+	m_GameWorld.m_WorldConfig.m_OldLaser = m_GameInfo.m_OldLaser;
 
 	if(!m_Snap.m_pLocalCharacter)
 	{
@@ -4970,11 +4401,9 @@ void CGameClient::UpdatePrediction()
 	if(PredictDummy())
 		pDummyChar = m_GameWorld.GetCharacterById(m_aLocalIds[!g_Config.m_ClDummy]);
 
-	// Fast Practice owns a parallel simulation for the local participants. The
-	// regular world must still be advanced for rendering the real server state,
-	// but it must not apply the same gameplay input a second time (in particular
-	// fire/weapon edges). Keep the real-world prediction neutral while the
-	// practice world consumes the stored live input below.
+	// Keep the server-world prediction neutral for Fast Practice participants.
+	// Their live input is consumed by the isolated practice world, while this
+	// world remains the real server-world presentation/prediction state.
 	const bool PracticeEnabled = m_FastPractice.Enabled();
 	const bool PracticeLocal = PracticeEnabled && pLocalChar && m_FastPractice.IsPracticeParticipant(pLocalChar->GetCid());
 	const bool PracticeDummy = PracticeEnabled && pDummyChar && m_FastPractice.IsPracticeParticipant(pDummyChar->GetCid());
@@ -4992,8 +4421,7 @@ void CGameClient::UpdatePrediction()
 		if(m_Snap.m_aCharacters[m_Snap.m_LocalClientId].m_HasExtendedData)
 		{
 			int aIds[MAX_CLIENTS];
-			for(int &Id : aIds)
-				Id = -1;
+			std::fill(std::begin(aIds), std::end(aIds), -1);
 			for(int i = 0; i < MAX_CLIENTS; i++)
 				if(CCharacter *pChar = m_GameWorld.GetCharacterById(i))
 					aIds[pChar->GetStrongWeakId()] = i;
@@ -5108,7 +4536,9 @@ void CGameClient::UpdateSpectatorCursor()
 {
 	int CursorOwnerId = m_Snap.m_LocalClientId;
 	if(m_Snap.m_SpecInfo.m_Active)
+	{
 		CursorOwnerId = m_Snap.m_SpecInfo.m_SpectatorId;
+	}
 
 	if(CursorOwnerId != m_CursorInfo.m_CursorOwnerId)
 	{
@@ -5252,7 +4682,7 @@ void CGameClient::UpdateRenderedCharacters()
 	const float FastInputOffsetTicks = CloudInputMode ? 0.0f : TClientInputs::EffectiveOffsetTicks();
 	const int FastInputTicks = CloudInputMode ? CloudInputSelfTickOffset() : TClientInputs::PredictionTicks(FastInputOffsetTicks);
 	const bool FastInputOthers = CloudInputMode ? (CloudInputOthersEnabled() && m_ReceivedPreInput) : TClientInputs::AnyOthers();
-	const int FastInputTicksOthers = CloudInputMode ? (FastInputOthers ? CloudInputOthersTickOffset() : 0) : TClientInputs::PredictionTicksOthers(FastInputOffsetTicks);
+	const int FastInputTicksOthers = CloudInputMode ? (FastInputOthers ? CloudInputOthersTickOffset() : 0) : (FastInputOthers ? TClientInputs::PredictionTicksOthers(FastInputOffsetTicks) : 0);
 	const bool HasFastInput = FastInputTicks > 0;
 	const bool HasFastInputOthers = FastInputTicksOthers > 0;
 	const bool PracticeActive = m_FastPractice.Active();
@@ -5287,9 +4717,8 @@ void CGameClient::UpdateRenderedCharacters()
 			vec2(m_Snap.m_aCharacters[i].m_Cur.m_X, m_Snap.m_aCharacters[i].m_Cur.m_Y),
 			Client()->IntraGameTick(g_Config.m_ClDummy)) : m_aClients[i].m_RenderPos;
 		vec2 Pos = UnpredPos;
-		CCharacter *pChar = IsPracticeParticipant ? m_FastPractice.PracticeWorld().GetCharacterById(i) : m_PredictedWorld.GetCharacterById(i);
 
-		// TClient
+		CCharacter *pChar = IsPracticeParticipant ? m_FastPractice.PracticeWorld().GetCharacterById(i) : m_PredictedWorld.GetCharacterById(i);
 		if(i == (PracticeActive ? PracticeControlledId : m_Snap.m_LocalClientId))
 			Client()->m_IsLocalFrozen = pChar && pChar->m_FreezeTime > 0;
 
@@ -5326,13 +4755,14 @@ void CGameClient::UpdateRenderedCharacters()
 		}
 
 		const bool IsDummy = PredictDummy() && i == m_aLocalIds[!g_Config.m_ClDummy];
-		const bool AntiPingPlayer = AntiPingPlayers();
+		const int AntiPingPlayerSetting = AntiPingPlayers();
+		const bool AntiPingPlayer = AntiPingPlayerSetting == 1 || (AntiPingPlayerSetting >= 2 && (IsDummy || (pChar && pChar->IsInterfering())));
 		if(Predict() && (i == m_Snap.m_LocalClientId || (AntiPingPlayer && !IsOtherTeam(i))) && pChar)
 		{
 			m_aClients[i].m_Predicted.Write(&m_aClients[i].m_RenderCur);
 			m_aClients[i].m_PrevPredicted.Write(&m_aClients[i].m_RenderPrev);
 
-			m_aClients[i].m_IsPredicted = true;
+				m_aClients[i].m_IsPredicted = true;
 
 			Pos = mix(
 				vec2(m_aClients[i].m_RenderPrev.m_X, m_aClients[i].m_RenderPrev.m_Y),
@@ -5412,7 +4842,7 @@ void CGameClient::HandlePredictedEvents(const int Tick)
 			}
 			else if(EventsIterator->m_EventId == NETEVENTTYPE_HAMMERHIT)
 			{
-				m_Effects.HammerHit(EventsIterator->m_Pos, Alpha, Volume);
+				m_Effects.HammerHit(EventsIterator->m_Pos, Alpha, Volume, !AmfIsOwnTee(this, EventsIterator->m_Id));
 			}
 			else if(EventsIterator->m_EventId == NETEVENTTYPE_DAMAGEIND)
 			{
@@ -5566,6 +4996,7 @@ vec2 CGameClient::GetSmoothPos(int ClientId)
 	}
 	return Pos;
 }
+
 vec2 CGameClient::GetFastInputPos(int ClientId)
 {
 	if(IsCloudInputMode())
@@ -5659,7 +5090,6 @@ vec2 CGameClient::GetFastInputPos(int ClientId)
 
 	float PredIntraTick = Client()->PredIntraGameTick(g_Config.m_ClDummy);
 	int PredTick = Client()->PredGameTick(g_Config.m_ClDummy);
-
 	vec2 Pos = mix(m_aClients[ClientId].m_PrevPredicted.m_Pos, m_aClients[ClientId].m_Predicted.m_Pos, PredIntraTick);
 
 	const float FastInputOffsetTicks = TClientInputs::EffectiveOffsetTicks();
@@ -5680,26 +5110,6 @@ vec2 CGameClient::GetFastInputPos(int ClientId)
 	return Pos;
 }
 
-void CGameClient::ConchainAmfHighPriority(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData)
-{
-	pfnCallback(pResult, pCallbackUserData);
-	CGameClient *pGameClient = static_cast<CGameClient *>(pUserData);
-	// Apply the saved value as it is parsed. OnInit applies the final startup
-	// state again; each request replaces the pending one-second verification.
-	if(pResult->NumArguments())
-		pGameClient->ApplyAmfProcessPriority();
-}
-
-void CGameClient::ConchainAmfDiscordLowPriority(IConsole::IResult *pResult, void *pUserData, IConsole::FCommandCallback pfnCallback, void *pCallbackUserData)
-{
-	pfnCallback(pResult, pCallbackUserData);
-	CGameClient *pGameClient = static_cast<CGameClient *>(pUserData);
-	// Do not perform an OFF/ON transition while startup configuration is still
-	// being parsed. The completed OnInit lifecycle applies the final saved value
-	// once, exactly like the DDNet priority setting.
-	if(pResult->NumArguments() && pGameClient->m_AmfConfigPersistenceInitialized)
-		pGameClient->ApplyAmfDiscordProcessPriority(true);
-}
 vec2 CGameClient::GetFreezePos(int ClientId)
 {
 	if(IsCloudInputMode())
@@ -5731,13 +5141,11 @@ vec2 CGameClient::GetFreezePos(int ClientId)
 			MixAmount = 1.f;
 
 		Client()->GetSmoothFreezeTick(&SmoothTick, &SmoothIntra, MixAmount);
-
 		m_SmoothTick = SmoothTick;
 		m_SmoothIntraTick = SmoothIntra;
 
 		ApplyCloudInputOffset(ClientId, SmoothTick, SmoothIntra);
 		TryGetCloudInputPredPos(ClientId, SmoothTick, SmoothIntra, Pos);
-
 		return Pos;
 	}
 
@@ -5748,12 +5156,9 @@ vec2 CGameClient::GetFreezePos(int ClientId)
 	if(ClientId != m_Snap.m_LocalClientId && FastInputTicksClient > 0 && TClientInputs::ImmediateOthers())
 		return GetFastInputPos(ClientId);
 	vec2 Pos = mix(m_aClients[ClientId].m_PrevPredicted.m_Pos, m_aClients[ClientId].m_Predicted.m_Pos, Client()->PredIntraGameTick(g_Config.m_ClDummy));
-	// int64_t Now = time_get();
 	CCharacter *pChar = m_PredictedWorld.GetCharacterById(m_Snap.m_LocalClientId);
 	CCharacter *pExtraChar = m_ExtraPredictedWorld.GetCharacterById(m_Snap.m_LocalClientId);
 
-	// int64_t Len = clamp(m_aClients[ClientId].m_aSmoothLen[i], (int64_t)1, time_freq());
-	// int64_t TimePassed = Now - m_aClients[ClientId].m_aSmoothStart[i];
 	float MixAmount = 0.0f;
 	int SmoothTick;
 	float SmoothIntra;
@@ -5769,18 +5174,14 @@ vec2 CGameClient::GetFreezePos(int ClientId)
 
 		AdjustTicks = std::max(AdjustTicks, 0);
 		FreezeTime = pChar->m_FreezeTime;
-
 		AdjustTicks = std::min(FreezeTime, AdjustTicks);
 	}
 	if(g_Config.m_TcRemoveAnti && pChar && AdjustTicks > 0 && FreezeTime > 0)
 		MixAmount = mix(0.0f, 1.0f, 1.0f - AdjustTicks / (float)DelayTicks);
-	// else if(AdjustTicks == 0 && ClientId != m_Snap.m_LocalClientId)
-	//	MixAmount = 1.f - std::pow(1.f - TimePassed / (float)Len, 1.2f);
-	else // our tee when not frozen
+	else
 		MixAmount = 1.f;
 
 	Client()->GetSmoothFreezeTick(&SmoothTick, &SmoothIntra, MixAmount);
-
 	m_SmoothTick = SmoothTick;
 	m_SmoothIntraTick = SmoothIntra;
 
@@ -5821,7 +5222,7 @@ bool CGameClient::IsOtherTeam(int ClientId) const
 	}
 	else if(m_Snap.m_SpecInfo.m_Active && m_Snap.m_SpecInfo.m_SpectatorId != SPEC_FREEVIEW)
 	{
-		if(m_Teams.Team(ClientId) == TEAM_SUPER || m_Teams.Team(m_Snap.m_SpecInfo.m_SpectatorId) == TEAM_SUPER)
+		if(m_Teams.Team(ClientId) == m_Teams.TeamSuper() || m_Teams.Team(m_Snap.m_SpecInfo.m_SpectatorId) == m_Teams.TeamSuper())
 			return false;
 		return m_Teams.Team(ClientId) != m_Teams.Team(m_Snap.m_SpecInfo.m_SpectatorId);
 	}
@@ -5830,7 +5231,7 @@ bool CGameClient::IsOtherTeam(int ClientId) const
 		return true;
 	}
 
-	if(m_Teams.Team(ClientId) == TEAM_SUPER || m_Teams.Team(m_Snap.m_LocalClientId) == TEAM_SUPER)
+	if(m_Teams.Team(ClientId) == m_Teams.TeamSuper() || m_Teams.Team(m_Snap.m_LocalClientId) == m_Teams.TeamSuper())
 		return false;
 
 	return m_Teams.Team(ClientId) != m_Teams.Team(m_Snap.m_LocalClientId);
@@ -5852,595 +5253,6 @@ bool CGameClient::IsLocalCharSuper() const
 	if(m_Snap.m_LocalClientId < 0)
 		return false;
 	return m_aClients[m_Snap.m_LocalClientId].m_Super;
-}
-
-CGameClient::CImageAsset CGameClient::LoadAssetFromPath(const char *pPath, bool AsDir, int AssetId, const char *pDirectory) const
-{
-	CImageAsset LoadedAsset;
-	LoadedAsset.m_IsDefault = str_comp(pPath, "default") == 0;
-	if(LoadedAsset.m_IsDefault)
-	{
-		str_copy(LoadedAsset.m_aPath, g_pData->m_aImages[AssetId].m_pFilename);
-	}
-	else if(AsDir)
-	{
-		str_format(LoadedAsset.m_aPath, sizeof(LoadedAsset.m_aPath), "assets/%s/%s/%s", pDirectory, pPath, g_pData->m_aImages[AssetId].m_pFilename);
-	}
-	else
-	{
-		str_format(LoadedAsset.m_aPath, sizeof(LoadedAsset.m_aPath), "assets/%s/%s.png", pDirectory, pPath);
-	}
-
-	Graphics()->LoadPng(LoadedAsset.m_ImageInfo, LoadedAsset.m_aPath, IStorage::TYPE_ALL);
-
-	return LoadedAsset;
-}
-
-void CGameClient::LoadGameSkin(const char *pPath, bool AsDir)
-{
-	if(m_GameSkinLoaded)
-	{
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteHealthFull);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteHealthEmpty);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteArmorFull);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteArmorEmpty);
-
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteWeaponHammerCursor);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteWeaponGunCursor);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteWeaponShotgunCursor);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteWeaponGrenadeCursor);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteWeaponNinjaCursor);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteWeaponLaserCursor);
-
-		for(auto &SpriteWeaponCursor : m_GameSkin.m_aSpriteWeaponCursors)
-		{
-			SpriteWeaponCursor = IGraphics::CTextureHandle();
-		}
-
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteHookChain);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteHookHead);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteWeaponHammer);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteWeaponGun);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteWeaponShotgun);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteWeaponGrenade);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteWeaponNinja);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteWeaponLaser);
-
-		for(auto &SpriteWeapon : m_GameSkin.m_aSpriteWeapons)
-		{
-			SpriteWeapon = IGraphics::CTextureHandle();
-		}
-
-		for(auto &SpriteParticle : m_GameSkin.m_aSpriteParticles)
-		{
-			Graphics()->UnloadTexture(&SpriteParticle);
-		}
-
-		for(auto &SpriteStar : m_GameSkin.m_aSpriteStars)
-		{
-			Graphics()->UnloadTexture(&SpriteStar);
-		}
-
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteWeaponGunProjectile);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteWeaponShotgunProjectile);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteWeaponGrenadeProjectile);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteWeaponHammerProjectile);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteWeaponNinjaProjectile);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteWeaponLaserProjectile);
-
-		for(auto &SpriteWeaponProjectile : m_GameSkin.m_aSpriteWeaponProjectiles)
-		{
-			SpriteWeaponProjectile = IGraphics::CTextureHandle();
-		}
-
-		for(int i = 0; i < 3; ++i)
-		{
-			Graphics()->UnloadTexture(&m_GameSkin.m_aSpriteWeaponGunMuzzles[i]);
-			Graphics()->UnloadTexture(&m_GameSkin.m_aSpriteWeaponShotgunMuzzles[i]);
-			Graphics()->UnloadTexture(&m_GameSkin.m_aaSpriteWeaponNinjaMuzzles[i]);
-
-			for(auto &SpriteWeaponsMuzzle : m_GameSkin.m_aaSpriteWeaponsMuzzles)
-			{
-				SpriteWeaponsMuzzle[i] = IGraphics::CTextureHandle();
-			}
-		}
-
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpritePickupHealth);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpritePickupArmor);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpritePickupArmorShotgun);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpritePickupArmorGrenade);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpritePickupArmorLaser);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpritePickupArmorNinja);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpritePickupGrenade);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpritePickupShotgun);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpritePickupLaser);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpritePickupNinja);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpritePickupGun);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpritePickupHammer);
-
-		for(auto &SpritePickupWeapon : m_GameSkin.m_aSpritePickupWeapons)
-		{
-			SpritePickupWeapon = IGraphics::CTextureHandle();
-		}
-
-		for(auto &SpritePickupWeaponArmor : m_GameSkin.m_aSpritePickupWeaponArmor)
-		{
-			SpritePickupWeaponArmor = IGraphics::CTextureHandle();
-		}
-
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteFlagBlue);
-		Graphics()->UnloadTexture(&m_GameSkin.m_SpriteFlagRed);
-
-		if(m_GameSkin.IsSixup())
-		{
-			Graphics()->UnloadTexture(&m_GameSkin.m_SpriteNinjaBarFullLeft);
-			Graphics()->UnloadTexture(&m_GameSkin.m_SpriteNinjaBarFull);
-			Graphics()->UnloadTexture(&m_GameSkin.m_SpriteNinjaBarEmpty);
-			Graphics()->UnloadTexture(&m_GameSkin.m_SpriteNinjaBarEmptyRight);
-		}
-
-		m_GameSkinLoaded = false;
-	}
-
-	CImageAsset LoadedAsset = LoadAssetFromPath(pPath, AsDir, IMAGE_GAME, "game");
-	CImageInfo &ImgInfo = LoadedAsset.m_ImageInfo;
-	if(!LoadedAsset.IsLoaded() && !LoadedAsset.m_IsDefault)
-	{
-		if(AsDir)
-		{
-			str_copy(g_Config.m_ClAssetGame, "default");
-			LoadGameSkin("default");
-		}
-		else
-			LoadGameSkin(pPath, true);
-	}
-	else if(LoadedAsset.IsLoaded() && Graphics()->CheckImageDivisibility(LoadedAsset.m_aPath, ImgInfo, g_pData->m_aSprites[SPRITE_HEALTH_FULL].m_pSet->m_Gridx, g_pData->m_aSprites[SPRITE_HEALTH_FULL].m_pSet->m_Gridy, true) && Graphics()->IsImageFormatRgba(LoadedAsset.m_aPath, ImgInfo))
-	{
-		m_GameSkin.m_SpriteHealthFull = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HEALTH_FULL]);
-		m_GameSkin.m_SpriteHealthEmpty = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HEALTH_EMPTY]);
-		m_GameSkin.m_SpriteArmorFull = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_ARMOR_FULL]);
-		m_GameSkin.m_SpriteArmorEmpty = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_ARMOR_EMPTY]);
-
-		m_GameSkin.m_SpriteWeaponHammerCursor = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_HAMMER_CURSOR]);
-		m_GameSkin.m_SpriteWeaponGunCursor = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_GUN_CURSOR]);
-		m_GameSkin.m_SpriteWeaponShotgunCursor = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_SHOTGUN_CURSOR]);
-		m_GameSkin.m_SpriteWeaponGrenadeCursor = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_GRENADE_CURSOR]);
-		m_GameSkin.m_SpriteWeaponNinjaCursor = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_NINJA_CURSOR]);
-		m_GameSkin.m_SpriteWeaponLaserCursor = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_LASER_CURSOR]);
-
-		m_GameSkin.m_aSpriteWeaponCursors[0] = m_GameSkin.m_SpriteWeaponHammerCursor;
-		m_GameSkin.m_aSpriteWeaponCursors[1] = m_GameSkin.m_SpriteWeaponGunCursor;
-		m_GameSkin.m_aSpriteWeaponCursors[2] = m_GameSkin.m_SpriteWeaponShotgunCursor;
-		m_GameSkin.m_aSpriteWeaponCursors[3] = m_GameSkin.m_SpriteWeaponGrenadeCursor;
-		m_GameSkin.m_aSpriteWeaponCursors[4] = m_GameSkin.m_SpriteWeaponLaserCursor;
-		m_GameSkin.m_aSpriteWeaponCursors[5] = m_GameSkin.m_SpriteWeaponNinjaCursor;
-
-		// weapons and hook
-		m_GameSkin.m_SpriteHookChain = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HOOK_CHAIN]);
-		m_GameSkin.m_SpriteHookHead = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HOOK_HEAD]);
-		m_GameSkin.m_SpriteWeaponHammer = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_HAMMER_BODY]);
-		m_GameSkin.m_SpriteWeaponGun = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_GUN_BODY]);
-		m_GameSkin.m_SpriteWeaponShotgun = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_SHOTGUN_BODY]);
-		m_GameSkin.m_SpriteWeaponGrenade = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_GRENADE_BODY]);
-		m_GameSkin.m_SpriteWeaponNinja = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_NINJA_BODY]);
-		m_GameSkin.m_SpriteWeaponLaser = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_LASER_BODY]);
-
-		m_GameSkin.m_aSpriteWeapons[0] = m_GameSkin.m_SpriteWeaponHammer;
-		m_GameSkin.m_aSpriteWeapons[1] = m_GameSkin.m_SpriteWeaponGun;
-		m_GameSkin.m_aSpriteWeapons[2] = m_GameSkin.m_SpriteWeaponShotgun;
-		m_GameSkin.m_aSpriteWeapons[3] = m_GameSkin.m_SpriteWeaponGrenade;
-		m_GameSkin.m_aSpriteWeapons[4] = m_GameSkin.m_SpriteWeaponLaser;
-		m_GameSkin.m_aSpriteWeapons[5] = m_GameSkin.m_SpriteWeaponNinja;
-
-		// particles
-		for(int i = 0; i < 9; ++i)
-		{
-			m_GameSkin.m_aSpriteParticles[i] = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PART1 + i]);
-		}
-
-		// stars
-		for(int i = 0; i < 3; ++i)
-		{
-			m_GameSkin.m_aSpriteStars[i] = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_STAR1 + i]);
-		}
-
-		// projectiles
-		m_GameSkin.m_SpriteWeaponGunProjectile = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_GUN_PROJ]);
-		m_GameSkin.m_SpriteWeaponShotgunProjectile = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_SHOTGUN_PROJ]);
-		m_GameSkin.m_SpriteWeaponGrenadeProjectile = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_GRENADE_PROJ]);
-
-		// these weapons have no projectiles
-		m_GameSkin.m_SpriteWeaponHammerProjectile = IGraphics::CTextureHandle();
-		m_GameSkin.m_SpriteWeaponNinjaProjectile = IGraphics::CTextureHandle();
-
-		m_GameSkin.m_SpriteWeaponLaserProjectile = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_LASER_PROJ]);
-
-		m_GameSkin.m_aSpriteWeaponProjectiles[0] = m_GameSkin.m_SpriteWeaponHammerProjectile;
-		m_GameSkin.m_aSpriteWeaponProjectiles[1] = m_GameSkin.m_SpriteWeaponGunProjectile;
-		m_GameSkin.m_aSpriteWeaponProjectiles[2] = m_GameSkin.m_SpriteWeaponShotgunProjectile;
-		m_GameSkin.m_aSpriteWeaponProjectiles[3] = m_GameSkin.m_SpriteWeaponGrenadeProjectile;
-		m_GameSkin.m_aSpriteWeaponProjectiles[4] = m_GameSkin.m_SpriteWeaponLaserProjectile;
-		m_GameSkin.m_aSpriteWeaponProjectiles[5] = m_GameSkin.m_SpriteWeaponNinjaProjectile;
-
-		// muzzles
-		for(int i = 0; i < 3; ++i)
-		{
-			m_GameSkin.m_aSpriteWeaponGunMuzzles[i] = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_GUN_MUZZLE1 + i]);
-			m_GameSkin.m_aSpriteWeaponShotgunMuzzles[i] = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_SHOTGUN_MUZZLE1 + i]);
-			m_GameSkin.m_aaSpriteWeaponNinjaMuzzles[i] = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_WEAPON_NINJA_MUZZLE1 + i]);
-
-			m_GameSkin.m_aaSpriteWeaponsMuzzles[1][i] = m_GameSkin.m_aSpriteWeaponGunMuzzles[i];
-			m_GameSkin.m_aaSpriteWeaponsMuzzles[2][i] = m_GameSkin.m_aSpriteWeaponShotgunMuzzles[i];
-			m_GameSkin.m_aaSpriteWeaponsMuzzles[5][i] = m_GameSkin.m_aaSpriteWeaponNinjaMuzzles[i];
-		}
-
-		// pickups
-		m_GameSkin.m_SpritePickupHealth = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PICKUP_HEALTH]);
-		m_GameSkin.m_SpritePickupArmor = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PICKUP_ARMOR]);
-		m_GameSkin.m_SpritePickupHammer = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PICKUP_HAMMER]);
-		m_GameSkin.m_SpritePickupGun = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PICKUP_GUN]);
-		m_GameSkin.m_SpritePickupShotgun = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PICKUP_SHOTGUN]);
-		m_GameSkin.m_SpritePickupGrenade = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PICKUP_GRENADE]);
-		m_GameSkin.m_SpritePickupLaser = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PICKUP_LASER]);
-		m_GameSkin.m_SpritePickupNinja = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PICKUP_NINJA]);
-		m_GameSkin.m_SpritePickupArmorShotgun = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PICKUP_ARMOR_SHOTGUN]);
-		m_GameSkin.m_SpritePickupArmorGrenade = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PICKUP_ARMOR_GRENADE]);
-		m_GameSkin.m_SpritePickupArmorNinja = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PICKUP_ARMOR_NINJA]);
-		m_GameSkin.m_SpritePickupArmorLaser = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PICKUP_ARMOR_LASER]);
-
-		m_GameSkin.m_aSpritePickupWeapons[0] = m_GameSkin.m_SpritePickupHammer;
-		m_GameSkin.m_aSpritePickupWeapons[1] = m_GameSkin.m_SpritePickupGun;
-		m_GameSkin.m_aSpritePickupWeapons[2] = m_GameSkin.m_SpritePickupShotgun;
-		m_GameSkin.m_aSpritePickupWeapons[3] = m_GameSkin.m_SpritePickupGrenade;
-		m_GameSkin.m_aSpritePickupWeapons[4] = m_GameSkin.m_SpritePickupLaser;
-		m_GameSkin.m_aSpritePickupWeapons[5] = m_GameSkin.m_SpritePickupNinja;
-
-		m_GameSkin.m_aSpritePickupWeaponArmor[0] = m_GameSkin.m_SpritePickupArmorShotgun;
-		m_GameSkin.m_aSpritePickupWeaponArmor[1] = m_GameSkin.m_SpritePickupArmorGrenade;
-		m_GameSkin.m_aSpritePickupWeaponArmor[2] = m_GameSkin.m_SpritePickupArmorNinja;
-		m_GameSkin.m_aSpritePickupWeaponArmor[3] = m_GameSkin.m_SpritePickupArmorLaser;
-
-		// flags
-		m_GameSkin.m_SpriteFlagBlue = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_FLAG_BLUE]);
-		m_GameSkin.m_SpriteFlagRed = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_FLAG_RED]);
-
-		// ninja bar (0.7)
-		if(!Graphics()->IsSpriteTextureFullyTransparent(ImgInfo, &client_data7::g_pData->m_aSprites[client_data7::SPRITE_NINJA_BAR_FULL_LEFT]) ||
-			!Graphics()->IsSpriteTextureFullyTransparent(ImgInfo, &client_data7::g_pData->m_aSprites[client_data7::SPRITE_NINJA_BAR_FULL]) ||
-			!Graphics()->IsSpriteTextureFullyTransparent(ImgInfo, &client_data7::g_pData->m_aSprites[client_data7::SPRITE_NINJA_BAR_EMPTY]) ||
-			!Graphics()->IsSpriteTextureFullyTransparent(ImgInfo, &client_data7::g_pData->m_aSprites[client_data7::SPRITE_NINJA_BAR_EMPTY_RIGHT]))
-		{
-			m_GameSkin.m_SpriteNinjaBarFullLeft = Graphics()->LoadSpriteTexture(ImgInfo, &client_data7::g_pData->m_aSprites[client_data7::SPRITE_NINJA_BAR_FULL_LEFT]);
-			m_GameSkin.m_SpriteNinjaBarFull = Graphics()->LoadSpriteTexture(ImgInfo, &client_data7::g_pData->m_aSprites[client_data7::SPRITE_NINJA_BAR_FULL]);
-			m_GameSkin.m_SpriteNinjaBarEmpty = Graphics()->LoadSpriteTexture(ImgInfo, &client_data7::g_pData->m_aSprites[client_data7::SPRITE_NINJA_BAR_EMPTY]);
-			m_GameSkin.m_SpriteNinjaBarEmptyRight = Graphics()->LoadSpriteTexture(ImgInfo, &client_data7::g_pData->m_aSprites[client_data7::SPRITE_NINJA_BAR_EMPTY_RIGHT]);
-		}
-
-		m_GameSkinLoaded = true;
-	}
-	ImgInfo.Free();
-}
-
-void CGameClient::LoadEmoticonsSkin(const char *pPath, bool AsDir)
-{
-	if(m_EmoticonsSkinLoaded)
-	{
-		for(auto &SpriteEmoticon : m_EmoticonsSkin.m_aSpriteEmoticons)
-			Graphics()->UnloadTexture(&SpriteEmoticon);
-
-		m_EmoticonsSkinLoaded = false;
-	}
-
-	CImageAsset LoadedAsset = LoadAssetFromPath(pPath, AsDir, IMAGE_EMOTICONS, "emoticons");
-	CImageInfo &ImgInfo = LoadedAsset.m_ImageInfo;
-	if(!LoadedAsset.IsLoaded() && !LoadedAsset.m_IsDefault)
-	{
-		if(AsDir)
-		{
-			str_copy(g_Config.m_ClAssetEmoticons, "default");
-			LoadEmoticonsSkin("default");
-		}
-		else
-			LoadEmoticonsSkin(pPath, true);
-	}
-	else if(LoadedAsset.IsLoaded() && Graphics()->CheckImageDivisibility(LoadedAsset.m_aPath, ImgInfo, g_pData->m_aSprites[SPRITE_OOP].m_pSet->m_Gridx, g_pData->m_aSprites[SPRITE_OOP].m_pSet->m_Gridy, true) && Graphics()->IsImageFormatRgba(LoadedAsset.m_aPath, ImgInfo))
-	{
-		for(int i = 0; i < 16; ++i)
-			m_EmoticonsSkin.m_aSpriteEmoticons[i] = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_OOP + i]);
-
-		m_EmoticonsSkinLoaded = true;
-	}
-	ImgInfo.Free();
-}
-
-void CGameClient::LoadParticlesSkin(const char *pPath, bool AsDir)
-{
-	if(m_ParticlesSkinLoaded)
-	{
-		Graphics()->UnloadTexture(&m_ParticlesSkin.m_SpriteParticleSlice);
-		Graphics()->UnloadTexture(&m_ParticlesSkin.m_SpriteParticleBall);
-		for(auto &SpriteParticleSplat : m_ParticlesSkin.m_aSpriteParticleSplat)
-			Graphics()->UnloadTexture(&SpriteParticleSplat);
-		Graphics()->UnloadTexture(&m_ParticlesSkin.m_SpriteParticleSmoke);
-		Graphics()->UnloadTexture(&m_ParticlesSkin.m_SpriteParticleShell);
-		Graphics()->UnloadTexture(&m_ParticlesSkin.m_SpriteParticleExpl);
-		Graphics()->UnloadTexture(&m_ParticlesSkin.m_SpriteParticleAirJump);
-		Graphics()->UnloadTexture(&m_ParticlesSkin.m_SpriteParticleHit);
-
-		for(auto &SpriteParticle : m_ParticlesSkin.m_aSpriteParticles)
-			SpriteParticle = IGraphics::CTextureHandle();
-
-		m_ParticlesSkinLoaded = false;
-	}
-
-	CImageAsset LoadedAsset = LoadAssetFromPath(pPath, AsDir, IMAGE_PARTICLES, "particles");
-	CImageInfo &ImgInfo = LoadedAsset.m_ImageInfo;
-	if(!LoadedAsset.IsLoaded() && !LoadedAsset.m_IsDefault)
-	{
-		if(AsDir)
-		{
-			str_copy(g_Config.m_ClAssetParticles, "default");
-			LoadParticlesSkin("default");
-		}
-		else
-			LoadParticlesSkin(pPath, true);
-	}
-	else if(LoadedAsset.IsLoaded() && Graphics()->CheckImageDivisibility(LoadedAsset.m_aPath, ImgInfo, g_pData->m_aSprites[SPRITE_PART_SLICE].m_pSet->m_Gridx, g_pData->m_aSprites[SPRITE_PART_SLICE].m_pSet->m_Gridy, true) && Graphics()->IsImageFormatRgba(LoadedAsset.m_aPath, ImgInfo))
-	{
-		m_ParticlesSkin.m_SpriteParticleSlice = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PART_SLICE]);
-		m_ParticlesSkin.m_SpriteParticleBall = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PART_BALL]);
-		for(int i = 0; i < 3; ++i)
-			m_ParticlesSkin.m_aSpriteParticleSplat[i] = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PART_SPLAT01 + i]);
-		m_ParticlesSkin.m_SpriteParticleSmoke = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PART_SMOKE]);
-		m_ParticlesSkin.m_SpriteParticleShell = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PART_SHELL]);
-		m_ParticlesSkin.m_SpriteParticleExpl = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PART_EXPL01]);
-		m_ParticlesSkin.m_SpriteParticleAirJump = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PART_AIRJUMP]);
-		m_ParticlesSkin.m_SpriteParticleHit = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PART_HIT01]);
-
-		m_ParticlesSkin.m_aSpriteParticles[0] = m_ParticlesSkin.m_SpriteParticleSlice;
-		m_ParticlesSkin.m_aSpriteParticles[1] = m_ParticlesSkin.m_SpriteParticleBall;
-		for(int i = 0; i < 3; ++i)
-			m_ParticlesSkin.m_aSpriteParticles[2 + i] = m_ParticlesSkin.m_aSpriteParticleSplat[i];
-		m_ParticlesSkin.m_aSpriteParticles[5] = m_ParticlesSkin.m_SpriteParticleSmoke;
-		m_ParticlesSkin.m_aSpriteParticles[6] = m_ParticlesSkin.m_SpriteParticleShell;
-		m_ParticlesSkin.m_aSpriteParticles[7] = m_ParticlesSkin.m_SpriteParticleExpl;
-		m_ParticlesSkin.m_aSpriteParticles[8] = m_ParticlesSkin.m_SpriteParticleAirJump;
-		m_ParticlesSkin.m_aSpriteParticles[9] = m_ParticlesSkin.m_SpriteParticleHit;
-
-		m_ParticlesSkinLoaded = true;
-	}
-	ImgInfo.Free();
-}
-
-void CGameClient::LoadHudSkin(const char *pPath, bool AsDir)
-{
-	if(m_HudSkinLoaded)
-	{
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudAirjump);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudAirjumpEmpty);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudSolo);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudCollisionDisabled);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudEndlessJump);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudEndlessHook);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudJetpack);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudFreezeBarFullLeft);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudFreezeBarFull);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudFreezeBarEmpty);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudFreezeBarEmptyRight);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudNinjaBarFullLeft);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudNinjaBarFull);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudNinjaBarEmpty);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudNinjaBarEmptyRight);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudHookHitDisabled);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudHammerHitDisabled);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudShotgunHitDisabled);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudGrenadeHitDisabled);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudLaserHitDisabled);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudGunHitDisabled);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudDeepFrozen);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudLiveFrozen);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudTeleportGrenade);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudTeleportGun);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudTeleportLaser);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudPracticeMode);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudLockMode);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudTeam0Mode);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudDummyHammer);
-		Graphics()->UnloadTexture(&m_HudSkin.m_SpriteHudDummyCopy);
-		m_HudSkinLoaded = false;
-	}
-
-	CImageAsset LoadedAsset = LoadAssetFromPath(pPath, AsDir, IMAGE_HUD, "hud");
-	CImageInfo &ImgInfo = LoadedAsset.m_ImageInfo;
-	if(!LoadedAsset.IsLoaded() && !LoadedAsset.m_IsDefault)
-	{
-		if(AsDir)
-		{
-			str_copy(g_Config.m_ClAssetHud, "default");
-			LoadHudSkin("default");
-		}
-		else
-			LoadHudSkin(pPath, true);
-	}
-	else if(LoadedAsset.IsLoaded() && Graphics()->CheckImageDivisibility(LoadedAsset.m_aPath, ImgInfo, g_pData->m_aSprites[SPRITE_HUD_AIRJUMP].m_pSet->m_Gridx, g_pData->m_aSprites[SPRITE_HUD_AIRJUMP].m_pSet->m_Gridy, true) && Graphics()->IsImageFormatRgba(LoadedAsset.m_aPath, ImgInfo))
-	{
-		m_HudSkin.m_SpriteHudAirjump = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_AIRJUMP]);
-		m_HudSkin.m_SpriteHudAirjumpEmpty = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_AIRJUMP_EMPTY]);
-		m_HudSkin.m_SpriteHudSolo = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_SOLO]);
-		m_HudSkin.m_SpriteHudCollisionDisabled = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_COLLISION_DISABLED]);
-		m_HudSkin.m_SpriteHudEndlessJump = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_ENDLESS_JUMP]);
-		m_HudSkin.m_SpriteHudEndlessHook = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_ENDLESS_HOOK]);
-		m_HudSkin.m_SpriteHudJetpack = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_JETPACK]);
-		m_HudSkin.m_SpriteHudFreezeBarFullLeft = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_FREEZE_BAR_FULL_LEFT]);
-		m_HudSkin.m_SpriteHudFreezeBarFull = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_FREEZE_BAR_FULL]);
-		m_HudSkin.m_SpriteHudFreezeBarEmpty = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_FREEZE_BAR_EMPTY]);
-		m_HudSkin.m_SpriteHudFreezeBarEmptyRight = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_FREEZE_BAR_EMPTY_RIGHT]);
-		m_HudSkin.m_SpriteHudNinjaBarFullLeft = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_NINJA_BAR_FULL_LEFT]);
-		m_HudSkin.m_SpriteHudNinjaBarFull = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_NINJA_BAR_FULL]);
-		m_HudSkin.m_SpriteHudNinjaBarEmpty = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_NINJA_BAR_EMPTY]);
-		m_HudSkin.m_SpriteHudNinjaBarEmptyRight = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_NINJA_BAR_EMPTY_RIGHT]);
-		m_HudSkin.m_SpriteHudHookHitDisabled = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_HOOK_HIT_DISABLED]);
-		m_HudSkin.m_SpriteHudHammerHitDisabled = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_HAMMER_HIT_DISABLED]);
-		m_HudSkin.m_SpriteHudShotgunHitDisabled = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_SHOTGUN_HIT_DISABLED]);
-		m_HudSkin.m_SpriteHudGrenadeHitDisabled = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_GRENADE_HIT_DISABLED]);
-		m_HudSkin.m_SpriteHudLaserHitDisabled = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_LASER_HIT_DISABLED]);
-		m_HudSkin.m_SpriteHudGunHitDisabled = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_GUN_HIT_DISABLED]);
-		m_HudSkin.m_SpriteHudDeepFrozen = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_DEEP_FROZEN]);
-		m_HudSkin.m_SpriteHudLiveFrozen = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_LIVE_FROZEN]);
-		m_HudSkin.m_SpriteHudTeleportGrenade = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_TELEPORT_GRENADE]);
-		m_HudSkin.m_SpriteHudTeleportGun = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_TELEPORT_GUN]);
-		m_HudSkin.m_SpriteHudTeleportLaser = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_TELEPORT_LASER]);
-		m_HudSkin.m_SpriteHudPracticeMode = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_PRACTICE_MODE]);
-		m_HudSkin.m_SpriteHudLockMode = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_LOCK_MODE]);
-		m_HudSkin.m_SpriteHudTeam0Mode = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_TEAM0_MODE]);
-		m_HudSkin.m_SpriteHudDummyHammer = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_DUMMY_HAMMER]);
-		m_HudSkin.m_SpriteHudDummyCopy = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_HUD_DUMMY_COPY]);
-
-		m_HudSkinLoaded = true;
-	}
-	ImgInfo.Free();
-}
-
-void CGameClient::LoadExtrasSkin(const char *pPath, bool AsDir)
-{
-	if(m_ExtrasSkinLoaded)
-	{
-		Graphics()->UnloadTexture(&m_ExtrasSkin.m_SpriteParticleSnowflake);
-		Graphics()->UnloadTexture(&m_ExtrasSkin.m_SpriteParticleSparkle);
-		Graphics()->UnloadTexture(&m_ExtrasSkin.m_SpritePulley);
-		Graphics()->UnloadTexture(&m_ExtrasSkin.m_SpriteHectagon);
-
-		for(auto &SpriteParticle : m_ExtrasSkin.m_aSpriteParticles)
-			SpriteParticle = IGraphics::CTextureHandle();
-
-		m_ExtrasSkinLoaded = false;
-	}
-
-	CImageAsset LoadedAsset = LoadAssetFromPath(pPath, AsDir, IMAGE_EXTRAS, "extras");
-	CImageInfo &ImgInfo = LoadedAsset.m_ImageInfo;
-	if(!LoadedAsset.IsLoaded() && !LoadedAsset.m_IsDefault)
-	{
-		if(AsDir)
-		{
-			str_copy(g_Config.m_ClAssetExtras, "default");
-			LoadExtrasSkin("default");
-		}
-		else
-			LoadExtrasSkin(pPath, true);
-	}
-	else if(LoadedAsset.IsLoaded() && Graphics()->CheckImageDivisibility(LoadedAsset.m_aPath, ImgInfo, g_pData->m_aSprites[SPRITE_PART_SNOWFLAKE].m_pSet->m_Gridx, g_pData->m_aSprites[SPRITE_PART_SNOWFLAKE].m_pSet->m_Gridy, true) && Graphics()->IsImageFormatRgba(LoadedAsset.m_aPath, ImgInfo))
-	{
-		m_ExtrasSkin.m_SpriteParticleSnowflake = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PART_SNOWFLAKE]);
-		m_ExtrasSkin.m_SpriteParticleSparkle = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PART_SPARKLE]);
-		m_ExtrasSkin.m_SpritePulley = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PART_PULLEY]);
-		m_ExtrasSkin.m_SpriteHectagon = Graphics()->LoadSpriteTexture(ImgInfo, &g_pData->m_aSprites[SPRITE_PART_HECTAGON]);
-
-		m_ExtrasSkin.m_aSpriteParticles[0] = m_ExtrasSkin.m_SpriteParticleSnowflake;
-		m_ExtrasSkin.m_aSpriteParticles[1] = m_ExtrasSkin.m_SpriteParticleSparkle;
-		m_ExtrasSkin.m_aSpriteParticles[2] = m_ExtrasSkin.m_SpritePulley;
-		m_ExtrasSkin.m_aSpriteParticles[3] = m_ExtrasSkin.m_SpriteHectagon;
-
-		m_ExtrasSkinLoaded = true;
-	}
-	ImgInfo.Free();
-}
-
-void CGameClient::LoadCursorAsset(const char *pPath, bool AsDir)
-{
-	if(m_CursorTextureOverrideLoaded)
-		Graphics()->UnloadTexture(&m_CursorTextureOverride);
-	m_CursorTextureOverrideLoaded = false;
-	m_CursorTextureOverride = IGraphics::CTextureHandle();
-	if(pPath == nullptr || pPath[0] == '\0')
-	{
-		str_copy(g_Config.m_ClAssetCursor, "default");
-		pPath = "default";
-	}
-	if(str_comp(pPath, "default") == 0)
-	{
-		// Do not create an override for Default. CursorTexture() then returns
-		// DDNet's original IMAGE_CURSOR handle and the original render path is
-		// used unchanged.
-		return;
-	}
-	char aPath[IO_MAX_PATH_LENGTH];
-	if(AsDir)
-		str_format(aPath, sizeof(aPath), "assets/cursor/%s/gui_cursor.png", pPath);
-	else
-		str_format(aPath, sizeof(aPath), "assets/cursor/%s.png", pPath);
-	m_CursorTextureOverride = Graphics()->LoadTexture(aPath, IStorage::TYPE_ALL);
-	if(m_CursorTextureOverride.IsNullTexture() && !AsDir)
-	{
-		str_format(aPath, sizeof(aPath), "assets/cursor/%s/gui_cursor.png", pPath);
-		m_CursorTextureOverride = Graphics()->LoadTexture(aPath, IStorage::TYPE_ALL);
-		if(m_CursorTextureOverride.IsNullTexture())
-		{
-			str_format(aPath, sizeof(aPath), "assets/cursor/%s/cursor.png", pPath);
-			m_CursorTextureOverride = Graphics()->LoadTexture(aPath, IStorage::TYPE_ALL);
-		}
-	}
-	m_CursorTextureOverrideLoaded = m_CursorTextureOverride.IsValid() && !m_CursorTextureOverride.IsNullTexture();
-	if(!m_CursorTextureOverrideLoaded)
-	{
-		str_copy(g_Config.m_ClAssetCursor, "default");
-		LoadCursorAsset("default");
-	}
-}
-
-void CGameClient::LoadArrowAsset(const char *pPath, bool AsDir)
-{
-	if(m_ArrowTextureOverrideLoaded)
-		Graphics()->UnloadTexture(&m_ArrowTextureOverride);
-	m_ArrowTextureOverrideLoaded = false;
-	m_ArrowTextureOverride = IGraphics::CTextureHandle();
-	if(pPath == nullptr || pPath[0] == '\0')
-	{
-		str_copy(g_Config.m_ClAssetArrow, "default");
-		pPath = "default";
-	}
-	if(str_comp(pPath, "default") == 0)
-	{
-		// Same rule as the cursor: Default means the native IMAGE_ARROW handle,
-		// not an external or separately loaded "default" pack.
-		return;
-	}
-	char aPath[IO_MAX_PATH_LENGTH];
-	if(AsDir)
-		str_format(aPath, sizeof(aPath), "assets/arrow/%s/arrow.png", pPath);
-	else
-		str_format(aPath, sizeof(aPath), "assets/arrow/%s.png", pPath);
-	m_ArrowTextureOverride = Graphics()->LoadTexture(aPath, IStorage::TYPE_ALL);
-	if(m_ArrowTextureOverride.IsNullTexture() && !AsDir)
-	{
-		str_format(aPath, sizeof(aPath), "assets/arrow/%s/arrow.png", pPath);
-		m_ArrowTextureOverride = Graphics()->LoadTexture(aPath, IStorage::TYPE_ALL);
-	}
-	m_ArrowTextureOverrideLoaded = m_ArrowTextureOverride.IsValid() && !m_ArrowTextureOverride.IsNullTexture();
-	if(!m_ArrowTextureOverrideLoaded)
-	{
-		str_copy(g_Config.m_ClAssetArrow, "default");
-		LoadArrowAsset("default");
-	}
-}
-
-IGraphics::CTextureHandle CGameClient::CursorTexture() const
-{
-	return m_CursorTextureOverrideLoaded && m_CursorTextureOverride.IsValid() && !m_CursorTextureOverride.IsNullTexture() ? m_CursorTextureOverride : g_pData->m_aImages[IMAGE_CURSOR].m_Id;
-}
-
-bool CGameClient::HasCustomCursorAsset() const
-{
-	return m_CursorTextureOverrideLoaded && m_CursorTextureOverride.IsValid() && !m_CursorTextureOverride.IsNullTexture();
-}
-
-IGraphics::CTextureHandle CGameClient::ArrowTexture() const
-{
-	return m_ArrowTextureOverrideLoaded && m_ArrowTextureOverride.IsValid() && !m_ArrowTextureOverride.IsNullTexture() ? m_ArrowTextureOverride : g_pData->m_aImages[IMAGE_ARROW].m_Id;
-}
-
-bool CGameClient::HasCustomArrowAsset() const
-{
-	return m_ArrowTextureOverrideLoaded && m_ArrowTextureOverride.IsValid() && !m_ArrowTextureOverride.IsNullTexture();
 }
 
 void CGameClient::RefreshSkin(const std::shared_ptr<CManagedTeeRenderInfo> &pManagedTeeRenderInfo)
@@ -6809,333 +5621,6 @@ void CGameClient::SnapCollectEntities()
 	}
 }
 
-void CGameClient::HandleMultiView()
-{
-	bool IsTeamZero = IsMultiViewIdSet();
-	bool Init = false;
-	vec2 MinPos, MaxPos;
-	float SumVel = 0.0f;
-	int AmountPlayers = 0;
-
-	for(int ClientId = 0; ClientId < MAX_CLIENTS; ClientId++)
-	{
-		// look at players who are vanished
-		if(m_MultiView.m_aVanish[ClientId])
-		{
-			// not in freeze anymore and the delay is over
-			if(m_MultiView.m_aLastFreeze[ClientId] + 6.0f <= Client()->LocalTime() && m_aClients[ClientId].m_FreezeEnd == 0)
-			{
-				m_MultiView.m_aVanish[ClientId] = false;
-				m_MultiView.m_aLastFreeze[ClientId] = 0.0f;
-			}
-		}
-
-		// we look at team 0 and the player is not in the spec list
-		if(IsTeamZero && !m_aMultiViewId[ClientId])
-			continue;
-
-		// player is vanished
-		if(m_MultiView.m_aVanish[ClientId])
-			continue;
-
-		// the player is not in the team we are spectating
-		if(m_Teams.Team(ClientId) != m_MultiViewTeam)
-			continue;
-
-		vec2 PlayerPos;
-		if(m_Snap.m_aCharacters[ClientId].m_Active)
-			PlayerPos = m_aClients[ClientId].m_RenderPos;
-		else if(m_aClients[ClientId].m_Spec) // tee is in spec
-			PlayerPos = m_aClients[ClientId].m_SpecChar;
-		else
-			continue;
-
-		// player is far away and frozen
-		if(distance(m_MultiView.m_OldPos, PlayerPos) > 1100 && m_aClients[ClientId].m_FreezeEnd != 0)
-		{
-			// check if the player is frozen for more than 3 seconds, if so vanish them
-			if(m_MultiView.m_aLastFreeze[ClientId] == 0.0f)
-			{
-				m_MultiView.m_aLastFreeze[ClientId] = Client()->LocalTime();
-			}
-			else if(m_MultiView.m_aLastFreeze[ClientId] + 3.0f <= Client()->LocalTime())
-			{
-				m_MultiView.m_aVanish[ClientId] = true;
-				// player we want to be vanished is our "main" tee, so lets switch the tee
-				if(ClientId == m_Snap.m_SpecInfo.m_SpectatorId)
-					m_Spectator.Spectate(FindFirstMultiViewId());
-			}
-		}
-		else if(m_MultiView.m_aLastFreeze[ClientId] != 0)
-		{
-			m_MultiView.m_aLastFreeze[ClientId] = 0;
-		}
-
-		// set the minimum and maximum position
-		if(!Init)
-		{
-			MinPos = PlayerPos;
-			MaxPos = PlayerPos;
-			Init = true;
-		}
-		else
-		{
-			MinPos.x = std::min(MinPos.x, PlayerPos.x);
-			MaxPos.x = std::max(MaxPos.x, PlayerPos.x);
-			MinPos.y = std::min(MinPos.y, PlayerPos.y);
-			MaxPos.y = std::max(MaxPos.y, PlayerPos.y);
-		}
-
-		// sum up the velocity of all players we are spectating
-		const CNetObj_Character &CurrentCharacter = m_Snap.m_aCharacters[ClientId].m_Cur;
-		SumVel += length(vec2(CurrentCharacter.m_VelX / 256.0f, CurrentCharacter.m_VelY / 256.0f)) * 50.0f / 32.0f;
-		AmountPlayers++;
-	}
-
-	// if we have found no players, we disable multi view
-	if(AmountPlayers == 0)
-	{
-		if(m_MultiView.m_SecondChance == 0.0f)
-		{
-			m_MultiView.m_SecondChance = Client()->LocalTime() + 0.3f;
-		}
-		else if(m_MultiView.m_SecondChance < Client()->LocalTime())
-		{
-			ResetMultiView();
-		}
-		return;
-	}
-	else if(m_MultiView.m_SecondChance != 0.0f)
-	{
-		m_MultiView.m_SecondChance = 0.0f;
-	}
-
-	// if we only have one tee that's in the list, we activate solo-mode
-	m_MultiView.m_Solo = std::count(std::begin(m_aMultiViewId), std::end(m_aMultiViewId), true) == 1;
-
-	vec2 TargetPos = vec2((MinPos.x + MaxPos.x) / 2.0f, (MinPos.y + MaxPos.y) / 2.0f);
-	// dont hide the position hud if its only one player
-	m_MultiViewShowHud = AmountPlayers == 1;
-	// get the average velocity
-	float AvgVel = std::clamp(SumVel / AmountPlayers, 0.0f, 1000.0f);
-
-	if(m_MultiView.m_OldPersonalZoom == m_MultiViewPersonalZoom)
-		m_Camera.SetZoom(CalculateMultiViewZoom(MinPos, MaxPos, AvgVel), g_Config.m_ClMultiViewZoomSmoothness, false);
-	else
-		m_Camera.SetZoom(CalculateMultiViewZoom(MinPos, MaxPos, AvgVel), 50, false);
-
-	m_Snap.m_SpecInfo.m_Position = m_MultiView.m_OldPos + ((TargetPos - m_MultiView.m_OldPos) * CalculateMultiViewMultiplier(TargetPos));
-	m_MultiView.m_OldPos = m_Snap.m_SpecInfo.m_Position;
-	m_Snap.m_SpecInfo.m_UsePosition = true;
-}
-
-bool CGameClient::InitMultiView(int Team)
-{
-	float Width, Height;
-	CleanMultiViewIds();
-	m_MultiView.m_IsInit = true;
-
-	// get the current view coordinates
-	Graphics()->CalcScreenParams(Graphics()->ScreenAspect(), m_Camera.m_Zoom, &Width, &Height);
-	vec2 AxisX = vec2(m_Camera.m_Center.x - (Width / 2.0f), m_Camera.m_Center.x + (Width / 2.0f));
-	vec2 AxisY = vec2(m_Camera.m_Center.y - (Height / 2.0f), m_Camera.m_Center.y + (Height / 2.0f));
-
-	if(Team > 0)
-	{
-		m_MultiViewTeam = Team;
-		for(int ClientId = 0; ClientId < MAX_CLIENTS; ClientId++)
-			m_aMultiViewId[ClientId] = m_Teams.Team(ClientId) == Team;
-	}
-	else
-	{
-		// we want to allow spectating players in teams directly if there is no other team on screen
-		// to do that, -1 is used temporarily for "we don't know which team to spectate yet"
-		m_MultiViewTeam = -1;
-
-		int Count = 0;
-		for(int ClientId = 0; ClientId < MAX_CLIENTS; ClientId++)
-		{
-			vec2 PlayerPos;
-
-			// get the position of the player
-			if(m_Snap.m_aCharacters[ClientId].m_Active)
-				PlayerPos = vec2(m_Snap.m_aCharacters[ClientId].m_Cur.m_X, m_Snap.m_aCharacters[ClientId].m_Cur.m_Y);
-			else if(m_aClients[ClientId].m_Spec)
-				PlayerPos = m_aClients[ClientId].m_SpecChar;
-			else
-				continue;
-
-			if(PlayerPos.x == 0 || PlayerPos.y == 0)
-				continue;
-
-			// skip players that aren't in view
-			if(PlayerPos.x <= AxisX.x || PlayerPos.x >= AxisX.y || PlayerPos.y <= AxisY.x || PlayerPos.y >= AxisY.y)
-				continue;
-
-			if(m_MultiViewTeam == -1)
-			{
-				// use the current player's team for now, but it might switch to team 0 if any other team is found
-				m_MultiViewTeam = m_Teams.Team(ClientId);
-			}
-			else if(m_MultiViewTeam != 0 && m_Teams.Team(ClientId) != m_MultiViewTeam)
-			{
-				// mismatched teams; remove all previously added players again and switch to team 0 instead
-				std::fill_n(m_aMultiViewId, ClientId, false);
-				m_MultiViewTeam = 0;
-			}
-
-			m_aMultiViewId[ClientId] = true;
-			Count++;
-		}
-
-		// might still be -1 if not a single player was in view; fallback to team 0 in that case
-		if(m_MultiViewTeam == -1)
-			m_MultiViewTeam = 0;
-
-		// we are spectating only one player
-		m_MultiView.m_Solo = Count == 1;
-	}
-
-	if(IsMultiViewIdSet())
-	{
-		int SpectatorId = m_Snap.m_SpecInfo.m_SpectatorId;
-		int NewSpectatorId = -1;
-
-		vec2 CurPosition(m_Camera.m_Center);
-		if(SpectatorId != SPEC_FREEVIEW)
-		{
-			const CNetObj_Character &CurCharacter = m_Snap.m_aCharacters[SpectatorId].m_Cur;
-			CurPosition.x = CurCharacter.m_X;
-			CurPosition.y = CurCharacter.m_Y;
-		}
-
-		int ClosestDistance = std::numeric_limits<int>::max();
-		for(int ClientId = 0; ClientId < MAX_CLIENTS; ClientId++)
-		{
-			if(!m_Snap.m_apPlayerInfos[ClientId] || m_Snap.m_apPlayerInfos[ClientId]->m_Team == TEAM_SPECTATORS || m_Teams.Team(ClientId) != m_MultiViewTeam)
-				continue;
-
-			vec2 PlayerPos;
-			if(m_Snap.m_aCharacters[ClientId].m_Active)
-				PlayerPos = vec2(m_aClients[ClientId].m_RenderPos.x, m_aClients[ClientId].m_RenderPos.y);
-			else if(m_aClients[ClientId].m_Spec) // tee is in spec
-				PlayerPos = m_aClients[ClientId].m_SpecChar;
-			else
-				continue;
-
-			int Distance = distance(CurPosition, PlayerPos);
-			if(NewSpectatorId == -1 || Distance < ClosestDistance)
-			{
-				NewSpectatorId = ClientId;
-				ClosestDistance = Distance;
-			}
-		}
-
-		if(NewSpectatorId > -1)
-			m_Spectator.Spectate(NewSpectatorId);
-	}
-
-	return IsMultiViewIdSet();
-}
-
-float CGameClient::CalculateMultiViewMultiplier(vec2 TargetPos)
-{
-	float MaxCameraDist = 200.0f;
-	float MinCameraDist = 20.0f;
-	float MaxVel = g_Config.m_ClMultiViewSensitivity / 150.0f;
-	float MinVel = 0.007f;
-	float CurrentCameraDistance = distance(m_MultiView.m_OldPos, TargetPos);
-	float UpperLimit = 1.0f;
-
-	if(m_MultiView.m_Teleported && CurrentCameraDistance <= 100.0f)
-		m_MultiView.m_Teleported = false;
-
-	// somebody got teleported very likely
-	if((m_MultiView.m_Teleported || CurrentCameraDistance - m_MultiView.m_OldCameraDistance > 100.0f) && m_MultiView.m_OldCameraDistance != 0.0f)
-	{
-		UpperLimit = 0.1f; // dont try to compensate it by flickering
-		m_MultiView.m_Teleported = true;
-	}
-	m_MultiView.m_OldCameraDistance = CurrentCameraDistance;
-
-	return std::clamp(MapValue(MaxCameraDist, MinCameraDist, MaxVel, MinVel, CurrentCameraDistance), MinVel, UpperLimit);
-}
-
-float CGameClient::CalculateMultiViewZoom(vec2 MinPos, vec2 MaxPos, float Vel)
-{
-	float Ratio = Graphics()->ScreenAspect();
-	float ZoomX = 0.0f, ZoomY;
-
-	// only calc two axis if the aspect ratio is not 1:1
-	if(Ratio != 1.0f)
-		ZoomX = (0.001309f - 0.000328f * Ratio) * (MaxPos.x - MinPos.x) + (0.741413f - 0.032959f * Ratio);
-
-	// calculate the according zoom with linear function
-	ZoomY = 0.001309f * (MaxPos.y - MinPos.y) + 0.741413f;
-	// choose the highest zoom
-	float Zoom = std::max(ZoomX, ZoomY);
-	// zoom out to maximum 10 percent of the current zoom for 70 velocity
-	float Diff = std::clamp(MapValue(70.0f, 15.0f, Zoom * 0.10f, 0.0f, Vel), 0.0f, Zoom * 0.10f);
-	// zoom should stay between 1.1 and 20.0
-	Zoom = std::clamp(Zoom + Diff, 1.1f, 20.0f);
-	// dont go below default zoom
-	Zoom = std::max(CCamera::ZoomStepsToValue(g_Config.m_ClDefaultZoom - 10), Zoom);
-	// add the user preference
-	Zoom -= Zoom * 0.1f * m_MultiViewPersonalZoom;
-	m_MultiView.m_OldPersonalZoom = m_MultiViewPersonalZoom;
-
-	return Zoom;
-}
-
-float CGameClient::MapValue(float MaxValue, float MinValue, float MaxRange, float MinRange, float Value)
-{
-	return (MaxRange - MinRange) / (MaxValue - MinValue) * (Value - MinValue) + MinRange;
-}
-
-void CGameClient::ResetMultiView()
-{
-	m_Camera.SetZoom(CCamera::ZoomStepsToValue(g_Config.m_ClDefaultZoom - 10), g_Config.m_ClSmoothZoomTime, true);
-	m_MultiViewPersonalZoom = 0.0f;
-	m_MultiViewActivated = false;
-	m_MultiView.m_Solo = false;
-	m_MultiView.m_IsInit = false;
-	m_MultiView.m_Teleported = false;
-	m_MultiView.m_OldCameraDistance = 0.0f;
-}
-
-void CGameClient::CleanMultiViewIds()
-{
-	std::fill(std::begin(m_aMultiViewId), std::end(m_aMultiViewId), false);
-	std::fill(std::begin(m_MultiView.m_aLastFreeze), std::end(m_MultiView.m_aLastFreeze), 0.0f);
-	std::fill(std::begin(m_MultiView.m_aVanish), std::end(m_MultiView.m_aVanish), false);
-}
-
-void CGameClient::CleanMultiViewId(int ClientId)
-{
-	if(ClientId >= MAX_CLIENTS || ClientId < 0)
-		return;
-
-	m_aMultiViewId[ClientId] = false;
-	m_MultiView.m_aLastFreeze[ClientId] = 0.0f;
-	m_MultiView.m_aVanish[ClientId] = false;
-}
-
-bool CGameClient::IsMultiViewIdSet()
-{
-	return std::any_of(std::begin(m_aMultiViewId), std::end(m_aMultiViewId), [](bool IsSet) { return IsSet; });
-}
-
-int CGameClient::FindFirstMultiViewId()
-{
-	int ClientId = -1;
-	for(int i = 0; i < MAX_CLIENTS; i++)
-	{
-		if(m_aMultiViewId[i] && !m_MultiView.m_aVanish[i])
-			return i;
-	}
-	return ClientId;
-}
-
 void CGameClient::OnSaveCodeNetMessage(const CNetMsg_Sv_SaveCode *pMsg)
 {
 	char aBuf[512];
@@ -7244,21 +5729,10 @@ void CGameClient::StoreSave(const char *pTeamMembers, const char *pGeneratedCode
 	io_close(File);
 }
 
-// TClient
-
-bool CGameClient::CheckNewInput()
-{
-	if(IsCloudInputMode())
-		return CheckCloudInputNewInput();
-	return m_Controls.CheckNewInput();
-}
-
 bool CGameClient::IsSnapTapBlockedByCommunity() const
 {
 	const char *pCommunityId = nullptr;
-
-	CServerInfo ServerInfo;
-	Client()->GetServerInfo(&ServerInfo);
+	const CServerInfo &ServerInfo = Client()->ServerInfo();
 	if(ServerInfo.m_aCommunityId[0] != '\0')
 		pCommunityId = ServerInfo.m_aCommunityId;
 	else if(m_ConnectServerInfo.has_value() && m_ConnectServerInfo->m_aCommunityId[0] != '\0')
@@ -7274,6 +5748,952 @@ bool CGameClient::IsSnapTapBlockedByCommunity() const
 	return pCommunityId != nullptr && str_comp_nocase(pCommunityId, IServerBrowser::COMMUNITY_DDNET) == 0;
 }
 
+void CGameClient::UpdateAmfProcessPriority()
+{
+#if defined(CONF_FAMILY_WINDOWS)
+	const bool WantHighPriority = g_Config.m_AmfHighPriority != 0;
+	const HANDLE Process = GetCurrentProcess();
+	const DWORD ProcessId = GetCurrentProcessId();
+	const DWORD RequestedPriority = WantHighPriority ? HIGH_PRIORITY_CLASS : NORMAL_PRIORITY_CLASS;
+	const DWORD PreviousPriority = GetPriorityClass(Process);
+	if(PreviousPriority == 0)
+	{
+		log_error("amf-priority", "DDNet PID %lu GetPriorityClass before SetPriorityClass failed (error %lu)", (unsigned long)ProcessId, (unsigned long)GetLastError());
+	}
+	else if(PreviousPriority != RequestedPriority)
+	{
+		log_info("amf-priority", "DDNet PID %lu applying priority %lu", (unsigned long)ProcessId, (unsigned long)RequestedPriority);
+		if(!SetPriorityClass(Process, RequestedPriority))
+			log_error("amf-priority", "DDNet PID %lu SetPriorityClass(%lu) returned false (error %lu)", (unsigned long)ProcessId, (unsigned long)RequestedPriority, (unsigned long)GetLastError());
+	}
+
+	// The delayed check is one-shot. A newer toggle replaces the pending request,
+	// so at most one correction can run for the latest requested state.
+	m_AmfExpectedPriority = RequestedPriority;
+	m_AmfPriorityVerificationPending = true;
+	m_AmfPriorityVerificationTime = time_get() + time_freq();
+#endif
+}
+
+void CGameClient::VerifyAmfProcessPriority()
+{
+#if defined(CONF_FAMILY_WINDOWS)
+	m_AmfPriorityVerificationPending = false;
+	const HANDLE Process = GetCurrentProcess();
+	const DWORD ProcessId = GetCurrentProcessId();
+	const DWORD ExpectedPriority = m_AmfExpectedPriority;
+	const DWORD ActualPriority = GetPriorityClass(Process);
+	if(ActualPriority == 0)
+	{
+		log_error("amf-priority", "DDNet PID %lu priority verification failed (error %lu)", (unsigned long)ProcessId, (unsigned long)GetLastError());
+		return;
+	}
+	if(ActualPriority == ExpectedPriority)
+	{
+		log_info("amf-priority", "DDNet PID %lu process priority confirmed as %lu", (unsigned long)ProcessId, (unsigned long)ExpectedPriority);
+		return;
+	}
+
+	log_error("amf-priority", "DDNet PID %lu priority changed after confirmation: expected %lu, got %lu; correcting once", (unsigned long)ProcessId, (unsigned long)ExpectedPriority, (unsigned long)ActualPriority);
+	if(!SetPriorityClass(Process, ExpectedPriority))
+	{
+		log_error("amf-priority", "DDNet PID %lu SetPriorityClass(%lu) correction failed (error %lu)", (unsigned long)ProcessId, (unsigned long)ExpectedPriority, (unsigned long)GetLastError());
+		return;
+	}
+	const DWORD CorrectedPriority = GetPriorityClass(Process);
+	if(CorrectedPriority != ExpectedPriority)
+	{
+		log_error("amf-priority", "DDNet PID %lu priority correction verification reported %lu instead of %lu (error %lu)", (unsigned long)ProcessId, (unsigned long)CorrectedPriority, (unsigned long)ExpectedPriority, (unsigned long)(CorrectedPriority == 0 ? GetLastError() : ERROR_SUCCESS));
+		return;
+	}
+	log_info("amf-priority", "DDNet PID %lu process priority confirmed as %lu after one correction", (unsigned long)ProcessId, (unsigned long)ExpectedPriority);
+#endif
+}
+
+bool CGameClient::PublishAmfPriorityRestoreState()
+{
+#if defined(CONF_FAMILY_WINDOWS)
+	auto *pState = static_cast<AmfPriorityRestore::CSharedState *>(m_pAmfPriorityRestoreState);
+	if(!pState || pState->m_Magic != AmfPriorityRestore::PROTOCOL_MAGIC || pState->m_Version != AmfPriorityRestore::PROTOCOL_VERSION)
+	{
+		log_error("amf-priority", "AMF process crash restore state is unavailable");
+		return false;
+	}
+
+	unsigned OwnedProcessCount = 0;
+	for(const auto &Process : m_vAmfPriorityProcesses)
+	{
+		if(Process.m_PriorityChangedByAmf)
+			++OwnedProcessCount;
+	}
+	if(OwnedProcessCount > AmfPriorityRestore::MAX_PROCESSES)
+	{
+		log_error("amf-priority", "AMF process crash restore state supports at most %u processes", AmfPriorityRestore::MAX_PROCESSES);
+		return false;
+	}
+
+	const LONG ActiveList = InterlockedCompareExchange(reinterpret_cast<volatile LONG *>(&pState->m_ActiveList), 0, 0);
+	const int NextList = ActiveList == 0 ? 1 : 0;
+	auto &List = pState->m_aLists[NextList];
+	mem_zero(&List, sizeof(List));
+	unsigned EntryIndex = 0;
+	for(const auto &Process : m_vAmfPriorityProcesses)
+	{
+		if(!Process.m_PriorityChangedByAmf)
+			continue;
+		List.m_aProcesses[EntryIndex].m_ProcessId = Process.m_ProcessId;
+		List.m_aProcesses[EntryIndex].m_Target = Process.m_Target;
+		List.m_aProcesses[EntryIndex].m_CreationTime = Process.m_CreationTime;
+		++EntryIndex;
+	}
+	MemoryBarrier();
+	List.m_Count = EntryIndex;
+	MemoryBarrier();
+	InterlockedExchange(reinterpret_cast<volatile LONG *>(&pState->m_ActiveList), NextList);
+	return true;
+#else
+	return false;
+#endif
+}
+
+bool CGameClient::EnsureAmfPriorityRestoreHelper()
+{
+#if defined(CONF_FAMILY_WINDOWS)
+	bool HasOwnedProcesses = false;
+	for(const auto &Process : m_vAmfPriorityProcesses)
+	{
+		if(Process.m_PriorityChangedByAmf)
+		{
+			HasOwnedProcesses = true;
+			break;
+		}
+	}
+	if(!HasOwnedProcesses)
+	{
+		CancelAmfPriorityRestoreHelper();
+		return true;
+	}
+
+	if(m_pAmfPriorityRestoreHelperProcess && WaitForSingleObject(static_cast<HANDLE>(m_pAmfPriorityRestoreHelperProcess), 0) == WAIT_OBJECT_0)
+	{
+		log_error("amf-priority", "AMF process crash restore helper exited unexpectedly; re-arming one session helper");
+		CancelAmfPriorityRestoreHelper();
+	}
+
+	if(m_AmfPriorityRestoreHelperLaunched)
+		return PublishAmfPriorityRestoreState();
+
+	uint64_t ClientCreationTime = 0;
+	if(!GetProcessCreationTime(GetCurrentProcess(), ClientCreationTime))
+	{
+		log_error("amf-priority", "failed to query AMF Client creation time for process crash restore helper (error %lu)", (unsigned long)GetLastError());
+		return false;
+	}
+
+	char aHelperPath[IO_MAX_PATH_LENGTH];
+	Storage()->GetBinaryPathAbsolute("amfclient-priority-restore.exe", aHelperPath, sizeof(aHelperPath));
+	const std::wstring HelperPath = WidenUtf8(aHelperPath);
+	if(HelperPath.empty() || GetFileAttributesW(HelperPath.c_str()) == INVALID_FILE_ATTRIBUTES)
+	{
+		log_error("amf-priority", "AMF process crash restore helper is missing");
+		return false;
+	}
+
+	const std::wstring ObjectBase = L"Local\\AMFPriorityRestore-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
+		std::to_wstring(ClientCreationTime) + L"-" + std::to_wstring(GetTickCount64());
+	const std::wstring StateName = ObjectBase + L"-state";
+	const std::wstring CancelEventName = ObjectBase + L"-cancel";
+	const std::wstring ReadyEventName = ObjectBase + L"-ready";
+
+	const HANDLE Mapping = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(AmfPriorityRestore::CSharedState), StateName.c_str());
+	const DWORD MappingError = GetLastError();
+	if(!Mapping || MappingError == ERROR_ALREADY_EXISTS)
+	{
+		log_error("amf-priority", "AMF process crash restore state creation failed (error %lu)", (unsigned long)(Mapping ? MappingError : GetLastError()));
+		if(Mapping)
+			CloseHandle(Mapping);
+		return false;
+	}
+	void *pStateView = MapViewOfFile(Mapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(AmfPriorityRestore::CSharedState));
+	if(!pStateView)
+	{
+		log_error("amf-priority", "AMF process crash restore state mapping failed (error %lu)", (unsigned long)GetLastError());
+		CloseHandle(Mapping);
+		return false;
+	}
+	mem_zero(pStateView, sizeof(AmfPriorityRestore::CSharedState));
+	auto *pState = static_cast<AmfPriorityRestore::CSharedState *>(pStateView);
+	pState->m_Magic = AmfPriorityRestore::PROTOCOL_MAGIC;
+	pState->m_Version = AmfPriorityRestore::PROTOCOL_VERSION;
+
+	const HANDLE CancelEvent = CreateEventW(nullptr, TRUE, FALSE, CancelEventName.c_str());
+	const DWORD CancelEventError = GetLastError();
+	const HANDLE ReadyEvent = CreateEventW(nullptr, TRUE, FALSE, ReadyEventName.c_str());
+	const DWORD ReadyEventError = GetLastError();
+	if(!CancelEvent || !ReadyEvent || CancelEventError == ERROR_ALREADY_EXISTS || ReadyEventError == ERROR_ALREADY_EXISTS)
+	{
+		log_error("amf-priority", "AMF process crash restore helper event creation failed (error %lu)", (unsigned long)GetLastError());
+		if(CancelEvent)
+			CloseHandle(CancelEvent);
+		if(ReadyEvent)
+			CloseHandle(ReadyEvent);
+		UnmapViewOfFile(pStateView);
+		CloseHandle(Mapping);
+		return false;
+	}
+
+	m_pAmfPriorityRestoreMapping = Mapping;
+	m_pAmfPriorityRestoreState = pStateView;
+	m_pAmfPriorityRestoreCancelEvent = CancelEvent;
+	if(!PublishAmfPriorityRestoreState())
+	{
+		CloseHandle(ReadyEvent);
+		CancelAmfPriorityRestoreHelper();
+		return false;
+	}
+
+	std::wstring CommandLine = L"\"" + HelperPath + L"\" " + std::to_wstring(GetCurrentProcessId()) + L" " +
+		std::to_wstring(ClientCreationTime) + L" \"" + StateName + L"\" \"" + CancelEventName + L"\" \"" + ReadyEventName + L"\"";
+	STARTUPINFOW StartupInfo{};
+	StartupInfo.cb = sizeof(StartupInfo);
+	PROCESS_INFORMATION ProcessInfo{};
+	if(!CreateProcessW(HelperPath.c_str(), CommandLine.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &StartupInfo, &ProcessInfo))
+	{
+		log_error("amf-priority", "AMF process crash restore helper launch failed (error %lu)", (unsigned long)GetLastError());
+		CloseHandle(ReadyEvent);
+		CancelAmfPriorityRestoreHelper();
+		return false;
+	}
+	CloseHandle(ProcessInfo.hThread);
+	m_pAmfPriorityRestoreHelperProcess = ProcessInfo.hProcess;
+
+	const DWORD ReadyResult = WaitForSingleObject(ReadyEvent, 1500);
+	CloseHandle(ReadyEvent);
+	if(ReadyResult != WAIT_OBJECT_0)
+	{
+		log_error("amf-priority", "AMF process crash restore helper did not arm");
+		CancelAmfPriorityRestoreHelper();
+		return false;
+	}
+	m_AmfPriorityRestoreHelperLaunched = true;
+	log_info("amf-priority", "AMF process crash restore helper armed for this DDNet session");
+	return true;
+#else
+	return false;
+#endif
+}
+
+void CGameClient::CancelAmfPriorityRestoreHelper()
+{
+#if defined(CONF_FAMILY_WINDOWS)
+	if(m_pAmfPriorityRestoreCancelEvent)
+		SetEvent(static_cast<HANDLE>(m_pAmfPriorityRestoreCancelEvent));
+	if(m_pAmfPriorityRestoreHelperProcess)
+	{
+		const HANDLE HelperProcess = static_cast<HANDLE>(m_pAmfPriorityRestoreHelperProcess);
+		if(WaitForSingleObject(HelperProcess, 1500) == WAIT_TIMEOUT)
+		{
+			log_error("amf-priority", "AMF process crash restore helper did not exit after cancellation; terminating it");
+			TerminateProcess(HelperProcess, 1);
+			WaitForSingleObject(HelperProcess, 1000);
+		}
+		CloseHandle(HelperProcess);
+	}
+	if(m_pAmfPriorityRestoreCancelEvent)
+		CloseHandle(static_cast<HANDLE>(m_pAmfPriorityRestoreCancelEvent));
+	if(m_pAmfPriorityRestoreState)
+		UnmapViewOfFile(m_pAmfPriorityRestoreState);
+	if(m_pAmfPriorityRestoreMapping)
+		CloseHandle(static_cast<HANDLE>(m_pAmfPriorityRestoreMapping));
+#endif
+	m_pAmfPriorityRestoreMapping = nullptr;
+	m_pAmfPriorityRestoreState = nullptr;
+	m_pAmfPriorityRestoreCancelEvent = nullptr;
+	m_pAmfPriorityRestoreHelperProcess = nullptr;
+	m_AmfPriorityRestoreHelperLaunched = false;
+}
+
+bool CGameClient::RestoreAmfProcessPriorities(bool OnShutdown)
+{
+#if defined(CONF_FAMILY_WINDOWS)
+	bool AllRestored = true;
+	for(auto &Process : m_vAmfPriorityProcesses)
+	{
+		if(!Process.m_PriorityChangedByAmf || !Process.m_pProcess)
+			continue;
+
+		const HANDLE Handle = static_cast<HANDLE>(Process.m_pProcess);
+		DWORD ExitCode = 0;
+		if(!GetExitCodeProcess(Handle, &ExitCode) || ExitCode != STILL_ACTIVE)
+		{
+			Process.m_PriorityChangedByAmf = false;
+			continue;
+		}
+		const DWORD PreviousPriority = GetPriorityClass(Handle);
+		if(PreviousPriority == 0)
+		{
+			log_error("amf-priority", "PID %lu GetPriorityClass while restoring failed (error %lu)", Process.m_ProcessId, (unsigned long)GetLastError());
+			AllRestored = false;
+			continue;
+		}
+		// Only restore the exact class AMF itself applied. A process that was
+		// already Below Normal belongs to another owner and is never reset here.
+		if(!AmfPriorityRestore::ShouldRestorePriority(Process.m_PriorityChangedByAmf, PreviousPriority, BELOW_NORMAL_PRIORITY_CLASS))
+		{
+			Process.m_PriorityChangedByAmf = false;
+			continue;
+		}
+		if(!SetPriorityClass(Handle, NORMAL_PRIORITY_CLASS) || GetPriorityClass(Handle) != NORMAL_PRIORITY_CLASS)
+		{
+			log_error("amf-priority", "PID %lu could not be restored to Normal (error %lu)", Process.m_ProcessId, (unsigned long)GetLastError());
+			AllRestored = false;
+			continue;
+		}
+		Process.m_PriorityChangedByAmf = false;
+		if(OnShutdown)
+			log_info("amf-priority", "PID %lu priority restored to Normal on shutdown", Process.m_ProcessId);
+		else
+			log_info("amf-priority", "PID %lu priority returned to Normal because its AMF low-priority setting was disabled", Process.m_ProcessId);
+	}
+	return AllRestored;
+#else
+	(void)OnShutdown;
+	return true;
+#endif
+}
+
+void CGameClient::ScheduleAmfPriorityVerification(CAmfPriorityTrackedProcess &Process, unsigned long ExpectedPriority)
+{
+#if defined(CONF_FAMILY_WINDOWS)
+	if(Process.m_PriorityVerificationPending && Process.m_ExpectedPriority == ExpectedPriority)
+		return;
+	Process.m_ExpectedPriority = ExpectedPriority;
+	Process.m_PriorityVerificationPending = true;
+	Process.m_PriorityVerificationTime = time_get() + time_freq();
+	if(!m_AmfTrackedPriorityVerificationPending || Process.m_PriorityVerificationTime < m_AmfTrackedPriorityVerificationTime)
+		m_AmfTrackedPriorityVerificationTime = Process.m_PriorityVerificationTime;
+	m_AmfTrackedPriorityVerificationPending = true;
+#else
+	(void)Process;
+	(void)ExpectedPriority;
+#endif
+}
+
+void CGameClient::VerifyAmfProcessPriorities()
+{
+#if defined(CONF_FAMILY_WINDOWS)
+	const int64_t Now = time_get();
+	const auto HasOwnedProcesses = [&]() {
+		for(const auto &Process : m_vAmfPriorityProcesses)
+		{
+			if(Process.m_PriorityChangedByAmf)
+				return true;
+		}
+		return false;
+	};
+	m_AmfTrackedPriorityVerificationPending = false;
+	m_AmfTrackedPriorityVerificationTime = 0;
+	for(auto &Process : m_vAmfPriorityProcesses)
+	{
+		if(!Process.m_PriorityVerificationPending)
+			continue;
+		if(Now < Process.m_PriorityVerificationTime)
+		{
+			if(!m_AmfTrackedPriorityVerificationPending || Process.m_PriorityVerificationTime < m_AmfTrackedPriorityVerificationTime)
+				m_AmfTrackedPriorityVerificationTime = Process.m_PriorityVerificationTime;
+			m_AmfTrackedPriorityVerificationPending = true;
+			continue;
+		}
+
+		Process.m_PriorityVerificationPending = false;
+		const HANDLE Handle = static_cast<HANDLE>(Process.m_pProcess);
+		if(!Handle)
+		{
+			Process.m_PriorityChangedByAmf = false;
+			continue;
+		}
+		DWORD ExitCode = 0;
+		if(!GetExitCodeProcess(Handle, &ExitCode) || ExitCode != STILL_ACTIVE)
+		{
+			Process.m_PriorityChangedByAmf = false;
+			continue;
+		}
+
+		const DWORD ExpectedPriority = Process.m_ExpectedPriority;
+		const DWORD ActualPriority = GetPriorityClass(Handle);
+		if(ActualPriority == 0)
+		{
+			log_error("amf-priority", "PID %lu priority verification failed (error %lu)", Process.m_ProcessId, (unsigned long)GetLastError());
+			continue;
+		}
+		if(ActualPriority == ExpectedPriority)
+		{
+			log_info("amf-priority", "PID %lu process priority confirmed as %lu", Process.m_ProcessId, (unsigned long)ExpectedPriority);
+			if(ExpectedPriority == NORMAL_PRIORITY_CLASS)
+				Process.m_PriorityChangedByAmf = false;
+			continue;
+		}
+
+		log_error("amf-priority", "PID %lu priority changed after confirmation: expected %lu, got %lu; correcting once", Process.m_ProcessId, (unsigned long)ExpectedPriority, (unsigned long)ActualPriority);
+		const bool AcquiredOwnership = ExpectedPriority == BELOW_NORMAL_PRIORITY_CLASS && !Process.m_PriorityChangedByAmf;
+		if(AcquiredOwnership)
+		{
+			Process.m_PriorityChangedByAmf = true;
+			if(!EnsureAmfPriorityRestoreHelper())
+			{
+				Process.m_PriorityChangedByAmf = false;
+				log_error("amf-priority", "PID %lu correction was not applied because the crash restore helper is unavailable", Process.m_ProcessId);
+				continue;
+			}
+		}
+		if(!SetPriorityClass(Handle, ExpectedPriority))
+		{
+			log_error("amf-priority", "PID %lu SetPriorityClass(%lu) correction failed (error %lu)", Process.m_ProcessId, (unsigned long)ExpectedPriority, (unsigned long)GetLastError());
+			if(AcquiredOwnership)
+			{
+				Process.m_PriorityChangedByAmf = false;
+				if(HasOwnedProcesses())
+					PublishAmfPriorityRestoreState();
+				else
+					CancelAmfPriorityRestoreHelper();
+			}
+			continue;
+		}
+		const DWORD CorrectedPriority = GetPriorityClass(Handle);
+		if(CorrectedPriority != ExpectedPriority)
+		{
+			log_error("amf-priority", "PID %lu priority correction verification reported %lu instead of %lu (error %lu)", Process.m_ProcessId, (unsigned long)CorrectedPriority, (unsigned long)ExpectedPriority, (unsigned long)(CorrectedPriority == 0 ? GetLastError() : ERROR_SUCCESS));
+			continue;
+		}
+		log_info("amf-priority", "PID %lu process priority confirmed as %lu after one correction", Process.m_ProcessId, (unsigned long)ExpectedPriority);
+		if(ExpectedPriority == NORMAL_PRIORITY_CLASS)
+			Process.m_PriorityChangedByAmf = false;
+	}
+
+	if(HasOwnedProcesses())
+		PublishAmfPriorityRestoreState();
+	else
+		CancelAmfPriorityRestoreHelper();
+#endif
+}
+
+void CGameClient::UpdateAmfTrackedProcessPriorities(unsigned Targets, unsigned NewlyEnabledTargets)
+{
+#if defined(CONF_FAMILY_WINDOWS)
+	const DWORD RequestedPriority = BELOW_NORMAL_PRIORITY_CLASS;
+	const int64_t Now = time_get();
+	bool RestoreListChanged = false;
+	const auto HasOwnedProcesses = [&]() {
+		return std::any_of(m_vAmfPriorityProcesses.begin(), m_vAmfPriorityProcesses.end(), [](const CAmfPriorityTrackedProcess &Process) { return Process.m_PriorityChangedByAmf; });
+	};
+	const auto DropNewOwnership = [&](CAmfPriorityTrackedProcess &Process) {
+		if(Process.m_PriorityChangedByAmf)
+		{
+			Process.m_PriorityChangedByAmf = false;
+			RestoreListChanged = true;
+		}
+	};
+	if(Targets != 0 && !m_AmfLegacyPriorityHelperChecked)
+	{
+		if(IsLegacyDiscordPriorityRestoreHelperRunning())
+		{
+			log_info("amf-priority", "waiting for the previous Discord-only restore helper to finish before applying target priorities");
+			m_AmfPriorityRetryTime = Now + 30 * time_freq();
+			return;
+		}
+		m_AmfLegacyPriorityHelperChecked = true;
+	}
+	const auto ApplyPriority = [&](CAmfPriorityTrackedProcess &Process) {
+		const HANDLE Handle = static_cast<HANDLE>(Process.m_pProcess);
+		const DWORD PreviousPriority = GetPriorityClass(Handle);
+		if(PreviousPriority == 0)
+		{
+			log_error("amf-priority", "PID %lu GetPriorityClass failed (error %lu)", Process.m_ProcessId, (unsigned long)GetLastError());
+			return;
+		}
+		if(!AmfPriorityRestore::ShouldApplyPriority(PreviousPriority, RequestedPriority))
+		{
+			// A process already Below Normal was not changed by this client, so it
+			// must not be claimed or restored by this priority session.
+			if(Process.m_PriorityChangedByAmf)
+			{
+				ScheduleAmfPriorityVerification(Process, RequestedPriority);
+				if(!m_AmfPriorityRestoreHelperLaunched && !EnsureAmfPriorityRestoreHelper())
+					log_error("amf-priority", "PID %lu crash restore helper is unavailable", Process.m_ProcessId);
+			}
+			return;
+		}
+
+		const bool WasChangedByAmf = Process.m_PriorityChangedByAmf;
+		if(!WasChangedByAmf)
+		{
+			Process.m_PriorityChangedByAmf = true;
+			RestoreListChanged = true;
+		}
+		// Publish and arm the single session helper before changing a target
+		// process, so a forced client termination cannot leave it below normal.
+		if(!EnsureAmfPriorityRestoreHelper())
+		{
+			if(!WasChangedByAmf)
+				DropNewOwnership(Process);
+			return;
+		}
+		log_info("amf-priority", "PID %lu applying Below Normal priority (target %u)", Process.m_ProcessId, Process.m_Target);
+		if(!SetPriorityClass(Handle, RequestedPriority))
+		{
+			log_error("amf-priority", "PID %lu SetPriorityClass(Below Normal) failed (error %lu)", Process.m_ProcessId, (unsigned long)GetLastError());
+			if(!WasChangedByAmf)
+				DropNewOwnership(Process);
+			return;
+		}
+		ScheduleAmfPriorityVerification(Process, RequestedPriority);
+	};
+
+	if(m_pAmfPriorityRestoreHelperProcess && WaitForSingleObject(static_cast<HANDLE>(m_pAmfPriorityRestoreHelperProcess), 0) == WAIT_OBJECT_0)
+	{
+		log_error("amf-priority", "AMF process crash restore helper exited unexpectedly; re-arming one session helper");
+		CancelAmfPriorityRestoreHelper();
+	}
+
+	// Reconcile retained process handles without enumerating the system process
+	// table. Disabled targets are restored here; handles survive only while a
+	// target is enabled or an AMF-owned restore/verification is outstanding.
+	for(size_t i = 0; i < m_vAmfPriorityProcesses.size();)
+	{
+		auto &Process = m_vAmfPriorityProcesses[i];
+		const HANDLE Handle = static_cast<HANDLE>(Process.m_pProcess);
+		DWORD ExitCode = 0;
+		if(!Handle || !GetExitCodeProcess(Handle, &ExitCode) || ExitCode != STILL_ACTIVE)
+		{
+			if(Process.m_PriorityChangedByAmf)
+				RestoreListChanged = true;
+			if(Handle)
+				CloseHandle(Handle);
+			m_vAmfPriorityProcesses.erase(m_vAmfPriorityProcesses.begin() + i);
+			continue;
+		}
+
+		const bool TargetEnabled = AmfPriorityRestore::IsTargetRequested(Targets, Process.m_Target);
+		if(!TargetEnabled && Process.m_PriorityChangedByAmf)
+		{
+			const DWORD CurrentPriority = GetPriorityClass(Handle);
+			if(CurrentPriority == NORMAL_PRIORITY_CLASS)
+			{
+				Process.m_PriorityChangedByAmf = false;
+				Process.m_PriorityVerificationPending = false;
+				Process.m_ExpectedPriority = 0;
+				Process.m_PriorityVerificationTime = 0;
+				RestoreListChanged = true;
+			}
+			else
+			{
+				if(CurrentPriority == 0)
+					log_error("amf-priority", "PID %lu GetPriorityClass while disabling failed (error %lu)", Process.m_ProcessId, (unsigned long)GetLastError());
+				else
+				{
+					log_info("amf-priority", "PID %lu restoring Normal priority after target disable", Process.m_ProcessId);
+					if(!SetPriorityClass(Handle, NORMAL_PRIORITY_CLASS))
+						log_error("amf-priority", "PID %lu SetPriorityClass(Normal) failed (error %lu)", Process.m_ProcessId, (unsigned long)GetLastError());
+				}
+				ScheduleAmfPriorityVerification(Process, NORMAL_PRIORITY_CLASS);
+			}
+		}
+		else if(TargetEnabled && (NewlyEnabledTargets & Process.m_Target) != 0)
+			ApplyPriority(Process);
+
+		if(!TargetEnabled && !Process.m_PriorityChangedByAmf && !Process.m_PriorityVerificationPending)
+		{
+			CloseHandle(Handle);
+			m_vAmfPriorityProcesses.erase(m_vAmfPriorityProcesses.begin() + i);
+			continue;
+		}
+		++i;
+	}
+
+	const auto HasTrackedTarget = [&](unsigned Target) {
+		return std::any_of(m_vAmfPriorityProcesses.begin(), m_vAmfPriorityProcesses.end(), [Target](const CAmfPriorityTrackedProcess &Process) { return Process.m_Target == Target; });
+	};
+	const bool AllEnabledTargetsTracked =
+		((Targets & AmfPriorityRestore::TARGET_DISCORD) == 0 || HasTrackedTarget(AmfPriorityRestore::TARGET_DISCORD)) &&
+		((Targets & AmfPriorityRestore::TARGET_SPOTIFY) == 0 || HasTrackedTarget(AmfPriorityRestore::TARGET_SPOTIFY)) &&
+		((Targets & AmfPriorityRestore::TARGET_SOUNDCLOUD) == 0 || HasTrackedTarget(AmfPriorityRestore::TARGET_SOUNDCLOUD));
+	const bool NeedFullScan = Targets != 0 &&
+		(NewlyEnabledTargets != 0 || m_AmfPriorityReconciliationTime == 0 || Now >= m_AmfPriorityReconciliationTime || !AllEnabledTargetsTracked);
+	if(NeedFullScan)
+	{
+		const HANDLE Snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+		bool ScanSucceeded = false;
+		if(Snapshot == INVALID_HANDLE_VALUE)
+			log_error("amf-priority", "AMF process scan failed (error %lu)", (unsigned long)GetLastError());
+		else
+		{
+			PROCESSENTRY32W Entry{};
+			Entry.dwSize = sizeof(Entry);
+			if(!Process32FirstW(Snapshot, &Entry))
+				log_error("amf-priority", "AMF process scan initialization failed (error %lu)", (unsigned long)GetLastError());
+			else
+			{
+				ScanSucceeded = true;
+				do
+				{
+					const unsigned Target = AmfPriorityTargetForExecutable(Entry.szExeFile);
+					if(Target == 0 || !AmfPriorityRestore::IsTargetRequested(Targets, Target))
+						continue;
+
+					CAmfPriorityTrackedProcess *pTracked = nullptr;
+					for(auto &Tracked : m_vAmfPriorityProcesses)
+					{
+						if(Tracked.m_ProcessId == Entry.th32ProcessID)
+						{
+							pTracked = &Tracked;
+							break;
+						}
+					}
+					bool ProcessAlreadyTracked = pTracked != nullptr;
+					if(pTracked && pTracked->m_Target != Target)
+						continue;
+					if(!pTracked)
+					{
+						const HANDLE Handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SET_INFORMATION, FALSE, Entry.th32ProcessID);
+						if(!Handle)
+						{
+							log_error("amf-priority", "target %u PID %lu OpenProcess failed (error %lu)", Target, (unsigned long)Entry.th32ProcessID, (unsigned long)GetLastError());
+							continue;
+						}
+						// Protect the snapshot-to-open boundary against PID reuse: validate
+						// the executable behind the acquired handle, not just the stale row.
+						wchar_t aImagePath[32768];
+						DWORD ImagePathLength = std::size(aImagePath);
+						if(!QueryFullProcessImageNameW(Handle, 0, aImagePath, &ImagePathLength))
+						{
+							CloseHandle(Handle);
+							continue;
+						}
+						const wchar_t *pImageName = wcsrchr(aImagePath, L'\\');
+						pImageName = pImageName ? pImageName + 1 : aImagePath;
+						if(AmfPriorityTargetForExecutable(pImageName) != Target || !IsExpectedAmfPriorityPackage(Handle, Target))
+						{
+							CloseHandle(Handle);
+							continue;
+						}
+						uint64_t CreationTime = 0;
+						if(!GetProcessCreationTime(Handle, CreationTime))
+						{
+							log_error("amf-priority", "target %u PID %lu GetProcessTimes failed (error %lu)", Target, (unsigned long)Entry.th32ProcessID, (unsigned long)GetLastError());
+							CloseHandle(Handle);
+							continue;
+						}
+						m_vAmfPriorityProcesses.push_back({Handle, Entry.th32ProcessID, CreationTime, Target});
+						pTracked = &m_vAmfPriorityProcesses.back();
+						ProcessAlreadyTracked = false;
+						log_info("amf-priority", "target %u PID %lu detected", Target, (unsigned long)Entry.th32ProcessID);
+					}
+
+					if(!ProcessAlreadyTracked || (NewlyEnabledTargets & Target) != 0)
+						ApplyPriority(*pTracked);
+				} while(Process32NextW(Snapshot, &Entry));
+			}
+			CloseHandle(Snapshot);
+		}
+		const bool TargetsFound =
+			((Targets & AmfPriorityRestore::TARGET_DISCORD) == 0 || HasTrackedTarget(AmfPriorityRestore::TARGET_DISCORD)) &&
+			((Targets & AmfPriorityRestore::TARGET_SPOTIFY) == 0 || HasTrackedTarget(AmfPriorityRestore::TARGET_SPOTIFY)) &&
+			((Targets & AmfPriorityRestore::TARGET_SOUNDCLOUD) == 0 || HasTrackedTarget(AmfPriorityRestore::TARGET_SOUNDCLOUD));
+		// Keep discovery bounded: missing target groups retry at 30s; once each
+		// requested group is present, reconcile new multi-process instances every
+		// five minutes, with retained handles checked every 30 seconds.
+		m_AmfPriorityReconciliationTime = Now + (ScanSucceeded && TargetsFound ? 5 * 60 : 30) * time_freq();
+	}
+
+	if(RestoreListChanged && HasOwnedProcesses())
+		PublishAmfPriorityRestoreState();
+	if(HasOwnedProcesses())
+	{
+		if(!m_AmfPriorityRestoreHelperLaunched && !EnsureAmfPriorityRestoreHelper())
+			log_error("amf-priority", "AMF process crash restore helper could not be armed for this session");
+	}
+	else if(m_AmfPriorityRestoreHelperLaunched || m_pAmfPriorityRestoreHelperProcess)
+		CancelAmfPriorityRestoreHelper();
+
+	m_AmfPriorityRetryTime = (Targets != 0 || HasOwnedProcesses()) ? Now + 30 * time_freq() : 0;
+#else
+	(void)Targets;
+	(void)NewlyEnabledTargets;
+#endif
+}
+
+void CGameClient::ReleaseAmfPriorityProcessHandles(bool PreserveOwnedRestoreHelpers)
+{
+#if defined(CONF_FAMILY_WINDOWS)
+	const bool HasOwnedProcess = std::any_of(m_vAmfPriorityProcesses.begin(), m_vAmfPriorityProcesses.end(), [](const CAmfPriorityTrackedProcess &Process) { return Process.m_PriorityChangedByAmf; });
+	const bool KeepCrashRestoreHelper = PreserveOwnedRestoreHelpers && m_AmfPriorityRestoreHelperLaunched && HasOwnedProcess;
+	if(!KeepCrashRestoreHelper)
+		CancelAmfPriorityRestoreHelper();
+	else
+	{
+		// Direct restoration failed during shutdown. The single common helper
+		// retains its published identities and observes the AMF process exit.
+		if(m_pAmfPriorityRestoreHelperProcess)
+			CloseHandle(static_cast<HANDLE>(m_pAmfPriorityRestoreHelperProcess));
+		if(m_pAmfPriorityRestoreCancelEvent)
+			CloseHandle(static_cast<HANDLE>(m_pAmfPriorityRestoreCancelEvent));
+		if(m_pAmfPriorityRestoreState)
+			UnmapViewOfFile(m_pAmfPriorityRestoreState);
+		if(m_pAmfPriorityRestoreMapping)
+			CloseHandle(static_cast<HANDLE>(m_pAmfPriorityRestoreMapping));
+		m_pAmfPriorityRestoreMapping = nullptr;
+		m_pAmfPriorityRestoreState = nullptr;
+		m_pAmfPriorityRestoreCancelEvent = nullptr;
+		m_pAmfPriorityRestoreHelperProcess = nullptr;
+		m_AmfPriorityRestoreHelperLaunched = false;
+	}
+	for(auto &Process : m_vAmfPriorityProcesses)
+	{
+		if(Process.m_pProcess)
+			CloseHandle(static_cast<HANDLE>(Process.m_pProcess));
+	}
+#else
+	(void)PreserveOwnedRestoreHelpers;
+#endif
+	m_vAmfPriorityProcesses.clear();
+	m_AmfTrackedPriorityVerificationPending = false;
+	m_AmfTrackedPriorityVerificationTime = 0;
+}
+
+void CGameClient::UpdateAmfProcessPriorityTargets()
+{
+#if defined(CONF_FAMILY_WINDOWS)
+	const unsigned Targets = AmfPriorityRestore::RequestedTargets(g_Config.m_AmfDiscordLowPriority != 0, g_Config.m_AmfSpotifySoundCloudLowPriority != 0);
+	{
+		std::lock_guard<std::mutex> Lock(m_AmfPriorityWorkerMutex);
+		if(m_AmfPriorityWorkerStop)
+			return;
+		m_AmfPriorityRequestedTargets = Targets;
+		if(Targets != 0 && !m_AmfPriorityWorkerThread.joinable())
+		{
+			try
+			{
+				m_AmfPriorityWorkerThread = std::thread(&CGameClient::AmfProcessPriorityWorker, this);
+			}
+			catch(const std::system_error &Error)
+			{
+				log_error("amf-priority", "failed to start AMF process-priority worker: %s", Error.what());
+				m_AmfPriorityRequestedTargets = 0;
+				return;
+			}
+		}
+	}
+	m_AmfPriorityWorkerWake.notify_one();
+#endif
+}
+
+void CGameClient::ApplyAmfProcessPrioritySettings()
+{
+	UpdateAmfProcessPriorityTargets();
+}
+
+void CGameClient::AmfProcessPriorityWorker()
+{
+#if defined(CONF_FAMILY_WINDOWS)
+	unsigned ActiveTargets = 0;
+	for(;;)
+	{
+		unsigned RequestedTargets = 0;
+		{
+			std::lock_guard<std::mutex> Lock(m_AmfPriorityWorkerMutex);
+			if(m_AmfPriorityWorkerStop)
+				break;
+			RequestedTargets = m_AmfPriorityRequestedTargets;
+		}
+
+		if(RequestedTargets != ActiveTargets)
+		{
+			const unsigned NewlyEnabledTargets = RequestedTargets & ~ActiveTargets;
+			ActiveTargets = RequestedTargets;
+			UpdateAmfTrackedProcessPriorities(ActiveTargets, NewlyEnabledTargets);
+			continue;
+		}
+
+		const int64_t Now = time_get();
+		bool DidWork = false;
+		if(m_AmfTrackedPriorityVerificationPending && Now >= m_AmfTrackedPriorityVerificationTime)
+		{
+			VerifyAmfProcessPriorities();
+			UpdateAmfTrackedProcessPriorities(ActiveTargets, 0);
+			DidWork = true;
+		}
+		const bool HasOwnedProcesses = std::any_of(m_vAmfPriorityProcesses.begin(), m_vAmfPriorityProcesses.end(), [](const CAmfPriorityTrackedProcess &Process) { return Process.m_PriorityChangedByAmf; });
+		if((ActiveTargets != 0 || HasOwnedProcesses) && Now >= m_AmfPriorityRetryTime)
+		{
+			UpdateAmfTrackedProcessPriorities(ActiveTargets, 0);
+			DidWork = true;
+		}
+		if(DidWork)
+			continue;
+
+		std::unique_lock<std::mutex> Lock(m_AmfPriorityWorkerMutex);
+		if(m_AmfPriorityWorkerStop)
+			break;
+		if(m_AmfPriorityRequestedTargets != ActiveTargets)
+			continue;
+		const auto Changed = [&]() { return m_AmfPriorityWorkerStop || m_AmfPriorityRequestedTargets != ActiveTargets; };
+		if(ActiveTargets == 0 && !m_AmfTrackedPriorityVerificationPending && !HasOwnedProcesses)
+			m_AmfPriorityWorkerWake.wait(Lock, Changed);
+		else
+		{
+			int64_t WaitTicks = ActiveTargets != 0 ? std::max<int64_t>(1, m_AmfPriorityRetryTime - time_get()) : std::numeric_limits<int64_t>::max();
+			if(m_AmfTrackedPriorityVerificationPending)
+				WaitTicks = std::min(WaitTicks, std::max<int64_t>(1, m_AmfTrackedPriorityVerificationTime - time_get()));
+			const int64_t WaitMilliseconds = std::max<int64_t>(1, WaitTicks * 1000 / time_freq());
+			m_AmfPriorityWorkerWake.wait_for(Lock, std::chrono::milliseconds(WaitMilliseconds), Changed);
+		}
+	}
+
+	const bool AllTargetsRestored = RestoreAmfProcessPriorities(true);
+	if(!AllTargetsRestored)
+	{
+		const bool HasOwnedProcesses = std::any_of(m_vAmfPriorityProcesses.begin(), m_vAmfPriorityProcesses.end(), [](const CAmfPriorityTrackedProcess &Process) { return Process.m_PriorityChangedByAmf; });
+		if(HasOwnedProcesses && (!m_pAmfPriorityRestoreHelperProcess || WaitForSingleObject(static_cast<HANDLE>(m_pAmfPriorityRestoreHelperProcess), 0) != WAIT_TIMEOUT))
+		{
+			CancelAmfPriorityRestoreHelper();
+			if(!EnsureAmfPriorityRestoreHelper())
+				log_error("amf-priority", "could not re-arm crash restoration after an incomplete client shutdown restore");
+		}
+	}
+	ReleaseAmfPriorityProcessHandles(true);
+#endif
+}
+
+void CGameClient::StopAmfProcessPriorityWorker()
+{
+#if defined(CONF_FAMILY_WINDOWS)
+	std::thread Worker;
+	{
+		std::lock_guard<std::mutex> Lock(m_AmfPriorityWorkerMutex);
+		if(!m_AmfPriorityWorkerThread.joinable())
+			return;
+		m_AmfPriorityWorkerStop = true;
+		m_AmfPriorityRequestedTargets = 0;
+		Worker = std::move(m_AmfPriorityWorkerThread);
+	}
+	m_AmfPriorityWorkerWake.notify_all();
+	Worker.join();
+#endif
+}
+
+void CGameClient::UpdateAmfConfigPersistence()
+{
+	constexpr int64_t SAVE_DEBOUNCE = 250;
+	const int64_t Now = time_get();
+	const int64_t DebounceTicks = time_freq() * SAVE_DEBOUNCE / 1000;
+	if(m_AmfConfigHashCheckPending && Now >= m_AmfConfigNextHashCheckTime)
+	{
+		m_AmfConfigHashCheckPending = false;
+		m_AmfConfigNextHashCheckTime = Now + DebounceTicks;
+		const uint64_t CurrentHash = ConfigManager()->DomainHash(ConfigDomain::AMFCLIENT);
+		if(!m_AmfConfigPersistenceInitialized)
+		{
+			m_AmfConfigObservedHash = CurrentHash;
+			m_AmfConfigPersistenceInitialized = true;
+		}
+		else if(CurrentHash != m_AmfConfigObservedHash)
+		{
+			m_AmfConfigObservedHash = CurrentHash;
+			m_AmfConfigSavePending = true;
+			m_AmfConfigSaveDeadline = Now + DebounceTicks;
+		}
+	}
+
+	if(m_AmfConfigSavePending && Now >= m_AmfConfigSaveDeadline)
+	{
+		if(!ConfigManager()->SaveDomain(ConfigDomain::AMFCLIENT))
+			log_error("amf-config", "failed to save settings_amfclient.cfg");
+		m_AmfConfigSavePending = false;
+	}
+}
+
+void CGameClient::NotifyAmfConfigChanged()
+{
+	// AMF settings pages call this from rendering. Defer the full config-domain
+	// serialization/hash to the update loop and coalesce repeated frame calls.
+	m_AmfConfigHashCheckPending = true;
+}
+
+void CGameClient::ApplyAmfProcessPriority()
+{
+	UpdateAmfProcessPriority();
+}
+
+bool CGameClient::IsCloudInputMode() const
+{
+	return m_CloudInput.IsActive();
+}
+
+bool CGameClient::CloudInputOthersEnabled() const
+{
+	return g_Config.m_AmfCloudInputOthers != 0;
+}
+
+int CGameClient::CloudInputSelfTickOffset() const
+{
+	return m_CloudInput.SelfTickOffset();
+}
+
+int CGameClient::CloudInputOthersTickOffset() const
+{
+	return m_CloudInput.OthersTickOffset();
+}
+
+CNetObj_PlayerInput &CGameClient::CloudInputInput(int Dummy)
+{
+	return m_CloudInput.Input(Dummy);
+}
+
+const CNetObj_PlayerInput &CGameClient::CloudInputInput(int Dummy) const
+{
+	return m_CloudInput.Input(Dummy);
+}
+
+bool CGameClient::CheckCloudInputNewInput()
+{
+	return m_CloudInput.CheckNewInput(m_Controls);
+}
+
+bool CGameClient::CheckNewInput()
+{
+	if(IsCloudInputMode())
+		return CheckCloudInputNewInput();
+	return m_Controls.CheckNewInput();
+}
+
+void CGameClient::SetConnectInfo(const NETADDR *pAddress)
+{
+	m_ConnectServerInfo = std::nullopt;
+	if(!pAddress)
+		return;
+	const auto *pEntry = ServerBrowser()->Find(*pAddress);
+	if(!pEntry)
+		return;
+	m_ConnectServerInfo = pEntry->m_Info;
+	const CNetObj_GameInfoEx GameInfoEx = {.m_Version = 0};
+	m_GameInfo = GetGameInfo(&GameInfoEx, 0, &*m_ConnectServerInfo);
+}
+
+void CGameClient::ApplyCloudInputOffset(int ClientId, int &Tick, float &Intra) const
+{
+	m_CloudInput.ApplyOffset(*this, ClientId, Tick, Intra);
+}
+
+bool CGameClient::TryGetCloudInputPredPos(int ClientId, int Tick, float Intra, vec2 &OutPos) const
+{
+	return m_CloudInput.TryGetPredPos(*this, ClientId, Tick, Intra, OutPos);
+}
+
+bool CGameClient::IsFastInputLocalClient(int ClientId) const
+{
+	return ClientId == m_Snap.m_LocalClientId || (PredictDummy() && ClientId == m_aLocalIds[!g_Config.m_ClDummy]);
+}
+
 bool CGameClient::IsAspectRatioBlockedByFng() const
 {
 	const int State = Client()->State();
@@ -7284,9 +6704,8 @@ bool CGameClient::IsAspectRatioBlockedByFng() const
 		return pText != nullptr && pText[0] != '\0' && str_find_nocase(pText, "fng") != nullptr;
 	};
 
-	CServerInfo ServerInfo{};
-	Client()->GetServerInfo(&ServerInfo);
-	const CServerInfo *apInfos[3] = {&ServerInfo, nullptr, nullptr};
+	const CServerInfo &CurrentServerInfo = Client()->ServerInfo();
+	const CServerInfo *apInfos[3] = {&CurrentServerInfo, nullptr, nullptr};
 	int NumInfos = 1;
 	if(m_ConnectServerInfo.has_value())
 		apInfos[NumInfos++] = &*m_ConnectServerInfo;
@@ -7310,17 +6729,4 @@ bool CGameClient::IsAspectRatioBlockedByFng() const
 	}
 
 	return ContainsFng(m_GameInfo.m_aGameType) || m_GameInfo.m_PredictFNG || m_GameInfo.m_EntitiesFNG;
-}
-
-void CGameClient::SetConnectInfo(const NETADDR *pAddress)
-{
-	m_ConnectServerInfo = std::nullopt;
-	if(!pAddress)
-		return;
-	const auto *pEntry = ServerBrowser()->Find(*pAddress);
-	if(!pEntry)
-		return;
-	m_ConnectServerInfo = pEntry->m_Info;
-	const CNetObj_GameInfoEx GameInfoEx = {.m_Version = 0};
-	m_GameInfo = GetGameInfo(&GameInfoEx, 0, &*m_ConnectServerInfo);
 }

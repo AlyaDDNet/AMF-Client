@@ -1,5 +1,6 @@
 /* (c) Magnus Auvinen. See licence.txt in the root of the distribution for more information. */
 /* If you are missing that file, acquire a complete release at teeworlds.com.                */
+
 #include "skins.h"
 
 #include <base/dbg.h>
@@ -11,7 +12,7 @@
 #include <engine/engine.h>
 #include <engine/gfx/image_manipulation.h>
 #include <engine/graphics.h>
-#include <engine/shared/http.h>
+#include <engine/http.h>
 #include <engine/shared/config.h>
 #include <engine/storage.h>
 
@@ -20,13 +21,11 @@
 #include <game/client/gameclient.h>
 #include <game/localization.h>
 
-#include <cstdint>
+#include <optional>
 
 using namespace std::chrono_literals;
 
-namespace
-{
-ColorRGBA CalculateRepresentativeColor(const CImageInfo &Info, size_t StartX, size_t StartY, size_t Width, size_t Height)
+static ColorRGBA CalculateRepresentativeColor(const CImageInfo &Info, size_t StartX, size_t StartY, size_t Width, size_t Height)
 {
 	const size_t PixelStep = Info.PixelSize();
 	const size_t Pitch = Info.m_Width * PixelStep;
@@ -56,7 +55,6 @@ ColorRGBA CalculateRepresentativeColor(const CImageInfo &Info, size_t StartX, si
 		(float)aColors[1] / (float)AlphaSum / 255.0f,
 		(float)aColors[2] / (float)AlphaSum / 255.0f,
 		1.0f);
-}
 }
 
 CSkins::CAbstractSkinLoadJob::CAbstractSkinLoadJob(CSkins *pSkins, const char *pName) :
@@ -91,10 +89,7 @@ CSkins::CSkinContainer::CSkinContainer(CSkins *pSkins, const char *pName, EType 
 
 CSkins::CSkinContainer::~CSkinContainer()
 {
-	if(m_pLoadJob)
-	{
-		m_pLoadJob->Abort();
-	}
+	dbg_assert(m_pLoadJob == nullptr, "Skin container load job was not cleared");
 }
 
 bool CSkins::CSkinContainer::operator<(const CSkinContainer &Other) const
@@ -222,8 +217,6 @@ CSkins::CSkins() :
 	m_PlaceholderSkin.m_OriginalSkin.Reset();
 	m_PlaceholderSkin.m_ColorableSkin.Reset();
 	m_PlaceholderSkin.m_BloodColor = ColorRGBA(1.0f, 1.0f, 1.0f, 1.0f);
-	m_PlaceholderSkin.m_OriginalBodyColor = ColorRGBA(1.0f, 1.0f, 1.0f, 1.0f);
-	m_PlaceholderSkin.m_OriginalFeetColor = ColorRGBA(1.0f, 1.0f, 1.0f, 1.0f);
 	m_PlaceholderSkin.m_Metrics.m_Body.m_Width = 64;
 	m_PlaceholderSkin.m_Metrics.m_Body.m_Height = 64;
 	m_PlaceholderSkin.m_Metrics.m_Body.m_OffsetX = 16;
@@ -395,6 +388,7 @@ bool CSkins::LoadSkinData(const char *pName, CSkinLoadData &Data) const
 		Data.m_BloodColor = ColorRGBA(NormalizedColor.x, NormalizedColor.y, NormalizedColor.z);
 	}
 
+	Data.m_Metrics.Reset();
 	CheckMetrics(Data.m_Metrics.m_Body, Data.m_Info.m_pData, Pitch, 0, 0, BodyWidth, BodyHeight);
 	CheckMetrics(Data.m_Metrics.m_Body, Data.m_Info.m_pData, Pitch, BodyOutlineOffsetX, BodyOutlineOffsetY, BodyOutlineWidth, BodyOutlineHeight);
 	CheckMetrics(Data.m_Metrics.m_Feet, Data.m_Info.m_pData, Pitch, FeetOffsetX, FeetOffsetY, FeetWidth, FeetHeight);
@@ -457,26 +451,26 @@ void CSkins::LoadSkinFinish(CSkinContainer *pSkinContainer, const CSkinLoadData 
 	CSkin Skin{pSkinContainer->Name()};
 
 	// people load the jankiest skins, so we ignore empty sprites
-	Skin.m_OriginalSkin.m_Body = Graphics()->LoadSpriteTexture(Data.m_Info, &g_pData->m_aSprites[SPRITE_TEE_BODY]);
-	Skin.m_OriginalSkin.m_BodyOutline = Graphics()->LoadSpriteTexture(Data.m_Info, &g_pData->m_aSprites[SPRITE_TEE_BODY_OUTLINE]);
-	Skin.m_OriginalSkin.m_Feet = Graphics()->LoadSpriteTexture(Data.m_Info, &g_pData->m_aSprites[SPRITE_TEE_FOOT]);
-	Skin.m_OriginalSkin.m_FeetOutline = Graphics()->LoadSpriteTexture(Data.m_Info, &g_pData->m_aSprites[SPRITE_TEE_FOOT_OUTLINE]);
-	Skin.m_OriginalSkin.m_Hands = Graphics()->LoadSpriteTexture(Data.m_Info, &g_pData->m_aSprites[SPRITE_TEE_HAND]);
-	Skin.m_OriginalSkin.m_HandsOutline = Graphics()->LoadSpriteTexture(Data.m_Info, &g_pData->m_aSprites[SPRITE_TEE_HAND_OUTLINE]);
+	Skin.m_OriginalSkin.m_Body = Graphics()->LoadSpriteTexture(Data.m_Info, std::nullopt, &g_pData->m_aSprites[SPRITE_TEE_BODY]);
+	Skin.m_OriginalSkin.m_BodyOutline = Graphics()->LoadSpriteTexture(Data.m_Info, std::nullopt, &g_pData->m_aSprites[SPRITE_TEE_BODY_OUTLINE]);
+	Skin.m_OriginalSkin.m_Feet = Graphics()->LoadSpriteTexture(Data.m_Info, std::nullopt, &g_pData->m_aSprites[SPRITE_TEE_FOOT]);
+	Skin.m_OriginalSkin.m_FeetOutline = Graphics()->LoadSpriteTexture(Data.m_Info, std::nullopt, &g_pData->m_aSprites[SPRITE_TEE_FOOT_OUTLINE]);
+	Skin.m_OriginalSkin.m_Hands = Graphics()->LoadSpriteTexture(Data.m_Info, std::nullopt, &g_pData->m_aSprites[SPRITE_TEE_HAND]);
+	Skin.m_OriginalSkin.m_HandsOutline = Graphics()->LoadSpriteTexture(Data.m_Info, std::nullopt, &g_pData->m_aSprites[SPRITE_TEE_HAND_OUTLINE]);
 	for(size_t i = 0; i < std::size(Skin.m_OriginalSkin.m_aEyes); ++i)
 	{
-		Skin.m_OriginalSkin.m_aEyes[i] = Graphics()->LoadSpriteTexture(Data.m_Info, &g_pData->m_aSprites[SPRITE_TEE_EYE_NORMAL + i]);
+		Skin.m_OriginalSkin.m_aEyes[i] = Graphics()->LoadSpriteTexture(Data.m_Info, std::nullopt, &g_pData->m_aSprites[SPRITE_TEE_EYE_NORMAL + i]);
 	}
 
-	Skin.m_ColorableSkin.m_Body = Graphics()->LoadSpriteTexture(Data.m_InfoGrayscale, &g_pData->m_aSprites[SPRITE_TEE_BODY]);
-	Skin.m_ColorableSkin.m_BodyOutline = Graphics()->LoadSpriteTexture(Data.m_InfoGrayscale, &g_pData->m_aSprites[SPRITE_TEE_BODY_OUTLINE]);
-	Skin.m_ColorableSkin.m_Feet = Graphics()->LoadSpriteTexture(Data.m_InfoGrayscale, &g_pData->m_aSprites[SPRITE_TEE_FOOT]);
-	Skin.m_ColorableSkin.m_FeetOutline = Graphics()->LoadSpriteTexture(Data.m_InfoGrayscale, &g_pData->m_aSprites[SPRITE_TEE_FOOT_OUTLINE]);
-	Skin.m_ColorableSkin.m_Hands = Graphics()->LoadSpriteTexture(Data.m_InfoGrayscale, &g_pData->m_aSprites[SPRITE_TEE_HAND]);
-	Skin.m_ColorableSkin.m_HandsOutline = Graphics()->LoadSpriteTexture(Data.m_InfoGrayscale, &g_pData->m_aSprites[SPRITE_TEE_HAND_OUTLINE]);
+	Skin.m_ColorableSkin.m_Body = Graphics()->LoadSpriteTexture(Data.m_InfoGrayscale, std::nullopt, &g_pData->m_aSprites[SPRITE_TEE_BODY]);
+	Skin.m_ColorableSkin.m_BodyOutline = Graphics()->LoadSpriteTexture(Data.m_InfoGrayscale, std::nullopt, &g_pData->m_aSprites[SPRITE_TEE_BODY_OUTLINE]);
+	Skin.m_ColorableSkin.m_Feet = Graphics()->LoadSpriteTexture(Data.m_InfoGrayscale, std::nullopt, &g_pData->m_aSprites[SPRITE_TEE_FOOT]);
+	Skin.m_ColorableSkin.m_FeetOutline = Graphics()->LoadSpriteTexture(Data.m_InfoGrayscale, std::nullopt, &g_pData->m_aSprites[SPRITE_TEE_FOOT_OUTLINE]);
+	Skin.m_ColorableSkin.m_Hands = Graphics()->LoadSpriteTexture(Data.m_InfoGrayscale, std::nullopt, &g_pData->m_aSprites[SPRITE_TEE_HAND]);
+	Skin.m_ColorableSkin.m_HandsOutline = Graphics()->LoadSpriteTexture(Data.m_InfoGrayscale, std::nullopt, &g_pData->m_aSprites[SPRITE_TEE_HAND_OUTLINE]);
 	for(size_t i = 0; i < std::size(Skin.m_ColorableSkin.m_aEyes); ++i)
 	{
-		Skin.m_ColorableSkin.m_aEyes[i] = Graphics()->LoadSpriteTexture(Data.m_InfoGrayscale, &g_pData->m_aSprites[SPRITE_TEE_EYE_NORMAL + i]);
+		Skin.m_ColorableSkin.m_aEyes[i] = Graphics()->LoadSpriteTexture(Data.m_InfoGrayscale, std::nullopt, &g_pData->m_aSprites[SPRITE_TEE_EYE_NORMAL + i]);
 	}
 
 	Skin.m_Metrics = Data.m_Metrics;
@@ -554,6 +548,7 @@ void CSkins::OnShutdown()
 		if(pSkinContainer->m_pLoadJob)
 		{
 			pSkinContainer->m_pLoadJob->Abort();
+			pSkinContainer->m_pLoadJob = nullptr;
 		}
 	}
 	m_Skins.clear();
@@ -729,6 +724,7 @@ void CSkins::Refresh(TSkinLoadedCallback &&SkinLoadedCallback)
 		if(pSkinContainer->m_pLoadJob)
 		{
 			pSkinContainer->m_pLoadJob->Abort();
+			pSkinContainer->m_pLoadJob = nullptr;
 		}
 		if(pSkinContainer->m_pSkin)
 		{
@@ -1049,7 +1045,7 @@ void CSkins::CSkinDownloadJob::Run()
 	const CTimeout Timeout{10000, 0, 8192, 10};
 	const size_t MaxResponseSize = 10 * 1024 * 1024; // 10 MiB
 
-	std::shared_ptr<CHttpRequest> pGet = HttpGetBoth(aUrl, m_pSkins->Storage(), aPathReal, IStorage::TYPE_SAVE);
+	std::shared_ptr<IHttpRequest> pGet = HttpGetBoth(aUrl, m_pSkins->Storage(), aPathReal, IStorage::TYPE_SAVE);
 	pGet->Timeout(Timeout);
 	pGet->MaxResponseSize(MaxResponseSize);
 	pGet->ValidateBeforeOverwrite(true);

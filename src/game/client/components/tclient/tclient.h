@@ -31,6 +31,8 @@ class CTClient : public CComponent
 	static void ConEmoteCycle(IConsole::IResult *pResult, void *pUserData);
 
 	class IEngineGraphics *m_pGraphics = nullptr;
+	bool m_HasWindowActive = false;
+	bool m_LastWindowActive = true;
 
 	char m_PreviousOwnMessage[2048] = {};
 
@@ -53,7 +55,7 @@ public:
 	void OnNewSnapshot() override;
 	void SetForcedAspect();
 
-	void RenderMiniVoteHud();
+	void RenderMiniVoteHud(bool Preview = false);
 	void RenderCenterLines();
 	void RenderCtfFlag(vec2 Pos, float Alpha);
 

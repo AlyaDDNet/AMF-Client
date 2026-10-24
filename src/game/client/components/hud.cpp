@@ -357,9 +357,6 @@ void CHud::ResetHudContainers()
 
 		ScoreInfo.Reset();
 	}
-	m_ScoreHudLastRight = -1.0f;
-	m_ScoreHudLastTop = -1.0f;
-	m_aScoreHudLastCorners[0] = m_aScoreHudLastCorners[1] = -1;
 
 	TextRender()->DeleteTextContainer(m_FPSTextContainerIndex);
 	TextRender()->DeleteTextContainer(m_DDRaceEffectsTextContainerIndex);
@@ -426,9 +423,6 @@ void CHud::OnInit()
 	m_AmfMouseIndicatorTexture = Graphics()->LoadTexture("amfclient/keystrokes/mouse.png", IStorage::TYPE_ALL);
 	if(!m_AmfMouseIndicatorTexture.IsValid() || m_AmfMouseIndicatorTexture.IsNullTexture())
 		log_warn("amf", "Failed to load AMF mouse indicator texture");
-	// The donor atlas bakes its pressed highlight into the texture. The white
-	// companion atlas has identical geometry/input frames with that highlight
-	// recolored, so the selector below does not alter donor input semantics.
 	m_AmfMouseIndicatorWhiteTexture = Graphics()->LoadTexture("amfclient/keystrokes/mouse_white.png", IStorage::TYPE_ALL);
 	if(!m_AmfMouseIndicatorWhiteTexture.IsValid() || m_AmfMouseIndicatorWhiteTexture.IsNullTexture())
 		log_warn("amf", "Failed to load AMF mouse indicator white pressed texture");
@@ -436,38 +430,21 @@ void CHud::OnInit()
 	Graphics()->QuadContainerUpload(m_HudQuadContainerIndex);
 }
 
-void CHud::OnConsoleInit()
-{
-	HudLayout::OnConsoleInit(Console(), ConfigManager());
-}
-
 void CHud::RenderGameTimer()
 {
 	m_GameTimerBounds = {};
-	if(!HudLayout::IsEnabled(HudLayout::MODULE_GAME_TIMER))
+	// Music Player Server Time temporarily replaces the standard timer visually.
+	// Keep the canonical Game Timer config untouched so disabling the option
+	// immediately restores the user's original HUD state.
+	if(!HudLayout::IsEnabled(HudLayout::MODULE_GAME_TIMER) ||
+		(g_Config.m_AmfMusicPlayer && g_Config.m_AmfMusicPlayerShowServerTime))
 		return;
 	float Half = m_Width / 2.0f;
 
-	if(!(GameClient()->m_Snap.m_pGameInfoObj->m_GameStateFlags & GAMESTATEFLAG_SUDDENDEATH))
+	int Time;
+	if(GetGameTimerSeconds(Time))
 	{
 		char aBuf[32];
-		int Time = 0;
-		if(GameClient()->m_Snap.m_pGameInfoObj->m_TimeLimit && (GameClient()->m_Snap.m_pGameInfoObj->m_WarmupTimer <= 0))
-		{
-			Time = GameClient()->m_Snap.m_pGameInfoObj->m_TimeLimit * 60 - ((Client()->GameTick(g_Config.m_ClDummy) - GameClient()->m_Snap.m_pGameInfoObj->m_RoundStartTick) / Client()->GameTickSpeed());
-
-			if(GameClient()->m_Snap.m_pGameInfoObj->m_GameStateFlags & GAMESTATEFLAG_GAMEOVER)
-				Time = 0;
-		}
-		else if(GameClient()->m_Snap.m_pGameInfoObj->m_GameStateFlags & GAMESTATEFLAG_RACETIME)
-		{
-			// The Warmup timer is negative in this case to make sure that incompatible clients will not see a warmup timer
-			Time = (Client()->GameTick(g_Config.m_ClDummy) + GameClient()->m_Snap.m_pGameInfoObj->m_WarmupTimer) / Client()->GameTickSpeed();
-		}
-		else
-		{
-			Time = (Client()->GameTick(g_Config.m_ClDummy) - GameClient()->m_Snap.m_pGameInfoObj->m_RoundStartTick) / Client()->GameTickSpeed();
-		}
 
 		str_time((int64_t)Time * 100, ETimeFormat::DAYS, aBuf, sizeof(aBuf));
 		const auto Layout = HudLayout::Get(HudLayout::MODULE_GAME_TIMER, m_Width, m_Height);
@@ -506,346 +483,6 @@ void CHud::RenderPauseNotification()
 		float FontSize = 20.0f;
 		float w = TextRender()->TextWidth(FontSize, pText, -1, -1.0f);
 		TextRender()->Text(150.0f * Graphics()->ScreenAspect() + -w / 2.0f, 50.0f, FontSize, pText, -1.0f);
-	}
-}
-
-HudLayout::SModuleRect CHud::GetAmfKeyIndicatorBounds() const
-{
-	const auto Layout = HudLayout::Get(HudLayout::MODULE_KEYSTROKES_KEYBOARD, m_Width, m_Height);
-	const float Scale = Layout.m_Scale / 100.0f;
-	const float KeySize = 21.0f * Scale;
-	const float Gap = 1.12f * Scale;
-	const float Width = 3.0f * KeySize + 2.0f * Gap;
-	const float KeyHeight = 4.0f * KeySize + 3.0f * Gap;
-	// CPS is rendered inside the existing LMB/RMB cells in both font modes, so
-	// it has no effect on the authoritative editor/drag bounds.
-	const float Height = KeyHeight;
-	return HudLayout::ClampRectToScreen({
-		Layout.m_X,
-		Layout.m_Y,
-		Width,
-		Height,
-		0.0f},
-		m_Width, m_Height);
-}
-
-void CHud::RenderAmfKeyIndicator()
-{
-	const auto Layout = HudLayout::Get(HudLayout::MODULE_KEYSTROKES_KEYBOARD, m_Width, m_Height);
-	const bool VisibleTarget = HudLayout::IsEnabled(HudLayout::MODULE_KEYSTROKES_KEYBOARD);
-	if(g_Config.m_AmfSmoothHud)
-	{
-		// Keep the existing Smooth HUD easing, but cap one visual step so a long
-		// frame while toggling the option cannot skip the show/hide transition.
-		const float Duration = std::max(g_Config.m_AmfAnimDuration, 60) / 1000.0f;
-		m_AmfKeyIndicatorVisibility = SmoothApproach(
-			m_AmfKeyIndicatorVisibility,
-			VisibleTarget ? 1.0f : 0.0f,
-			std::min(Client()->RenderFrameTime(), 0.035f),
-			4.6f / Duration);
-	}
-	else
-		m_AmfKeyIndicatorVisibility = VisibleTarget ? 1.0f : 0.0f;
-	if(m_AmfKeyIndicatorVisibility < 0.002f)
-		m_AmfKeyIndicatorVisibility = 0.0f;
-	else if(m_AmfKeyIndicatorVisibility > 0.998f)
-		m_AmfKeyIndicatorVisibility = 1.0f;
-	if(m_AmfKeyIndicatorVisibility <= 0.0f)
-		return;
-
-	// The indicator only reads physical input for its visual state. It never
-	// feeds input back into gameplay, prediction or client commands.
-	const float Scale = Layout.m_Scale / 100.0f;
-	const float Opacity = g_Config.m_AmfKeyIndicatorOpacity / 100.0f * m_AmfKeyIndicatorVisibility;
-	const int HudStyle = HudLayout::GetStyle(HudLayout::MODULE_KEYSTROKES_KEYBOARD);
-	const int KeyIndicatorStyle = std::clamp(g_Config.m_AmfKeyIndicatorStyle, AMF_KEY_INDICATOR_STYLE_DEFAULT, AMF_KEY_INDICATOR_STYLE_MINECRAFT);
-	const bool MinecraftStyle = KeyIndicatorStyle == AMF_KEY_INDICATOR_STYLE_MINECRAFT;
-	const bool ShowCps = g_Config.m_AmfKeyIndicatorShowCps != 0;
-	const float KeySize = 21.0f * Scale;
-	const float Gap = 1.12f * Scale;
-	const float Width = 3.0f * KeySize + 2.0f * Gap;
-	const HudLayout::SModuleRect Bounds = GetAmfKeyIndicatorBounds();
-	const float X = Bounds.m_X;
-	const float Y = Bounds.m_Y;
-
-	if(ShowCps)
-	{
-		const int64_t Now = time_get();
-		const bool aMousePressed[] = {Input()->KeyIsPressed(KEY_MOUSE_1), Input()->KeyIsPressed(KEY_MOUSE_2)};
-		for(int MouseButton = 0; MouseButton < 2; MouseButton++)
-		{
-			if(aMousePressed[MouseButton] && !m_aAmfKeyIndicatorMousePressed[MouseButton])
-			{
-				const int HistorySize = sizeof(m_aaAmfKeyIndicatorClickTimes[MouseButton]) / sizeof(m_aaAmfKeyIndicatorClickTimes[MouseButton][0]);
-				m_aaAmfKeyIndicatorClickTimes[MouseButton][m_aAmfKeyIndicatorClickTimeOffsets[MouseButton]] = Now;
-				m_aAmfKeyIndicatorClickTimeOffsets[MouseButton] = (m_aAmfKeyIndicatorClickTimeOffsets[MouseButton] + 1) % HistorySize;
-			}
-			m_aAmfKeyIndicatorMousePressed[MouseButton] = aMousePressed[MouseButton];
-
-			m_aAmfKeyIndicatorCps[MouseButton] = 0;
-			for(const int64_t ClickTime : m_aaAmfKeyIndicatorClickTimes[MouseButton])
-			{
-				if(ClickTime != 0 && Now - ClickTime <= time_freq())
-					m_aAmfKeyIndicatorCps[MouseButton]++;
-			}
-		}
-	}
-
-	char aMouseCps[2][24] = {};
-	if(ShowCps)
-	{
-		str_format(aMouseCps[0], sizeof(aMouseCps[0]), "%d CPS", m_aAmfKeyIndicatorCps[0]);
-		str_format(aMouseCps[1], sizeof(aMouseCps[1]), "%d CPS", m_aAmfKeyIndicatorCps[1]);
-	}
-
-	const SAmfKeyIndicatorKey aKeys[] = {
-		{KEY_W, "W", KeySize + Gap, 0.0f, KeySize},
-		{KEY_A, "A", 0.0f, KeySize + Gap, KeySize},
-		{KEY_S, "S", KeySize + Gap, KeySize + Gap, KeySize},
-		{KEY_D, "D", 2.0f * (KeySize + Gap), KeySize + Gap, KeySize},
-		{KEY_MOUSE_1, "LMB", 0.0f, 2.0f * (KeySize + Gap), (Width - Gap) * 0.5f},
-		{KEY_MOUSE_2, "RMB", (Width + Gap) * 0.5f, 2.0f * (KeySize + Gap), (Width - Gap) * 0.5f},
-		{KEY_SPACE, "", 0.0f, 3.0f * (KeySize + Gap), Width},
-	};
-	auto RenderKeys = [&]() {
-		for(const auto &Key : aKeys)
-		{
-			const char *pCpsText = nullptr;
-			if(ShowCps && Key.m_Key == KEY_MOUSE_1)
-				pCpsText = aMouseCps[0];
-			else if(ShowCps && Key.m_Key == KEY_MOUSE_2)
-				pCpsText = aMouseCps[1];
-			DrawAmfKeyIndicatorKey(Graphics(), TextRender(), X + Key.m_X, Y + Key.m_Y, Key.m_W, KeySize, Input()->KeyIsPressed(Key.m_Key), Opacity, Key.m_pLabel, HudStyle, pCpsText);
-		}
-	};
-
-	if(MinecraftStyle)
-	{
-		// The style selection affects only the existing renderer's font face;
-		// positions, backgrounds, key geometry and HUD editor bounds stay shared.
-		CScopedAmfMinecraftFont MinecraftFont(TextRender());
-		RenderKeys();
-	}
-	else
-		RenderKeys();
-}
-
-HudLayout::SModuleRect CHud::GetAmfMouseIndicatorBounds() const
-{
-	const auto Layout = HudLayout::Get(HudLayout::MODULE_KEYSTROKES_MOUSE, m_Width, m_Height);
-	const auto &Preset = GetAmfMouseIndicatorPreset(g_Config.m_AmfMouseIndicatorPreset);
-	const float Scale = GetAmfMouseIndicatorScale(Layout);
-	return HudLayout::ClampRectToScreen({
-		Layout.m_X,
-		Layout.m_Y,
-		Preset.m_OverlayWidth * Scale,
-		Preset.m_OverlayHeight * Scale,
-		0.0f},
-		m_Width, m_Height);
-}
-
-int CHud::GetAmfMouseIndicatorTrackedClientId() const
-{
-	if(Client()->State() == IClient::STATE_DEMOPLAYBACK)
-	{
-		if(!GameClient()->m_Snap.m_SpecInfo.m_Active &&
-			in_range(GameClient()->m_Snap.m_LocalClientId, 0, MAX_CLIENTS - 1) &&
-			GameClient()->m_Snap.m_aCharacters[GameClient()->m_Snap.m_LocalClientId].m_Active)
-
-			return GameClient()->m_Snap.m_LocalClientId;
-		if(GameClient()->m_DemoSpecId > SPEC_FREEVIEW && GameClient()->m_DemoSpecId < MAX_CLIENTS)
-			return GameClient()->m_DemoSpecId;
-	}
-
-	if(!GameClient()->m_Snap.m_SpecInfo.m_Active)
-		return -1;
-	const int SpectatorId = GameClient()->m_Snap.m_SpecInfo.m_SpectatorId;
-	if(SpectatorId <= SPEC_FREEVIEW || SpectatorId >= MAX_CLIENTS)
-		return -1;
-	return SpectatorId;
-}
-
-const CNetObj_PlayerInput *CHud::GetAmfMouseIndicatorTrackedInput() const
-{
-	const int SpectatorId = GetAmfMouseIndicatorTrackedClientId();
-	if(SpectatorId < 0)
-		return nullptr;
-	if(CCharacter *pCharacter = GameClient()->m_GameWorld.GetCharacterById(SpectatorId))
-		return pCharacter->LatestInput();
-	return nullptr;
-}
-
-bool CHud::GetAmfMouseIndicatorTrackedAim(int TrackedClientId, float Intra, vec2 &OutAim) const
-{
-	if(!in_range(TrackedClientId, 0, MAX_CLIENTS - 1))
-		return false;
-
-	const auto &Character = GameClient()->m_Snap.m_aCharacters[TrackedClientId];
-	if(!Character.m_Active)
-		return false;
-
-	if(Character.m_HasExtendedDisplayInfo)
-	{
-		const CNetObj_DDNetCharacter *pExtendedData = &Character.m_ExtendedData;
-		const CNetObj_DDNetCharacter *pPrevExtendedData = Character.m_pPrevExtendedData;
-		if(pPrevExtendedData != nullptr)
-		{
-			OutAim = vec2(
-				mix((float)pPrevExtendedData->m_TargetX, (float)pExtendedData->m_TargetX, Intra),
-				mix((float)pPrevExtendedData->m_TargetY, (float)pExtendedData->m_TargetY, Intra));
-		}
-		else
-		{
-			OutAim = vec2((float)pExtendedData->m_TargetX, (float)pExtendedData->m_TargetY);
-		}
-		return length(OutAim) > 0.001f;
-	}
-
-	float Angle = 0.0f;
-	if(Character.m_Cur.m_Angle > (256.0f * pi) && Character.m_Prev.m_Angle < 0)
-		Angle = mix((float)Character.m_Prev.m_Angle, (float)(Character.m_Cur.m_Angle - 256.0f * 2 * pi), Intra) / 256.0f;
-	else if(Character.m_Cur.m_Angle < 0 && Character.m_Prev.m_Angle > (256.0f * pi))
-		Angle = mix((float)Character.m_Prev.m_Angle, (float)(Character.m_Cur.m_Angle + 256.0f * 2 * pi), Intra) / 256.0f;
-	else
-		Angle = mix((float)Character.m_Prev.m_Angle, (float)Character.m_Cur.m_Angle, Intra) / 256.0f;
-	OutAim = direction(Angle) * 256.0f;
-	return true;
-}
-
-void CHud::RenderAmfMouseIndicator()
-{
-	if(!HudLayout::IsEnabled(HudLayout::MODULE_KEYSTROKES_MOUSE))
-		return;
-	const bool WhitePressed = std::clamp(g_Config.m_AmfMouseIndicatorPressedColor, 0, 1) == 1;
-	const IGraphics::CTextureHandle &MouseTexture = WhitePressed && m_AmfMouseIndicatorWhiteTexture.IsValid() && !m_AmfMouseIndicatorWhiteTexture.IsNullTexture() ?
-		m_AmfMouseIndicatorWhiteTexture : m_AmfMouseIndicatorTexture;
-	if(!MouseTexture.IsValid() || MouseTexture.IsNullTexture())
-		return;
-
-	const auto Layout = HudLayout::Get(HudLayout::MODULE_KEYSTROKES_MOUSE, m_Width, m_Height);
-	const int MousePreset = std::clamp(g_Config.m_AmfMouseIndicatorPreset, 1, 3);
-	const auto &Preset = GetAmfMouseIndicatorPreset(MousePreset);
-	const float Scale = GetAmfMouseIndicatorScale(Layout);
-	const int64_t Now = time_get();
-	const int64_t HighlightDuration = time_freq() * AMF_MOUSE_INDICATOR_HIGHLIGHT_MS / 1000;
-	const int TrackedClientId = GetAmfMouseIndicatorTrackedClientId();
-	const bool HasTrackedPlayer = TrackedClientId >= 0;
-	const CNetObj_PlayerInput *pTrackedInput = GetAmfMouseIndicatorTrackedInput();
-	const CNetObj_Character *pTrackedCharacter = HasTrackedPlayer && GameClient()->m_Snap.m_aCharacters[TrackedClientId].m_Active ?
-		&GameClient()->m_Snap.m_aCharacters[TrackedClientId].m_Cur : nullptr;
-	const CNetObj_Character *pPrevTrackedCharacter = HasTrackedPlayer && GameClient()->m_Snap.m_aCharacters[TrackedClientId].m_Active ?
-		&GameClient()->m_Snap.m_aCharacters[TrackedClientId].m_Prev : nullptr;
-
-	if(!HasTrackedPlayer && pTrackedInput == nullptr)
-	{
-		if(Input()->KeyPress(KEY_MOUSE_WHEEL_UP))
-			m_AmfMouseIndicatorWheelUpEndTime = Now + HighlightDuration;
-		if(Input()->KeyPress(KEY_MOUSE_WHEEL_DOWN))
-			m_AmfMouseIndicatorWheelDownEndTime = Now + HighlightDuration;
-	}
-	if(HasTrackedPlayer && pTrackedInput == nullptr && pTrackedCharacter != nullptr && pPrevTrackedCharacter != nullptr &&
-		pPrevTrackedCharacter->m_AttackTick != pTrackedCharacter->m_AttackTick)
-	{
-		m_AmfMouseIndicatorMouse1EndTime = Now + HighlightDuration;
-	}
-
-	vec2 AimOffset(0.0f, 0.0f);
-	float AimRotation = 0.0f;
-	bool MouseMoved = false;
-	vec2 Aim(0.0f, 0.0f);
-	if(pTrackedInput != nullptr)
-		Aim = vec2((float)pTrackedInput->m_TargetX, (float)pTrackedInput->m_TargetY);
-	else if(HasTrackedPlayer)
-		GetAmfMouseIndicatorTrackedAim(TrackedClientId, Client()->IntraGameTick(g_Config.m_ClDummy), Aim);
-	else
-		Aim = GameClient()->m_Controls.m_aMousePos[g_Config.m_ClDummy];
-	const float MaxDistance = std::max(GameClient()->m_Controls.GetMaxMouseDistance(), 0.001f);
-	float Length = length(Aim);
-	if(Length > 0.001f)
-	{
-		MouseMoved = true;
-		AimRotation = std::atan2(Aim.y, Aim.x) + pi / 2.0f;
-		Aim /= MaxDistance;
-		Length = length(Aim);
-		if(Length > 1.0f)
-			Aim /= Length;
-		AimOffset = Aim;
-	}
-
-	const HudLayout::SModuleRect Bounds = GetAmfMouseIndicatorBounds();
-	for(int i = 0; i < Preset.m_NumElements; ++i)
-	{
-		const auto &Element = Preset.m_pElements[i];
-		bool Active = false;
-		switch(Element.m_InputKind)
-		{
-		case EAmfMouseIndicatorInputKind::NONE:
-			Active = true;
-			break;
-		case EAmfMouseIndicatorInputKind::MOUSE_BUTTON:
-			Active = HasTrackedPlayer ?
-				(pTrackedInput != nullptr ? IsAmfMouseIndicatorButtonPressed(pTrackedInput, Element.m_MouseButton) :
-					IsAmfMouseIndicatorButtonPressedFromCharacter(pPrevTrackedCharacter, pTrackedCharacter, Element.m_MouseButton, Now, m_AmfMouseIndicatorMouse1EndTime)) :
-				IsAmfMouseIndicatorButtonPressed(Input(), Element.m_MouseButton);
-			break;
-		case EAmfMouseIndicatorInputKind::WHEEL:
-			Active = IsAmfMouseIndicatorWheelActive(Element.m_WheelDir, Now, m_AmfMouseIndicatorWheelUpEndTime, m_AmfMouseIndicatorWheelDownEndTime);
-			break;
-		case EAmfMouseIndicatorInputKind::MOUSE_MOVE:
-			Active = MouseMoved;
-			break;
-		}
-
-		if(Element.m_ActiveOnly && !Active)
-			continue;
-		if(Element.m_InputKind == EAmfMouseIndicatorInputKind::WHEEL && !Active)
-			continue;
-
-		int MapY = Element.m_MapY;
-		if(Active && !Element.m_ActiveOnly && Element.m_InputKind == EAmfMouseIndicatorInputKind::MOUSE_BUTTON)
-		{
-			const int Candidate = MapY + Element.m_MapH + AMF_MOUSE_INDICATOR_PRESSED_TEXTURE_SPACE;
-			if(Candidate + Element.m_MapH <= Preset.m_AtlasHeight)
-				MapY = Candidate;
-		}
-
-		const float X = Bounds.m_X + Element.m_PosX * Scale;
-		const float Y = Bounds.m_Y + Element.m_PosY * Scale;
-		vec2 Offset(0.0f, 0.0f);
-		float Rotation = 0.0f;
-		if(Element.m_InputKind == EAmfMouseIndicatorInputKind::MOUSE_MOVE)
-		{
-			Offset = AimOffset * (Element.m_MouseRadius * Scale);
-			if(Element.m_MouseType == 1)
-				Rotation = AimRotation;
-		}
-		// Dot Dot has a static point in the donor atlas (white) and a moving
-		// point in its active frame (yellow). Treat that static point as part of
-		// the same selected pressed color; all other styles/elements keep the
-		// donor texture and tint unchanged.
-		const bool IsDotDotStaticPoint = MousePreset == 2 &&
-			Element.m_InputKind == EAmfMouseIndicatorInputKind::NONE &&
-			Element.m_MapX == 493 && Element.m_MapY == 245 &&
-			Element.m_MapW == 100 && Element.m_MapH == 100;
-		const ColorRGBA SpriteColor = IsDotDotStaticPoint && !WhitePressed ?
-			ColorRGBA(1.0f, AMF_MOUSE_INDICATOR_YELLOW_GREEN, AMF_MOUSE_INDICATOR_YELLOW_BLUE, 1.0f) :
-			ColorRGBA(1.0f, 1.0f, 1.0f, 1.0f);
-
-		DrawAmfMouseIndicatorSprite(
-			Graphics(),
-			MouseTexture,
-			Preset.m_AtlasWidth,
-			Preset.m_AtlasHeight,
-			Element.m_MapX,
-			MapY,
-			Element.m_MapW,
-			Element.m_MapH,
-			X + Offset.x,
-			Y + Offset.y,
-			Element.m_MapW * Scale,
-			Element.m_MapH * Scale,
-			SpriteColor,
-			Rotation);
 	}
 }
 
@@ -905,7 +542,7 @@ void CHud::RenderScoreHud()
 			float ScoreWidthMax = std::max({m_aScoreInfo[0].m_ScoreTextWidth, m_aScoreInfo[1].m_ScoreTextWidth, s_TextWidth100});
 			float Split = 3.0f;
 			float ImageSize = (GameClient()->m_Snap.m_pGameInfoObj->m_GameFlags & GAMEFLAG_FLAGS) ? 16.0f : Split;
-			const float ScoreBoxWidth = ScoreWidthMax + ImageSize + 2 * Split;
+			const float ScoreBoxWidth = ScoreWidthMax + ImageSize + 2.0f * Split;
 			float NameOverflow = 0.0f;
 			if(GameClient()->m_Snap.m_pGameInfoObj->m_GameFlags & GAMEFLAG_FLAGS)
 			{
@@ -922,18 +559,13 @@ void CHud::RenderScoreHud()
 			float ScoreAnchorY = StartY;
 			if(HudLayout::HasPositionOverride(HudLayout::MODULE_SCORE))
 			{
-				// Stored Score X is the visual left edge, including an optional
-				// flag-carrier name. The internal score boxes keep their own offset.
 				ScoreAnchorX = ScoreLayout.m_X + NameOverflow * ModuleScale;
 				ScoreAnchorY = ScoreLayout.m_Y;
 			}
 			m_ScoreHudBounds = HudLayout::ClampRectToScreen({ScoreAnchorX - NameOverflow * ModuleScale, ScoreAnchorY, (ScoreBoxWidth + NameOverflow) * ModuleScale, 54.0f * ModuleScale, 5.0f * ModuleScale}, m_Width, m_Height);
-			// The editor box is the final scaled rect. Feed the same clamped
-			// top-left back into the renderer before MapHudModuleScale so a score
-			// near an edge cannot render outside its own published bounds.
 			ScoreAnchorX = m_ScoreHudBounds.m_X + NameOverflow * ModuleScale;
 			ScoreAnchorY = m_ScoreHudBounds.m_Y;
-			float ScoreRight = ScoreAnchorX + ScoreBoxWidth;
+			const float ScoreRight = ScoreAnchorX + ScoreBoxWidth;
 			StartY = ScoreAnchorY;
 			const bool ScorePositionChanged = ScoreRight != m_ScoreHudLastRight || StartY != m_ScoreHudLastTop;
 			m_ScoreHudLastRight = ScoreRight;
@@ -946,12 +578,11 @@ void CHud::RenderScoreHud()
 			}
 			for(int t = 0; t < 2; t++)
 			{
-				const float BoxX = ScoreRight - ScoreWidthMax - ImageSize - 2 * Split;
+				const float BoxX = ScoreRight - ScoreWidthMax - ImageSize - 2.0f * Split;
 				const float BoxY = StartY + t * 20;
-				const int BoxCorners = ScaledHudRectCorners(ScoreAnchorX, ScoreAnchorY, ModuleScale, BoxX, BoxY, ScoreWidthMax + ImageSize + 2 * Split, ScoreSingleBoxHeight, m_Width, m_Height);
+				const int BoxCorners = ScaledHudRectCorners(ScoreAnchorX, ScoreAnchorY, ModuleScale, BoxX, BoxY, ScoreWidthMax + ImageSize + 2.0f * Split, ScoreSingleBoxHeight, m_Width, m_Height);
 				if(BoxCorners != m_aScoreHudLastCorners[t])
 					RecreateRect = true;
-
 				// draw box
 				if(RecreateRect)
 				{
@@ -961,7 +592,7 @@ void CHud::RenderScoreHud()
 						Graphics()->SetColor(0.975f, 0.17f, 0.17f, 0.3f);
 					else
 						Graphics()->SetColor(0.17f, 0.46f, 0.975f, 0.3f);
-					m_aScoreInfo[t].m_RoundRectQuadContainerIndex = Graphics()->CreateRectQuadContainer(BoxX, BoxY, ScoreWidthMax + ImageSize + 2 * Split, ScoreSingleBoxHeight, 5.0f, BoxCorners);
+					m_aScoreInfo[t].m_RoundRectQuadContainerIndex = Graphics()->CreateRectQuadContainer(BoxX, BoxY, ScoreWidthMax + ImageSize + 2.0f * Split, ScoreSingleBoxHeight, 5.0f, BoxCorners);
 					m_aScoreHudLastCorners[t] = BoxCorners;
 				}
 				Graphics()->TextureClear();
@@ -1009,7 +640,7 @@ void CHud::RenderScoreHud()
 							float w = TextRender()->TextWidth(8.0f, pName, -1, -1.0f);
 
 							CTextCursor Cursor;
-							Cursor.SetPosition(vec2(std::min(ScoreRight - w - 1.0f, ScoreRight - ScoreWidthMax - ImageSize - 2 * Split), StartY + (t + 1) * 20.0f - 2.0f));
+							Cursor.SetPosition(vec2(std::min(ScoreRight - w - 1.0f, ScoreRight - ScoreWidthMax - ImageSize - 2.0f * Split), StartY + (t + 1) * 20.0f - 2.0f));
 							Cursor.m_FontSize = 8.0f;
 							TextRender()->RecreateTextContainer(m_aScoreInfo[t].m_OptionalNameTextContainerIndex, &Cursor, pName);
 						}
@@ -1075,21 +706,19 @@ void CHud::RenderScoreHud()
 				{
 					if(Client()->IsSixup() && GameClient()->m_Snap.m_pGameInfoObj->m_GameFlags & protocol7::GAMEFLAG_RACE)
 					{
-						str_time((int64_t)absolute(apPlayerInfo[t]->m_Score) / 10, ETimeFormat::MINS_CENTISECS, aScore[t], sizeof(aScore[t]));
+						str_time(absolute(static_cast<int64_t>(apPlayerInfo[t]->m_Score)) / 10, ETimeFormat::MINS_CENTISECS, aScore[t], sizeof(aScore[t]));
 					}
 					else if(GameClient()->m_GameInfo.m_TimeScore)
 					{
-						CGameClient::CClientData &ClientData = GameClient()->m_aClients[apPlayerInfo[t]->m_ClientId];
+						const CGameClient::CClientData &ClientData = GameClient()->m_aClients[apPlayerInfo[t]->m_ClientId];
 						if(GameClient()->m_ReceivedDDNetPlayerFinishTimes && ClientData.m_FinishTimeSeconds != FinishTime::NOT_FINISHED_MILLIS)
 						{
-							int64_t TimeSeconds = static_cast<int64_t>(absolute(ClientData.m_FinishTimeSeconds));
-							int64_t TimeMillis = TimeSeconds * 1000 + (absolute(ClientData.m_FinishTimeMillis) % 1000);
-
+							const int64_t TimeMillis = static_cast<int64_t>(ClientData.m_FinishTimeSeconds) * 1000 + ClientData.m_FinishTimeMillis % 1000;
 							str_time(TimeMillis / 10, ETimeFormat::HOURS, aScore[t], sizeof(aScore[t]));
 						}
 						else if(apPlayerInfo[t]->m_Score != FinishTime::NOT_FINISHED_TIMESCORE)
 						{
-							str_time((int64_t)absolute(apPlayerInfo[t]->m_Score) * 100, ETimeFormat::HOURS, aScore[t], sizeof(aScore[t]));
+							str_time(absolute(static_cast<int64_t>(apPlayerInfo[t]->m_Score)) * 100, ETimeFormat::HOURS, aScore[t], sizeof(aScore[t]));
 						}
 						else
 						{
@@ -1101,16 +730,12 @@ void CHud::RenderScoreHud()
 						str_format(aScore[t], sizeof(aScore[t]), "%d", apPlayerInfo[t]->m_Score);
 					}
 				}
-				else
-				{
-					aScore[t][0] = 0;
-				}
+			else
+			{
+				aScore[t][0] = 0;
 			}
-			// Text containers include absolute screen coordinates. Detect a moved score
-			// HUD before rebuilding them, using the currently measured layout; this is
-			// the same geometry the renderer uses below once the current score text has
-			// been measured.
-			const float CachedScoreWidth = std::max(std::max(m_aScoreInfo[0].m_ScoreTextWidth, m_aScoreInfo[1].m_ScoreTextWidth), TextRender()->TextWidth(14.0f, "10", -1, -1.0f));
+		}
+			const float CachedScoreWidth = std::max({m_aScoreInfo[0].m_ScoreTextWidth, m_aScoreInfo[1].m_ScoreTextWidth, TextRender()->TextWidth(14.0f, "10", -1, -1.0f)});
 			const float CachedScoreBoxWidth = CachedScoreWidth + 16.0f + 2.0f * 3.0f + 16.0f;
 			float CachedNameOverflow = 0.0f;
 			for(int t = 0; t < 2; ++t)
@@ -1131,12 +756,10 @@ void CHud::RenderScoreHud()
 				CachedAnchorX = ScoreLayout.m_X + CachedNameOverflow * ModuleScale;
 				CachedAnchorY = ScoreLayout.m_Y;
 			}
-			float CachedScoreRight = CachedAnchorX + CachedScoreBoxWidth;
-			float CachedScoreTop = CachedAnchorY;
-			if(CachedScoreRight != m_ScoreHudLastRight || CachedScoreTop != m_ScoreHudLastTop)
+			if(CachedAnchorX + CachedScoreBoxWidth != m_ScoreHudLastRight || CachedAnchorY != m_ScoreHudLastTop)
 				ForceScoreInfoInit = true;
 
-			bool RecreateScores = ForceScoreInfoInit || str_comp(aScore[0], m_aScoreInfo[0].m_aScoreText) != 0 || str_comp(aScore[1], m_aScoreInfo[1].m_aScoreText) != 0 || m_LastLocalClientId != GameClient()->m_Snap.m_LocalClientId;
+			bool RecreateScores = str_comp(aScore[0], m_aScoreInfo[0].m_aScoreText) != 0 || str_comp(aScore[1], m_aScoreInfo[1].m_aScoreText) != 0 || m_LastLocalClientId != GameClient()->m_Snap.m_LocalClientId;
 			m_LastLocalClientId = GameClient()->m_Snap.m_LocalClientId;
 
 			bool RecreateRect = ForceScoreInfoInit;
@@ -1174,7 +797,7 @@ void CHud::RenderScoreHud()
 			static float s_TextWidth10 = TextRender()->TextWidth(14.0f, "10", -1, -1.0f);
 			float ScoreWidthMax = std::max({m_aScoreInfo[0].m_ScoreTextWidth, m_aScoreInfo[1].m_ScoreTextWidth, s_TextWidth10});
 			float Split = 3.0f, ImageSize = 16.0f, PosSize = 16.0f;
-			const float ScoreBoxWidth = ScoreWidthMax + ImageSize + 2 * Split + PosSize;
+			const float ScoreBoxWidth = ScoreWidthMax + ImageSize + 2.0f * Split + PosSize;
 			float NameOverflow = 0.0f;
 			for(int t = 0; t < 2; ++t)
 			{
@@ -1195,25 +818,27 @@ void CHud::RenderScoreHud()
 				ScoreAnchorY = ScoreLayout.m_Y;
 			}
 			m_ScoreHudBounds = HudLayout::ClampRectToScreen({ScoreAnchorX - NameOverflow * ModuleScale, ScoreAnchorY, (ScoreBoxWidth + NameOverflow) * ModuleScale, 54.0f * ModuleScale, 5.0f * ModuleScale}, m_Width, m_Height);
-			// Keep the renderer and its authoritative/editor rect on the same
-			// final geometry, including when the scaled score is clamped to an
-			// edge of the HUD canvas.
 			ScoreAnchorX = m_ScoreHudBounds.m_X + NameOverflow * ModuleScale;
 			ScoreAnchorY = m_ScoreHudBounds.m_Y;
-			float ScoreRight = ScoreAnchorX + ScoreBoxWidth;
+			const float ScoreRight = ScoreAnchorX + ScoreBoxWidth;
 			StartY = ScoreAnchorY;
+			const bool ScorePositionChanged = ScoreRight != m_ScoreHudLastRight || StartY != m_ScoreHudLastTop;
 			m_ScoreHudLastRight = ScoreRight;
 			m_ScoreHudLastTop = StartY;
+			if(ScorePositionChanged)
+			{
+				RecreateScores = true;
+				RecreateRect = true;
+			}
 			MapHudModuleScale(Graphics(), m_Width, m_Height, ModuleScale, ScoreAnchorX, ScoreAnchorY);
 
 			for(int t = 0; t < 2; t++)
 			{
-				const float BoxX = ScoreRight - ScoreWidthMax - ImageSize - 2 * Split - PosSize;
+				const float BoxX = ScoreRight - ScoreWidthMax - ImageSize - 2.0f * Split - PosSize;
 				const float BoxY = StartY + t * 20;
-				const int BoxCorners = ScaledHudRectCorners(ScoreAnchorX, ScoreAnchorY, ModuleScale, BoxX, BoxY, ScoreWidthMax + ImageSize + 2 * Split + PosSize, ScoreSingleBoxHeight, m_Width, m_Height);
+				const int BoxCorners = ScaledHudRectCorners(ScoreAnchorX, ScoreAnchorY, ModuleScale, BoxX, BoxY, ScoreWidthMax + ImageSize + 2.0f * Split + PosSize, ScoreSingleBoxHeight, m_Width, m_Height);
 				if(BoxCorners != m_aScoreHudLastCorners[t])
 					RecreateRect = true;
-
 				// draw box
 				if(RecreateRect)
 				{
@@ -1223,7 +848,7 @@ void CHud::RenderScoreHud()
 						Graphics()->SetColor(1.0f, 1.0f, 1.0f, 0.25f);
 					else
 						Graphics()->SetColor(0.0f, 0.0f, 0.0f, 0.25f);
-					m_aScoreInfo[t].m_RoundRectQuadContainerIndex = Graphics()->CreateRectQuadContainer(BoxX, BoxY, ScoreWidthMax + ImageSize + 2 * Split + PosSize, ScoreSingleBoxHeight, 5.0f, BoxCorners);
+					m_aScoreInfo[t].m_RoundRectQuadContainerIndex = Graphics()->CreateRectQuadContainer(BoxX, BoxY, ScoreWidthMax + ImageSize + 2.0f * Split + PosSize, ScoreSingleBoxHeight, 5.0f, BoxCorners);
 					m_aScoreHudLastCorners[t] = BoxCorners;
 				}
 				Graphics()->TextureClear();
@@ -1258,7 +883,7 @@ void CHud::RenderScoreHud()
 							str_copy(m_aScoreInfo[t].m_aPlayerNameText, pName);
 
 							CTextCursor Cursor;
-							Cursor.SetPosition(vec2(std::min(ScoreRight - TextRender()->TextWidth(8.0f, pName) - 1.0f, ScoreRight - ScoreWidthMax - ImageSize - 2 * Split - PosSize), StartY + (t + 1) * 20.0f - 2.0f));
+							Cursor.SetPosition(vec2(std::min(ScoreRight - TextRender()->TextWidth(8.0f, pName) - 1.0f, ScoreRight - ScoreWidthMax - ImageSize - 2.0f * Split - PosSize), StartY + (t + 1) * 20.0f - 2.0f));
 							Cursor.m_FontSize = 8.0f;
 							TextRender()->RecreateTextContainer(m_aScoreInfo[t].m_OptionalNameTextContainerIndex, &Cursor, pName);
 						}
@@ -1331,7 +956,7 @@ void CHud::RenderWarmupTimer()
 	if(Seconds < 5)
 	{
 		str_format(aWarmupTime, sizeof(aWarmupTime), "%d.%d", Seconds, (GameClient()->m_Snap.m_pGameInfoObj->m_WarmupTimer * 10 / Client()->GameTickSpeed()) % 10);
-		TextWidth = TextRender()->TextWidth(FontSize, "0.0");
+		TextWidth = TextRender()->TextWidth(FontSize, "0.0"); // Calculate width with fixed string to avoid slight changes when using aWarmupTime
 	}
 	else
 	{
@@ -1344,7 +969,6 @@ void CHud::RenderWarmupTimer()
 void CHud::RenderTextInfo()
 {
 	m_PredictionTimeBounds = {};
-	m_RemainingPlayersBounds = {};
 	int Showfps = g_Config.m_ClShowfps;
 #if defined(CONF_VIDEORECORDER)
 	if(IVideo::Current())
@@ -1404,8 +1028,7 @@ void CHud::RenderTextInfo()
 		const float TextWidth = TextRender()->TextWidth(FontSize, pText, -1, -1.0f);
 		TextRender()->Text((m_Width - TextWidth) * 0.5f, 25.0f, FontSize, pText, -1.0f);
 	}
-
-	if(g_Config.m_TcMiniDebug)
+if(g_Config.m_TcMiniDebug)
 	{
 		float FontSize = 8.0f;
 		float TextHeight = 11.0f;
@@ -1461,6 +1084,7 @@ void CHud::RenderTextInfo()
 	{
 		int NumInTeam = 0;
 		int NumFrozen = 0;
+		int NumUnfreezing = 0;
 		int LocalTeamID = 0;
 		if(GameClient()->m_Snap.m_LocalClientId >= 0 && GameClient()->m_Snap.m_SpecInfo.m_SpectatorId >= 0)
 		{
@@ -1478,21 +1102,27 @@ void CHud::RenderTextInfo()
 			{
 				NumInTeam++;
 				if(GameClient()->m_aClients[i].m_FreezeEnd > 0 || GameClient()->m_aClients[i].m_DeepFrozen)
+				{
 					NumFrozen++;
+					if(g_Config.m_TcNotifyWhenLast && !GameClient()->m_aClients[i].m_RegularPredicted.m_IsInFreeze)
+						NumUnfreezing++;
+				}
 			}
 		}
 
 		// Notify when last
-		if(g_Config.m_TcNotifyWhenLast)
+		if(g_Config.m_TcNotifyWhenLast && HudLayout::IsEnabled(HudLayout::MODULE_NOTIFY_LAST))
 		{
-			if(NumInTeam > 1 && NumInTeam - NumFrozen == 1)
+			if(NumInTeam > 1 && NumInTeam - NumFrozen == 1 && NumUnfreezing == 0)
 			{
+				const auto Layout = HudLayout::Get(HudLayout::MODULE_NOTIFY_LAST, m_Width, m_Height);
+				const float Scale = std::clamp(Layout.m_Scale / 100.0f, 0.25f, 3.0f);
+				const float FontSize = std::clamp(g_Config.m_TcNotifyWhenLastSize * Scale, 1.0f, 50.0f * Scale);
+				const char *pText = g_Config.m_TcNotifyWhenLastText[0] != '\0' ? g_Config.m_TcNotifyWhenLastText : "Last!";
+				const float TextWidth = TextRender()->TextWidth(FontSize, pText, -1, -1.0f);
+				const auto Rect = HudLayout::ClampRectToScreen({Layout.m_X, Layout.m_Y, std::max(TextWidth, 8.0f), FontSize + 2.0f * Scale, 0.0f}, m_Width, m_Height);
 				TextRender()->TextColor(color_cast<ColorRGBA>(ColorHSLA(g_Config.m_TcNotifyWhenLastColor)));
-				float FontSize = g_Config.m_TcNotifyWhenLastSize;
-				float XPos = std::clamp((g_Config.m_TcNotifyWhenLastX / 100.0f) * m_Width, 1.0f, m_Width - FontSize);
-				float YPos = std::clamp((g_Config.m_TcNotifyWhenLastY / 100.0f) * m_Height, 1.0f, m_Height - FontSize);
-
-				TextRender()->Text(XPos, YPos, FontSize, g_Config.m_TcNotifyWhenLastText, -1.0f);
+				TextRender()->Text(Rect.m_X, Rect.m_Y, FontSize, pText, -1.0f);
 				TextRender()->TextColor(TextRender()->DefaultTextColor());
 			}
 		}
@@ -1656,11 +1286,10 @@ void CHud::RenderCursor()
 	float Alpha = 1.0f;
 
 	const vec2 Center = GameClient()->m_Camera.m_Center;
-	float aScreen[4];
-	Graphics()->MapScreenToWorld(Center.x, Center.y, 100.0f, 100.0f, 100.0f, 0, 0, Graphics()->ScreenAspect(), 1.0f, aScreen);
-	Graphics()->MapScreen(aScreen[0], aScreen[1], aScreen[2], aScreen[3]);
+	CScreenRect ScreenRect = Graphics()->MapScreenToWorld(Center.x, Center.y, 100.0f, 100.0f, 100.0f, 0, 0, Graphics()->ScreenAspect(), 1.0f);
+	Graphics()->MapScreen(ScreenRect);
 
-	if(Client()->State() != IClient::STATE_DEMOPLAYBACK && GameClient()->m_Snap.m_LocalClientId >= 0 && GameClient()->m_Snap.m_pLocalCharacter)
+	if(Client()->State() != IClient::STATE_DEMOPLAYBACK && GameClient()->m_Snap.m_pLocalCharacter)
 	{
 		// Render local cursor
 		CurWeapon = std::max(0, GameClient()->m_aClients[GameClient()->m_Snap.m_LocalClientId].m_Predicted.m_ActiveWeapon);
@@ -1678,7 +1307,7 @@ void CHud::RenderCursor()
 			return;
 
 		// Calculate factor to keep cursor on screen
-		const vec2 HalfSize = Center - vec2(aScreen[0], aScreen[1]);
+		const vec2 HalfSize = Center - ScreenRect.m_TopLeft;
 		const vec2 ScreenPos = (GameClient()->m_CursorInfo.WorldTarget() - Center) / GameClient()->m_Camera.m_Zoom;
 		const float ClampFactor = std::max({
 			1.0f,
@@ -1886,23 +1515,6 @@ void CHud::PreparePlayerStateQuads()
 void CHud::RenderPlayerState(const int ClientId)
 {
 	Graphics()->SetColor(1.f, 1.f, 1.f, 1.f);
-	m_PlayerStateBounds = {};
-	if(!HudLayout::IsEnabled(HudLayout::MODULE_PLAYER_STATE))
-		return;
-	const auto Layout = HudLayout::Get(HudLayout::MODULE_PLAYER_STATE, m_Width, m_Height);
-	const float ModuleScale = std::clamp(Layout.m_Scale / 100.0f, 0.25f, 3.0f);
-	float OffsetX = 0.0f;
-	float OffsetY = 0.0f;
-	if(HudLayout::HasPositionOverride(HudLayout::MODULE_PLAYER_STATE))
-	{
-		OffsetX = Layout.m_X - 5.0f;
-		OffsetY = Layout.m_Y - 5.0f;
-	}
-	const float BaseX = 5.0f + OffsetX;
-	const float BaseY = 5.0f + OffsetY;
-	MapHudModuleScale(Graphics(), m_Width, m_Height, ModuleScale, BaseX, BaseY);
-	float MaxX = BaseX;
-	float MaxY = BaseY;
 
 	// pCharacter contains the predicted character for local players or the last snap for players who are spectated
 	CCharacterCore *pCharacter = &GameClient()->m_aClients[ClientId].m_Predicted;
@@ -1952,16 +1564,24 @@ void CHud::RenderPlayerState(const int ClientId)
 		// render available and used jumps
 		int JumpsOffsetY = ((GameClient()->m_GameInfo.m_HudHealthArmor && g_Config.m_ClShowhudHealthAmmo ? 24 : 0) +
 				    (GameClient()->m_GameInfo.m_HudAmmo && g_Config.m_ClShowhudHealthAmmo ? 12 : 0));
-		Graphics()->TextureSet(GameClient()->m_HudSkin.m_SpriteHudAirjump);
-		Graphics()->RenderQuadContainerEx(m_HudQuadContainerIndex, m_AirjumpOffset, AvailableJumpsToDisplay, OffsetX, JumpsOffsetY + OffsetY);
-		Graphics()->TextureSet(GameClient()->m_HudSkin.m_SpriteHudAirjumpEmpty);
-		Graphics()->RenderQuadContainerEx(m_HudQuadContainerIndex, m_AirjumpEmptyOffset + AvailableJumpsToDisplay, TotalJumpsToDisplay - AvailableJumpsToDisplay, OffsetX, JumpsOffsetY + OffsetY);
-		MaxX = std::max(MaxX, BaseX + TotalJumpsToDisplay * 12.0f);
-		MaxY = std::max(MaxY, BaseY + 36.0f + JumpsOffsetY);
+		if(JumpsOffsetY > 0)
+		{
+			Graphics()->TextureSet(GameClient()->m_HudSkin.m_SpriteHudAirjump);
+			Graphics()->RenderQuadContainerEx(m_HudQuadContainerIndex, m_AirjumpOffset, AvailableJumpsToDisplay, 0, JumpsOffsetY);
+			Graphics()->TextureSet(GameClient()->m_HudSkin.m_SpriteHudAirjumpEmpty);
+			Graphics()->RenderQuadContainerEx(m_HudQuadContainerIndex, m_AirjumpEmptyOffset + AvailableJumpsToDisplay, TotalJumpsToDisplay - AvailableJumpsToDisplay, 0, JumpsOffsetY);
+		}
+		else
+		{
+			Graphics()->TextureSet(GameClient()->m_HudSkin.m_SpriteHudAirjump);
+			Graphics()->RenderQuadContainer(m_HudQuadContainerIndex, m_AirjumpOffset, AvailableJumpsToDisplay);
+			Graphics()->TextureSet(GameClient()->m_HudSkin.m_SpriteHudAirjumpEmpty);
+			Graphics()->RenderQuadContainer(m_HudQuadContainerIndex, m_AirjumpEmptyOffset + AvailableJumpsToDisplay, TotalJumpsToDisplay - AvailableJumpsToDisplay);
+		}
 	}
 
-	float x = BaseX + 12.0f;
-	float y = (BaseY + 12.0f + (GameClient()->m_GameInfo.m_HudHealthArmor && g_Config.m_ClShowhudHealthAmmo ? 24 : 0) +
+	float x = 5 + 12;
+	float y = (5 + 12 + (GameClient()->m_GameInfo.m_HudHealthArmor && g_Config.m_ClShowhudHealthAmmo ? 24 : 0) +
 		   (GameClient()->m_GameInfo.m_HudAmmo && g_Config.m_ClShowhudHealthAmmo ? 12 : 0));
 
 	// render weapons
@@ -1996,12 +1616,10 @@ void CHud::RenderPlayerState(const int ClientId)
 				RenderNinjaBarPos(x, y - 12, 6.f, 24.f, NinjaProgress);
 			}
 		}
-		MaxX = std::max(MaxX, x);
-		MaxY = std::max(MaxY, y + 12.0f);
 	}
 
 	// render capabilities
-	x = BaseX;
+	x = 5;
 	y += 12;
 	if(TotalJumpsToDisplay > 0)
 	{
@@ -2049,11 +1667,9 @@ void CHud::RenderPlayerState(const int ClientId)
 		Graphics()->TextureSet(GameClient()->m_HudSkin.m_SpriteHudTeleportLaser);
 		Graphics()->RenderQuadContainerAsSprite(m_HudQuadContainerIndex, m_TeleportLaserOffset, x, y);
 	}
-	MaxX = std::max(MaxX, x + 12.0f);
-	MaxY = std::max(MaxY, y + 12.0f);
 
 	// render prohibited capabilities
-	x = BaseX;
+	x = 5;
 	if(HasCapabilities)
 	{
 		y += 12;
@@ -2114,11 +1730,9 @@ void CHud::RenderPlayerState(const int ClientId)
 		Graphics()->TextureSet(GameClient()->m_HudSkin.m_SpriteHudLaserHitDisabled);
 		Graphics()->RenderQuadContainerAsSprite(m_HudQuadContainerIndex, m_LaserHitDisabledOffset, x, y);
 	}
-	MaxX = std::max(MaxX, x + 12.0f);
-	MaxY = std::max(MaxY, y + 12.0f);
 
 	// render dummy actions and freeze state
-	x = BaseX;
+	x = 5;
 	if(HasProhibitedCapabilities)
 	{
 		y += 12;
@@ -2152,10 +1766,6 @@ void CHud::RenderPlayerState(const int ClientId)
 		Graphics()->TextureSet(GameClient()->m_HudSkin.m_SpriteHudLiveFrozen);
 		Graphics()->RenderQuadContainerAsSprite(m_HudQuadContainerIndex, m_LiveFrozenOffset, x, y);
 	}
-	MaxX = std::max(MaxX, x + 12.0f);
-	MaxY = std::max(MaxY, y + 12.0f);
-	m_PlayerStateBounds = HudLayout::ClampRectToScreen({BaseX, BaseY, std::max(12.0f, MaxX - BaseX) * ModuleScale, std::max(12.0f, MaxY - BaseY) * ModuleScale, 0.0f}, m_Width, m_Height);
-	Graphics()->MapScreen(0.0f, 0.0f, m_Width, m_Height);
 }
 
 void CHud::RenderNinjaBarPos(const float x, float y, const float Width, const float Height, float Progress, const float Alpha)
@@ -2375,6 +1985,7 @@ void CHud::RenderSpectatorCount()
 	{
 		StartY = StartY - 29.0f - 4; // dummy actions height and padding
 	}
+
 	Graphics()->DrawRect(StartX, StartY, BoxWidth, BoxHeight, ColorRGBA(0.0f, 0.0f, 0.0f, 0.4f), IGraphics::CORNER_L, 5.0f);
 
 	float y = StartY + BoxHeight / 3;
@@ -2388,44 +1999,46 @@ void CHud::RenderSpectatorCount()
 
 void CHud::RenderDummyActions()
 {
-	m_DummyActionsBounds = {};
-	if(!HudLayout::IsEnabled(HudLayout::MODULE_DUMMY_ACTIONS))
-		return;
-	if((GameClient()->m_Snap.m_pGameInfoObj->m_GameStateFlags & GAMESTATEFLAG_GAMEOVER) || !Client()->DummyConnected())
+	if(!g_Config.m_ClShowhudDummyActions || (GameClient()->m_Snap.m_pGameInfoObj->m_GameStateFlags & GAMESTATEFLAG_GAMEOVER) || !Client()->DummyConnected())
 	{
 		return;
 	}
 	// render small dummy actions hud
-	const auto Layout = HudLayout::Get(HudLayout::MODULE_DUMMY_ACTIONS, m_Width, m_Height);
-	const float Scale = std::clamp(Layout.m_Scale / 100.0f, 0.25f, 3.0f);
-	const float BoxHeight = 29.0f * Scale;
-	const float BoxWidth = 16.0f * Scale;
+	const float BoxHeight = 29.0f;
+	const float BoxWidth = 16.0f;
 
-	const float StartX = Layout.m_X;
-	const float StartY = Layout.m_Y;
+	float StartX = m_Width - BoxWidth;
+	float StartY = 285.0f - BoxHeight - 4; // 4 units distance to the next display;
+	if(g_Config.m_ClShowhudPlayerPosition || g_Config.m_ClShowhudPlayerSpeed || g_Config.m_ClShowhudPlayerAngle)
+	{
+		StartY -= 4;
+	}
+	StartY -= GetMovementInformationBoxHeight();
 
-	m_DummyActionsBounds = HudLayout::ClampRectToScreen({StartX, StartY, BoxWidth, BoxHeight, 5.0f * Scale}, m_Width, m_Height);
-	const float DrawX = m_DummyActionsBounds.m_X;
-	const float DrawY = m_DummyActionsBounds.m_Y;
-	Graphics()->DrawRect(DrawX, DrawY, BoxWidth, BoxHeight, ColorRGBA(0.0f, 0.0f, 0.0f, 0.4f), IGraphics::CORNER_L, 5.0f * Scale);
+	if(g_Config.m_ClShowhudScore)
+	{
+		StartY -= 56;
+	}
 
-	float y = DrawY + 2.0f * Scale;
-	float x = DrawX + 2.0f * Scale;
+	Graphics()->DrawRect(StartX, StartY, BoxWidth, BoxHeight, ColorRGBA(0.0f, 0.0f, 0.0f, 0.4f), IGraphics::CORNER_L, 5.0f);
+
+	float y = StartY + 2;
+	float x = StartX + 2;
 	Graphics()->SetColor(1.0f, 1.0f, 1.0f, 0.4f);
 	if(g_Config.m_ClDummyHammer)
 	{
 		Graphics()->SetColor(1.0f, 1.0f, 1.0f, 1.0f);
 	}
 	Graphics()->TextureSet(GameClient()->m_HudSkin.m_SpriteHudDummyHammer);
-	Graphics()->RenderQuadContainerAsSprite(m_HudQuadContainerIndex, m_DummyHammerOffset, x, y, Scale, Scale);
-	y += 13.0f * Scale;
+	Graphics()->RenderQuadContainerAsSprite(m_HudQuadContainerIndex, m_DummyHammerOffset, x, y);
+	y += 13;
 	Graphics()->SetColor(1.0f, 1.0f, 1.0f, 0.4f);
 	if(g_Config.m_ClDummyCopyMoves)
 	{
 		Graphics()->SetColor(1.0f, 1.0f, 1.0f, 1.0f);
 	}
 	Graphics()->TextureSet(GameClient()->m_HudSkin.m_SpriteHudDummyCopy);
-	Graphics()->RenderQuadContainerAsSprite(m_HudQuadContainerIndex, m_DummyCopyOffset, x, y, Scale, Scale);
+	Graphics()->RenderQuadContainerAsSprite(m_HudQuadContainerIndex, m_DummyCopyOffset, x, y);
 }
 
 inline int CHud::GetDigitsIndex(int Value, int Max)
@@ -2734,8 +2347,9 @@ void CHud::RenderSpectatorHud()
 	if(!g_Config.m_ClShowhudSpectator)
 		return;
 
-	// TClient
-	float AdjustedHeight = m_Height - (g_Config.m_TcStatusBar ? g_Config.m_TcStatusBarHeight : 0.0f);
+	// TClient: leave room for the optional status bar.
+	const float AdjustedHeight = m_Height - (g_Config.m_TcStatusBar ? g_Config.m_TcStatusBarHeight : 0.0f);
+
 	// draw the box
 	Graphics()->DrawRect(m_Width - 180.0f, AdjustedHeight - 15.0f, 180.0f, 15.0f, ColorRGBA(0.0f, 0.0f, 0.0f, 0.4f), IGraphics::CORNER_TL, 5.0f);
 
@@ -2779,27 +2393,6 @@ void CHud::RenderSpectatorHud()
 		TextRender()->Text(TagX + Padding + IconWidth + Padding, m_Height - 10.0f, 6.0f, pLabelText, -1.0f);
 		TextRender()->TextColor(1, 1, 1, 1);
 	}
-}
-
-HudLayout::SModuleRect CHud::GetLocalTimeBounds() const
-{
-	const bool Seconds = g_Config.m_TcShowLocalTimeSeconds; // TClient
-	char aTimeStr[16];
-	str_timestamp_format(aTimeStr, sizeof(aTimeStr), Seconds ? "%H:%M.%S" : "%H:%M");
-	const float TextWidth = std::round(TextRender()->TextBoundingBox(5.0f, aTimeStr).m_W);
-	const auto Layout = HudLayout::Get(HudLayout::MODULE_LOCAL_TIME, m_Width, m_Height);
-	const float Scale = std::clamp(Layout.m_Scale / 100.0f, 0.25f, 3.0f);
-	const float Width = (TextWidth + 10.0f) * Scale;
-	const float Height = 12.5f * Scale;
-
-	// The old renderer was right-anchored at 3/7 of the HUD width. Preserve
-	// that natural default, while every editor drag uses the same top-left
-	// position semantics as Key Indicator and the other regular HUD modules.
-	const float X = HudLayout::HasPositionOverride(HudLayout::MODULE_LOCAL_TIME) ?
-		Layout.m_X :
-		(m_Width / 7.0f) * 3.0f - (TextWidth + 15.0f) * Scale;
-	const float Y = HudLayout::HasPositionOverride(HudLayout::MODULE_LOCAL_TIME) ? Layout.m_Y : 0.0f;
-	return HudLayout::ClampRectToScreen({X, Y, Width, Height, 3.75f * Scale}, m_Width, m_Height);
 }
 
 void CHud::RenderLocalTime(float x)
@@ -2887,7 +2480,7 @@ void CHud::OnRender()
 
 	m_Width = 300.0f * Graphics()->ScreenAspect();
 	m_Height = 300.0f;
-	Graphics()->MapScreen(0.0f, 0.0f, m_Width, m_Height);
+	Graphics()->MapScreenToSize(m_Width, m_Height);
 
 #if defined(CONF_VIDEORECORDER)
 	if((IVideo::Current() && g_Config.m_ClVideoShowhud) || (!IVideo::Current() && g_Config.m_ClShowhud))
@@ -3148,5 +2741,400 @@ void CHud::RenderRecord()
 			str_format(aBuf, sizeof(aBuf), "%s%s", PlayerRecord > 3600 ? "" : "   ", aTime);
 			TextRender()->Text(53, 82, 6, aBuf, -1.0f);
 		}
+	}
+}
+
+void CHud::OnConsoleInit()
+{
+	HudLayout::OnConsoleInit(Console(), ConfigManager());
+}
+
+HudLayout::SModuleRect CHud::GetAmfKeyIndicatorBounds() const
+{
+	const auto Layout = HudLayout::Get(HudLayout::MODULE_KEYSTROKES_KEYBOARD, m_Width, m_Height);
+	const float Scale = Layout.m_Scale / 100.0f;
+	const float KeySize = 21.0f * Scale;
+	const float Gap = 1.12f * Scale;
+	const float Width = 3.0f * KeySize + 2.0f * Gap;
+	const float KeyHeight = 4.0f * KeySize + 3.0f * Gap;
+	// CPS is rendered inside the existing LMB/RMB cells in both font modes, so
+	// it has no effect on the authoritative editor/drag bounds.
+	const float Height = KeyHeight;
+	return HudLayout::ClampRectToScreen({
+		Layout.m_X,
+		Layout.m_Y,
+		Width,
+		Height,
+		0.0f},
+		m_Width, m_Height);
+}
+
+bool CHud::GetGameTimerSeconds(int &Seconds) const
+{
+	const CNetObj_GameInfo *pGameInfo = GameClient()->m_Snap.m_pGameInfoObj;
+	if(pGameInfo == nullptr || (pGameInfo->m_GameStateFlags & GAMESTATEFLAG_SUDDENDEATH))
+	{
+		Seconds = 0;
+		return false;
+	}
+
+	int Time;
+	if(pGameInfo->m_TimeLimit && pGameInfo->m_WarmupTimer <= 0)
+	{
+		Time = pGameInfo->m_TimeLimit * 60 - ((Client()->GameTick(g_Config.m_ClDummy) - pGameInfo->m_RoundStartTick) / Client()->GameTickSpeed());
+		if(pGameInfo->m_GameStateFlags & GAMESTATEFLAG_GAMEOVER)
+			Time = 0;
+	}
+	else if(pGameInfo->m_GameStateFlags & GAMESTATEFLAG_RACETIME)
+	{
+		// The warmup timer is negative in race mode, matching DDNet's HUD.
+		Time = (Client()->GameTick(g_Config.m_ClDummy) + pGameInfo->m_WarmupTimer) / Client()->GameTickSpeed();
+	}
+	else
+	{
+		Time = (Client()->GameTick(g_Config.m_ClDummy) - pGameInfo->m_RoundStartTick) / Client()->GameTickSpeed();
+	}
+	Seconds = Time;
+	return true;
+}
+
+HudLayout::SModuleRect CHud::GetAmfMouseIndicatorBounds() const
+{
+	const auto Layout = HudLayout::Get(HudLayout::MODULE_KEYSTROKES_MOUSE, m_Width, m_Height);
+	const auto &Preset = GetAmfMouseIndicatorPreset(g_Config.m_AmfMouseIndicatorPreset);
+	const float Scale = GetAmfMouseIndicatorScale(Layout);
+	return HudLayout::ClampRectToScreen({
+		Layout.m_X,
+		Layout.m_Y,
+		Preset.m_OverlayWidth * Scale,
+		Preset.m_OverlayHeight * Scale,
+		0.0f},
+		m_Width, m_Height);
+}
+
+HudLayout::SModuleRect CHud::GetLocalTimeBounds() const
+{
+	const bool Seconds = g_Config.m_TcShowLocalTimeSeconds; // TClient
+	char aTimeStr[16];
+	str_timestamp_format(aTimeStr, sizeof(aTimeStr), Seconds ? "%H:%M.%S" : "%H:%M");
+	const float TextWidth = std::round(TextRender()->TextBoundingBox(5.0f, aTimeStr).m_W);
+	const auto Layout = HudLayout::Get(HudLayout::MODULE_LOCAL_TIME, m_Width, m_Height);
+	const float Scale = std::clamp(Layout.m_Scale / 100.0f, 0.25f, 3.0f);
+	const float Width = (TextWidth + 10.0f) * Scale;
+	const float Height = 12.5f * Scale;
+
+	// The old renderer was right-anchored at 3/7 of the HUD width. Preserve
+	// that natural default, while every editor drag uses the same top-left
+	// position semantics as Key Indicator and the other regular HUD modules.
+	const float X = HudLayout::HasPositionOverride(HudLayout::MODULE_LOCAL_TIME) ?
+		Layout.m_X :
+		(m_Width / 7.0f) * 3.0f - (TextWidth + 15.0f) * Scale;
+	const float Y = HudLayout::HasPositionOverride(HudLayout::MODULE_LOCAL_TIME) ? Layout.m_Y : 0.0f;
+	return HudLayout::ClampRectToScreen({X, Y, Width, Height, 3.75f * Scale}, m_Width, m_Height);
+}
+
+void CHud::RenderAmfKeyIndicator()
+{
+	const auto Layout = HudLayout::Get(HudLayout::MODULE_KEYSTROKES_KEYBOARD, m_Width, m_Height);
+	const bool VisibleTarget = HudLayout::IsEnabled(HudLayout::MODULE_KEYSTROKES_KEYBOARD);
+	if(g_Config.m_AmfSmoothHud)
+	{
+		// Keep the existing Smooth HUD easing, but cap one visual step so a long
+		// frame while toggling the option cannot skip the show/hide transition.
+		const float Duration = std::max(g_Config.m_AmfAnimDuration, 60) / 1000.0f;
+		m_AmfKeyIndicatorVisibility = SmoothApproach(
+			m_AmfKeyIndicatorVisibility,
+			VisibleTarget ? 1.0f : 0.0f,
+			std::min(Client()->RenderFrameTime(), 0.035f),
+			4.6f / Duration);
+	}
+	else
+		m_AmfKeyIndicatorVisibility = VisibleTarget ? 1.0f : 0.0f;
+	if(m_AmfKeyIndicatorVisibility < 0.002f)
+		m_AmfKeyIndicatorVisibility = 0.0f;
+	else if(m_AmfKeyIndicatorVisibility > 0.998f)
+		m_AmfKeyIndicatorVisibility = 1.0f;
+	if(m_AmfKeyIndicatorVisibility <= 0.0f)
+		return;
+
+	// The indicator only reads physical input for its visual state. It never
+	// feeds input back into gameplay, prediction or client commands.
+	const float Scale = Layout.m_Scale / 100.0f;
+	const float Opacity = g_Config.m_AmfKeyIndicatorOpacity / 100.0f * m_AmfKeyIndicatorVisibility;
+	const int HudStyle = HudLayout::GetStyle(HudLayout::MODULE_KEYSTROKES_KEYBOARD);
+	const int KeyIndicatorStyle = std::clamp(g_Config.m_AmfKeyIndicatorStyle, AMF_KEY_INDICATOR_STYLE_DEFAULT, AMF_KEY_INDICATOR_STYLE_MINECRAFT);
+	const bool MinecraftStyle = KeyIndicatorStyle == AMF_KEY_INDICATOR_STYLE_MINECRAFT;
+	const bool ShowCps = g_Config.m_AmfKeyIndicatorShowCps != 0;
+	const float KeySize = 21.0f * Scale;
+	const float Gap = 1.12f * Scale;
+	const float Width = 3.0f * KeySize + 2.0f * Gap;
+	const HudLayout::SModuleRect Bounds = GetAmfKeyIndicatorBounds();
+	const float X = Bounds.m_X;
+	const float Y = Bounds.m_Y;
+
+	if(ShowCps)
+	{
+		const int64_t Now = time_get();
+		const bool aMousePressed[] = {Input()->KeyIsPressed(KEY_MOUSE_1), Input()->KeyIsPressed(KEY_MOUSE_2)};
+		for(int MouseButton = 0; MouseButton < 2; MouseButton++)
+		{
+			if(aMousePressed[MouseButton] && !m_aAmfKeyIndicatorMousePressed[MouseButton])
+			{
+				const int HistorySize = sizeof(m_aaAmfKeyIndicatorClickTimes[MouseButton]) / sizeof(m_aaAmfKeyIndicatorClickTimes[MouseButton][0]);
+				m_aaAmfKeyIndicatorClickTimes[MouseButton][m_aAmfKeyIndicatorClickTimeOffsets[MouseButton]] = Now;
+				m_aAmfKeyIndicatorClickTimeOffsets[MouseButton] = (m_aAmfKeyIndicatorClickTimeOffsets[MouseButton] + 1) % HistorySize;
+			}
+			m_aAmfKeyIndicatorMousePressed[MouseButton] = aMousePressed[MouseButton];
+
+			m_aAmfKeyIndicatorCps[MouseButton] = 0;
+			for(const int64_t ClickTime : m_aaAmfKeyIndicatorClickTimes[MouseButton])
+			{
+				if(ClickTime != 0 && Now - ClickTime <= time_freq())
+					m_aAmfKeyIndicatorCps[MouseButton]++;
+			}
+		}
+	}
+
+	char aMouseCps[2][24] = {};
+	if(ShowCps)
+	{
+		str_format(aMouseCps[0], sizeof(aMouseCps[0]), "%d CPS", m_aAmfKeyIndicatorCps[0]);
+		str_format(aMouseCps[1], sizeof(aMouseCps[1]), "%d CPS", m_aAmfKeyIndicatorCps[1]);
+	}
+
+	const SAmfKeyIndicatorKey aKeys[] = {
+		{KEY_W, "W", KeySize + Gap, 0.0f, KeySize},
+		{KEY_A, "A", 0.0f, KeySize + Gap, KeySize},
+		{KEY_S, "S", KeySize + Gap, KeySize + Gap, KeySize},
+		{KEY_D, "D", 2.0f * (KeySize + Gap), KeySize + Gap, KeySize},
+		{KEY_MOUSE_1, "LMB", 0.0f, 2.0f * (KeySize + Gap), (Width - Gap) * 0.5f},
+		{KEY_MOUSE_2, "RMB", (Width + Gap) * 0.5f, 2.0f * (KeySize + Gap), (Width - Gap) * 0.5f},
+		{KEY_SPACE, "", 0.0f, 3.0f * (KeySize + Gap), Width},
+	};
+	auto RenderKeys = [&]() {
+		for(const auto &Key : aKeys)
+		{
+			const char *pCpsText = nullptr;
+			if(ShowCps && Key.m_Key == KEY_MOUSE_1)
+				pCpsText = aMouseCps[0];
+			else if(ShowCps && Key.m_Key == KEY_MOUSE_2)
+				pCpsText = aMouseCps[1];
+			DrawAmfKeyIndicatorKey(Graphics(), TextRender(), X + Key.m_X, Y + Key.m_Y, Key.m_W, KeySize, Input()->KeyIsPressed(Key.m_Key), Opacity, Key.m_pLabel, HudStyle, pCpsText);
+		}
+	};
+
+	if(MinecraftStyle)
+	{
+		// The style selection affects only the existing renderer's font face;
+		// positions, backgrounds, key geometry and HUD editor bounds stay shared.
+		CScopedAmfMinecraftFont MinecraftFont(TextRender());
+		RenderKeys();
+	}
+	else
+		RenderKeys();
+}
+
+int CHud::GetAmfMouseIndicatorTrackedClientId() const
+{
+	if(Client()->State() == IClient::STATE_DEMOPLAYBACK)
+	{
+		if(!GameClient()->m_Snap.m_SpecInfo.m_Active &&
+			in_range(GameClient()->m_Snap.m_LocalClientId, 0, MAX_CLIENTS - 1) &&
+			GameClient()->m_Snap.m_aCharacters[GameClient()->m_Snap.m_LocalClientId].m_Active)
+
+			return GameClient()->m_Snap.m_LocalClientId;
+		if(GameClient()->m_DemoSpecId > SPEC_FREEVIEW && GameClient()->m_DemoSpecId < MAX_CLIENTS)
+			return GameClient()->m_DemoSpecId;
+	}
+
+	if(!GameClient()->m_Snap.m_SpecInfo.m_Active)
+		return -1;
+	const int SpectatorId = GameClient()->m_Snap.m_SpecInfo.m_SpectatorId;
+	if(SpectatorId <= SPEC_FREEVIEW || SpectatorId >= MAX_CLIENTS)
+		return -1;
+	return SpectatorId;
+}
+
+const CNetObj_PlayerInput *CHud::GetAmfMouseIndicatorTrackedInput() const
+{
+	const int SpectatorId = GetAmfMouseIndicatorTrackedClientId();
+	if(SpectatorId < 0)
+		return nullptr;
+	if(CCharacter *pCharacter = GameClient()->m_GameWorld.GetCharacterById(SpectatorId))
+		return pCharacter->LatestInput();
+	return nullptr;
+}
+
+bool CHud::GetAmfMouseIndicatorTrackedAim(int TrackedClientId, float Intra, vec2 &OutAim) const
+{
+	if(!in_range(TrackedClientId, 0, MAX_CLIENTS - 1))
+		return false;
+
+	const auto &Character = GameClient()->m_Snap.m_aCharacters[TrackedClientId];
+	if(!Character.m_Active)
+		return false;
+
+	if(Character.m_HasExtendedDisplayInfo)
+	{
+		const CNetObj_DDNetCharacter *pExtendedData = &Character.m_ExtendedData;
+		const CNetObj_DDNetCharacter *pPrevExtendedData = Character.m_pPrevExtendedData;
+		if(pPrevExtendedData != nullptr)
+		{
+			OutAim = vec2(
+				mix((float)pPrevExtendedData->m_TargetX, (float)pExtendedData->m_TargetX, Intra),
+				mix((float)pPrevExtendedData->m_TargetY, (float)pExtendedData->m_TargetY, Intra));
+		}
+		else
+		{
+			OutAim = vec2((float)pExtendedData->m_TargetX, (float)pExtendedData->m_TargetY);
+		}
+		return length(OutAim) > 0.001f;
+	}
+
+	float Angle = 0.0f;
+	if(Character.m_Cur.m_Angle > (256.0f * pi) && Character.m_Prev.m_Angle < 0)
+		Angle = mix((float)Character.m_Prev.m_Angle, (float)(Character.m_Cur.m_Angle - 256.0f * 2 * pi), Intra) / 256.0f;
+	else if(Character.m_Cur.m_Angle < 0 && Character.m_Prev.m_Angle > (256.0f * pi))
+		Angle = mix((float)Character.m_Prev.m_Angle, (float)(Character.m_Cur.m_Angle + 256.0f * 2 * pi), Intra) / 256.0f;
+	else
+		Angle = mix((float)Character.m_Prev.m_Angle, (float)Character.m_Cur.m_Angle, Intra) / 256.0f;
+	OutAim = direction(Angle) * 256.0f;
+	return true;
+}
+
+void CHud::RenderAmfMouseIndicator()
+{
+	if(!HudLayout::IsEnabled(HudLayout::MODULE_KEYSTROKES_MOUSE))
+		return;
+	const bool WhitePressed = std::clamp(g_Config.m_AmfMouseIndicatorPressedColor, 0, 1) == 1;
+	const IGraphics::CTextureHandle &MouseTexture = WhitePressed && m_AmfMouseIndicatorWhiteTexture.IsValid() && !m_AmfMouseIndicatorWhiteTexture.IsNullTexture() ?
+		m_AmfMouseIndicatorWhiteTexture : m_AmfMouseIndicatorTexture;
+	if(!MouseTexture.IsValid() || MouseTexture.IsNullTexture())
+		return;
+
+	const auto Layout = HudLayout::Get(HudLayout::MODULE_KEYSTROKES_MOUSE, m_Width, m_Height);
+	const int MousePreset = std::clamp(g_Config.m_AmfMouseIndicatorPreset, 1, 3);
+	const auto &Preset = GetAmfMouseIndicatorPreset(MousePreset);
+	const float Scale = GetAmfMouseIndicatorScale(Layout);
+	const int64_t Now = time_get();
+	const int64_t HighlightDuration = time_freq() * AMF_MOUSE_INDICATOR_HIGHLIGHT_MS / 1000;
+	const int TrackedClientId = GetAmfMouseIndicatorTrackedClientId();
+	const bool HasTrackedPlayer = TrackedClientId >= 0;
+	const CNetObj_PlayerInput *pTrackedInput = GetAmfMouseIndicatorTrackedInput();
+	const CNetObj_Character *pTrackedCharacter = HasTrackedPlayer && GameClient()->m_Snap.m_aCharacters[TrackedClientId].m_Active ?
+		&GameClient()->m_Snap.m_aCharacters[TrackedClientId].m_Cur : nullptr;
+	const CNetObj_Character *pPrevTrackedCharacter = HasTrackedPlayer && GameClient()->m_Snap.m_aCharacters[TrackedClientId].m_Active ?
+		&GameClient()->m_Snap.m_aCharacters[TrackedClientId].m_Prev : nullptr;
+
+	if(!HasTrackedPlayer && pTrackedInput == nullptr)
+	{
+		if(Input()->KeyPress(KEY_MOUSE_WHEEL_UP))
+			m_AmfMouseIndicatorWheelUpEndTime = Now + HighlightDuration;
+		if(Input()->KeyPress(KEY_MOUSE_WHEEL_DOWN))
+			m_AmfMouseIndicatorWheelDownEndTime = Now + HighlightDuration;
+	}
+	if(HasTrackedPlayer && pTrackedInput == nullptr && pTrackedCharacter != nullptr && pPrevTrackedCharacter != nullptr &&
+		pPrevTrackedCharacter->m_AttackTick != pTrackedCharacter->m_AttackTick)
+	{
+		m_AmfMouseIndicatorMouse1EndTime = Now + HighlightDuration;
+	}
+
+	vec2 AimOffset(0.0f, 0.0f);
+	float AimRotation = 0.0f;
+	bool MouseMoved = false;
+	vec2 Aim(0.0f, 0.0f);
+	if(pTrackedInput != nullptr)
+		Aim = vec2((float)pTrackedInput->m_TargetX, (float)pTrackedInput->m_TargetY);
+	else if(HasTrackedPlayer)
+		GetAmfMouseIndicatorTrackedAim(TrackedClientId, Client()->IntraGameTick(g_Config.m_ClDummy), Aim);
+	else
+		Aim = GameClient()->m_Controls.m_aMousePos[g_Config.m_ClDummy];
+	const float MaxDistance = std::max(GameClient()->m_Controls.GetMaxMouseDistance(), 0.001f);
+	float Length = length(Aim);
+	if(Length > 0.001f)
+	{
+		MouseMoved = true;
+		AimRotation = std::atan2(Aim.y, Aim.x) + pi / 2.0f;
+		Aim /= MaxDistance;
+		Length = length(Aim);
+		if(Length > 1.0f)
+			Aim /= Length;
+		AimOffset = Aim;
+	}
+
+	const HudLayout::SModuleRect Bounds = GetAmfMouseIndicatorBounds();
+	for(int i = 0; i < Preset.m_NumElements; ++i)
+	{
+		const auto &Element = Preset.m_pElements[i];
+		bool Active = false;
+		switch(Element.m_InputKind)
+		{
+		case EAmfMouseIndicatorInputKind::NONE:
+			Active = true;
+			break;
+		case EAmfMouseIndicatorInputKind::MOUSE_BUTTON:
+			Active = HasTrackedPlayer ?
+				(pTrackedInput != nullptr ? IsAmfMouseIndicatorButtonPressed(pTrackedInput, Element.m_MouseButton) :
+					IsAmfMouseIndicatorButtonPressedFromCharacter(pPrevTrackedCharacter, pTrackedCharacter, Element.m_MouseButton, Now, m_AmfMouseIndicatorMouse1EndTime)) :
+				IsAmfMouseIndicatorButtonPressed(Input(), Element.m_MouseButton);
+			break;
+		case EAmfMouseIndicatorInputKind::WHEEL:
+			Active = IsAmfMouseIndicatorWheelActive(Element.m_WheelDir, Now, m_AmfMouseIndicatorWheelUpEndTime, m_AmfMouseIndicatorWheelDownEndTime);
+			break;
+		case EAmfMouseIndicatorInputKind::MOUSE_MOVE:
+			Active = MouseMoved;
+			break;
+		}
+
+		if(Element.m_ActiveOnly && !Active)
+			continue;
+		if(Element.m_InputKind == EAmfMouseIndicatorInputKind::WHEEL && !Active)
+			continue;
+
+		int MapY = Element.m_MapY;
+		if(Active && !Element.m_ActiveOnly && Element.m_InputKind == EAmfMouseIndicatorInputKind::MOUSE_BUTTON)
+		{
+			const int Candidate = MapY + Element.m_MapH + AMF_MOUSE_INDICATOR_PRESSED_TEXTURE_SPACE;
+			if(Candidate + Element.m_MapH <= Preset.m_AtlasHeight)
+				MapY = Candidate;
+		}
+
+		const float X = Bounds.m_X + Element.m_PosX * Scale;
+		const float Y = Bounds.m_Y + Element.m_PosY * Scale;
+		vec2 Offset(0.0f, 0.0f);
+		float Rotation = 0.0f;
+		if(Element.m_InputKind == EAmfMouseIndicatorInputKind::MOUSE_MOVE)
+		{
+			Offset = AimOffset * (Element.m_MouseRadius * Scale);
+			if(Element.m_MouseType == 1)
+				Rotation = AimRotation;
+		}
+		// Dot Dot has a static point in the donor atlas (white) and a moving
+		// point in its active frame (yellow). Treat that static point as part of
+		// the same selected pressed color; all other styles/elements keep the
+		// donor texture and tint unchanged.
+		const bool IsDotDotStaticPoint = MousePreset == 2 &&
+			Element.m_InputKind == EAmfMouseIndicatorInputKind::NONE &&
+			Element.m_MapX == 493 && Element.m_MapY == 245 &&
+			Element.m_MapW == 100 && Element.m_MapH == 100;
+		const ColorRGBA SpriteColor = IsDotDotStaticPoint && !WhitePressed ?
+			ColorRGBA(1.0f, AMF_MOUSE_INDICATOR_YELLOW_GREEN, AMF_MOUSE_INDICATOR_YELLOW_BLUE, 1.0f) :
+			ColorRGBA(1.0f, 1.0f, 1.0f, 1.0f);
+
+		DrawAmfMouseIndicatorSprite(
+			Graphics(),
+			MouseTexture,
+			Preset.m_AtlasWidth,
+			Preset.m_AtlasHeight,
+			Element.m_MapX,
+			MapY,
+			Element.m_MapW,
+			Element.m_MapH,
+			X + Offset.x,
+			Y + Offset.y,
+			Element.m_MapW * Scale,
+			Element.m_MapH * Scale,
+			SpriteColor,
+			Rotation);
 	}
 }

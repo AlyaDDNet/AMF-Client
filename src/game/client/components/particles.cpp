@@ -36,12 +36,14 @@ void CParticles::OnReset()
 	m_aParticles[MAX_PARTICLES - 1].m_NextPart = -1;
 	m_FirstFree = 0;
 
-	for(int &FirstPart : m_aFirstPart)
-		FirstPart = -1;
+	std::fill(std::begin(m_aFirstPart), std::end(m_aFirstPart), -1);
 }
 
 void CParticles::Add(int Group, CParticle *pPart, float TimePassed)
 {
+	if(GameClient()->OptimizerDisableParticles())
+		return;
+
 	if(GameClient()->IsWorldPaused() || GameClient()->IsDemoPlaybackPaused())
 	{
 		return;
@@ -145,6 +147,11 @@ void CParticles::OnRender()
 
 	set_new_tick();
 	const int64_t Now = time();
+	if(GameClient()->OptimizerDisableParticles())
+	{
+		m_LastRenderTime = Now;
+		return;
+	}
 	Update((float)((Now - m_LastRenderTime) / (double)time_freq()) * GameClient()->GetAnimationPlaybackSpeed());
 	m_LastRenderTime = Now;
 }
@@ -174,10 +181,9 @@ void CParticles::OnInit()
 	Graphics()->QuadContainerUpload(m_ExtraParticleQuadContainerIndex);
 }
 
-bool CParticles::ParticleIsVisibleOnScreen(const vec2 &CurPos, float CurSize)
+bool CParticles::ParticleIsVisibleOnScreen(const vec2 &CurPos, float CurSize) const
 {
-	float ScreenX0, ScreenY0, ScreenX1, ScreenY1;
-	Graphics()->GetScreen(&ScreenX0, &ScreenY0, &ScreenX1, &ScreenY1);
+	CScreenRect ScreenRect = Graphics()->GetScreen();
 
 	// for simplicity assume the worst case rotation, that increases the bounding box around the particle by its diagonal
 	const float SqrtOf2 = std::sqrt(2);
@@ -185,16 +191,16 @@ bool CParticles::ParticleIsVisibleOnScreen(const vec2 &CurPos, float CurSize)
 
 	// always uses the mid of the particle
 	float SizeHalf = CurSize / 2;
-	ScreenX0 -= SizeHalf;
-	ScreenY0 -= SizeHalf;
-	ScreenX1 += SizeHalf;
-	ScreenY1 += SizeHalf;
+	ScreenRect.Expand(SizeHalf);
 
-	return in_range(CurPos.x, ScreenX0, ScreenX1) && in_range(CurPos.y, ScreenY0, ScreenY1);
+	return ScreenRect.Inside(CurPos);
 }
 
 void CParticles::RenderGroup(int Group)
 {
+	if(GameClient()->OptimizerDisableParticles())
+		return;
+
 	IGraphics::CTextureHandle *aParticles = GameClient()->m_ParticlesSkin.m_aSpriteParticles;
 	int FirstParticleOffset = SPRITE_PART_SLICE;
 	int ParticleQuadContainerIndex = m_ParticleQuadContainerIndex;

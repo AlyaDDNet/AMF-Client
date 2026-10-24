@@ -146,13 +146,13 @@ public:
 	void ScrollRelative(EScrollRelative Direction, float SpeedMultiplier = 1.0f);
 	void ScrollRelativeDirect(vec2 ScrollAmount);
 	void ScrollToDirect(float ScrollPosition);
+	float ScrollPosition() const { return m_ScrollPos; }
 	void DoEdgeScrolling();
 	bool RectClipped(const CUIRect &Rect) const;
 	bool ContentOverflows() const;
 	bool ScrollbarShown() const;
 	bool Animating() const;
 	bool Active() const;
-	float ScrollPosition() const { return m_ScrollPos; }
 
 private:
 	float ContentAreaPos() const;

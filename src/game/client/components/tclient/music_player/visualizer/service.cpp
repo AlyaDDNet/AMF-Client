@@ -15,17 +15,29 @@ namespace BestClientVisualizer
 
 CRealtimeMusicVisualizer::CRealtimeMusicVisualizer()
 {
-#if defined(CONF_PLATFORM_LINUX) && defined(BC_MUSICPLAYER_HAS_PULSE) && BC_MUSICPLAYER_HAS_PULSE
-	m_pSource = CreatePulseVisualizerSource();
-#elif defined(CONF_FAMILY_WINDOWS)
-	m_pSource = CreateWasapiVisualizerSource();
-#else
-	m_pSource = CreatePassiveVisualizerSource();
-#endif
 	RefreshConfig();
 }
 
 CRealtimeMusicVisualizer::~CRealtimeMusicVisualizer() = default;
+
+bool CRealtimeMusicVisualizer::SetEnabled(bool Enabled)
+{
+	const bool WasEnabled = m_Source.IsEnabled();
+	if(Enabled == WasEnabled)
+		return WasEnabled;
+
+	const bool IsEnabled = m_Source.SetEnabled(Enabled, []() -> std::unique_ptr<IVisualizerSource> {
+#if defined(CONF_PLATFORM_LINUX) && defined(BC_MUSICPLAYER_HAS_PULSE) && BC_MUSICPLAYER_HAS_PULSE
+		return CreatePulseVisualizerSource();
+#elif defined(CONF_FAMILY_WINDOWS)
+		return CreateWasapiVisualizerSource();
+#else
+		return CreatePassiveVisualizerSource();
+#endif
+	});
+	RefreshConfig();
+	return IsEnabled;
+}
 
 void CRealtimeMusicVisualizer::RefreshConfig()
 {
@@ -39,26 +51,27 @@ void CRealtimeMusicVisualizer::RefreshConfig()
 	Config.m_Sensitivity = 1.0f;
 	m_Config = Config;
 	m_ConfigInitialized = true;
-	if(m_pSource)
-		m_pSource->SetConfig(m_Config);
+	if(IVisualizerSource *pSource = m_Source.Get())
+		pSource->SetConfig(m_Config);
 }
 
 void CRealtimeMusicVisualizer::SetPlaybackHint(const SVisualizerPlaybackHint &Hint)
 {
 	RefreshConfig();
-	if(m_pSource)
-		m_pSource->SetPlaybackHint(Hint);
+	if(IVisualizerSource *pSource = m_Source.Get())
+		pSource->SetPlaybackHint(Hint);
 }
 
 bool CRealtimeMusicVisualizer::PollFrame(SVisualizerFrame &OutFrame)
 {
 	RefreshConfig();
-	if(!m_pSource)
+	IVisualizerSource *pSource = m_Source.Get();
+	if(!pSource)
 	{
 		OutFrame = SVisualizerFrame();
 		return false;
 	}
-	return m_pSource->PollFrame(OutFrame);
+	return pSource->PollFrame(OutFrame);
 }
 
 } // namespace BestClientVisualizer

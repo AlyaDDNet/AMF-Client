@@ -6,6 +6,7 @@
 #include <game/client/animstate.h>
 #include <game/client/gameclient.h>
 #include <game/client/render.h>
+#include <game/localization.h>
 
 void CWarList::OnNewSnapshot()
 {
@@ -149,7 +150,7 @@ void CWarList::AddWarEntryInGame(int WarType, const char *pName, const char *pRe
 				else
 				{
 					char aBuf[128];
-					str_format(aBuf, sizeof(aBuf), "No clan found for user \"%s\"", pName);
+					str_format(aBuf, sizeof(aBuf), TCLocalize("No clan found for user \"%s\"", "warlist"), pName);
 					GameClient()->Echo(aBuf);
 					break;
 				}
@@ -193,7 +194,7 @@ void CWarList::RemoveWarEntryInGame(int WarType, const char *pName, bool IsClan)
 				else
 				{
 					char aBuf[128];
-					str_format(aBuf, sizeof(aBuf), "No clan found for user \"%s\"", pName);
+					str_format(aBuf, sizeof(aBuf), TCLocalize("No clan found for user \"%s\"", "warlist"), pName);
 					GameClient()->Echo(aBuf);
 					break;
 				}

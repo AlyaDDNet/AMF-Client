@@ -23,11 +23,20 @@
 #include <game/client/components/countryflags.h>
 #include <game/client/components/menu_background.h>
 #include <game/client/components/menus.h>
+#include <game/client/components/tclient/amf_features/run_statistics_badge.h>
+#include <game/client/components/tclient/amf_features/settings_policy.h>
+#include <game/client/components/tclient/amf_settings_search.h>
 #include <game/client/components/skins.h>
 #include <game/client/components/sounds.h>
 #include <game/client/components/tclient/bindchat.h>
 #include <game/client/components/tclient/bindwheel.h>
 #include <game/client/components/tclient/amf_gradient.h>
+#include <game/client/components/tclient/amf_settings_tab_policy.h>
+#include <game/client/components/tclient/amf_features/ui_theme/style.h>
+#include <game/client/components/tclient/impact/impact_view.h>
+#include <game/client/components/tclient/impact/impact_rating_presentation.h>
+#include <game/client/components/tclient/profile_assets.h>
+#include <game/client/components/tclient/translate.h>
 #include <game/client/components/tclient/trails.h>
 #include <game/client/gameclient.h>
 #include <game/client/render.h>
@@ -86,6 +95,32 @@ const float MarginBetweenViews = 30.0f;
 
 namespace
 {
+int64_t ImpactSnapshotDurationCentiseconds(const AmfImpact::SRunSnapshot &Snapshot)
+{
+	if(Snapshot.m_Result == AmfImpact::ERunResult::FINISHED && Snapshot.m_AuthoritativeFinishTimeMillis >= 0)
+		return Snapshot.m_AuthoritativeFinishTimeMillis / 10;
+	return std::max<int64_t>(0, Snapshot.m_ActiveAnalysisTicks) /
+		std::max(1, Snapshot.m_Context.m_TickSpeed) * 100;
+}
+
+void DrawRunStatisticsBetaBadge(IGraphics *pGraphics, CUi *pUi, ITextRender *pTextRender, CUIRect *pRow, float Gap)
+{
+	const AmfRunStatisticsBadge::SPlacement Placement = AmfRunStatisticsBadge::Place(
+		pRow->x, pRow->y, pRow->w, pRow->h,
+		pTextRender->TextWidth(AmfRunStatisticsBadge::FONT_SIZE, AmfRunStatisticsBadge::LABEL), Gap);
+	pRow->w = Placement.m_TitleWidth;
+	CUIRect Badge;
+	Badge.x = Placement.m_BadgeX;
+	Badge.y = Placement.m_BadgeY;
+	Badge.w = Placement.m_BadgeWidth;
+	Badge.h = Placement.m_BadgeHeight;
+	pGraphics->DrawRect4(Badge.x, Badge.y, Badge.w, Badge.h,
+		AmfRunStatisticsBadge::LEFT, AmfRunStatisticsBadge::RIGHT,
+		AmfRunStatisticsBadge::LEFT, AmfRunStatisticsBadge::RIGHT,
+		IGraphics::CORNER_ALL, AmfRunStatisticsBadge::ROUNDING);
+	pUi->DoLabel(&Badge, AmfRunStatisticsBadge::LABEL, AmfRunStatisticsBadge::FONT_SIZE, TEXTALIGN_MC);
+}
+
 struct SAmfClientInfoSection
 {
 	const char *m_pIcon;
@@ -93,6 +128,7 @@ struct SAmfClientInfoSection
 	const char *m_pSubtitle;
 	const char *m_pText;
 	const char *m_pMeta;
+	bool m_DynamicVersionBody;
 };
 
 struct SAmfClientInfoNavItem
@@ -167,15 +203,15 @@ const int gs_aAmfClientInfoNavSectionIndices[] = {-1, 0, 1, 2, 3, 4};
 
 const SAmfClientInfoSection gs_aAmfClientInfoSections[] = {
 	{FontIcon::LAYER_GROUP, "About the project", "AMF Client",
-		CLIENT_NAME " " CLIENT_RELEASE_VERSION_DISPLAY " is a custom client based on Best Client and DDNet " GAME_RELEASE_VERSION ". This foundation is extended with AMF Client features, interface and capabilities. AMF Client is owned by alya?. Artificial intelligence, including OpenAI Codex, is used to develop the client and write code.", nullptr},
+		"%s %s is a custom client based on Best Client and DDNet %s. This foundation is extended with AMF Client features, interface and capabilities. AMF Client is owned by alya?. Artificial intelligence, including OpenAI Codex, is used to develop the client and write code.", nullptr, true},
 	{AMF_INFO_ICON_SHIELD, "Project status", "Unofficial modification",
-		"AMF Client is an unofficial modification and is not affiliated with the official DDNet team.", nullptr},
+		"AMF Client is an unofficial modification and is not affiliated with the official DDNet team.", nullptr, false},
 	{FontIcon::USER, "User responsibility", "Use at your own risk",
-		"You are responsible for using the client, its settings and your actions on servers.", nullptr},
+		"You are responsible for using the client, its settings and your actions on servers.", nullptr, false},
 	{AMF_INFO_ICON_CHECK, "Rules of use", "Follow server rules",
-		"Follow server rules. Do not use the client for cheats, bypassing restrictions or harming other players.", nullptr},
+		"Follow server rules. Do not use the client for cheats, bypassing restrictions or harming other players.", nullptr, false},
 	{FontIcon::HEART, "Acknowledgements", "Best Client and DDNet",
-		"Special thanks to the Best Client creators for the project foundation and their contribution to DDNet clients. Thanks to DDNet developers, component authors and AMF Client testers.", nullptr},
+		"Special thanks to the Best Client creators for the project foundation and their contribution to DDNet clients. Thanks to DDNet developers, component authors and AMF Client testers.", nullptr, false},
 };
 
 ColorRGBA AmfInfoAccentColor(size_t)
@@ -194,6 +230,13 @@ void DrawAmfGlassPanel(CUIRect Rect, ColorRGBA Background, ColorRGBA Border, flo
 	Rect.Draw(Border.WithMultipliedAlpha(Opacity), Corners, Rounding);
 	Rect.Margin(BorderWidth, &Rect);
 	Rect.Draw(Background.WithMultipliedAlpha(Opacity), Corners, std::max(0.0f, Rounding - BorderWidth));
+}
+
+void DrawAmfDashboardGradientPanel(CUIRect Rect, ColorRGBA Border, ColorRGBA TopLeft, ColorRGBA TopRight, ColorRGBA BottomLeft, ColorRGBA BottomRight, float Rounding)
+{
+	Rect.Draw(Border, IGraphics::CORNER_ALL, Rounding);
+	Rect.Margin(1.0f, &Rect);
+	Rect.Draw4(TopLeft, TopRight, BottomLeft, BottomRight, IGraphics::CORNER_ALL, std::max(0.0f, Rounding - 1.0f));
 }
 
 void DrawAmfInfoSectionHighlight(CUIRect Rect, float Highlight, float Opacity)
@@ -425,6 +468,12 @@ float RenderAmfInfoCard(SAmfClientInfoPopupContext *pPopup, CUIRect &Flow, const
 	const ColorRGBA Accent = AmfInfoAccentColor(SectionIndex);
 	const char *pTitle = TCLocalize(Section.m_pTitle, "AMF Client Info");
 	const char *pText = TCLocalize(Section.m_pText, "AMF Client Info");
+	char aDynamicText[1024];
+	if(Section.m_DynamicVersionBody)
+	{
+		str_format(aDynamicText, sizeof(aDynamicText), pText, CLIENT_NAME, CLIENT_RELEASE_VERSION_DISPLAY, GAME_RELEASE_VERSION);
+		pText = aDynamicText;
+	}
 	const char *pMeta = Section.m_pMeta ? TCLocalize(Section.m_pMeta, "AMF Client Info") : nullptr;
 	const float CardMargin = 9.0f;
 	const float IconColumnWidth = 35.0f;
@@ -961,6 +1010,1410 @@ void CMenus::OpenAmfHudEditor()
 	}
 }
 
+void CMenus::OpenAmfRunStatistics()
+{
+	if(!AmfImpact::CImpactSystem::IsStatisticsUiAccessible(g_Config.m_AmfImpactStatisticsAccess))
+		return;
+	m_AmfRunStatisticsOpen = true;
+	m_AmfRunStatisticsDetail = false;
+	m_AmfImpactFullHistory = false;
+	m_AmfImpactDetailRunId = 0;
+	g_Config.m_UiSettingsPage = SETTINGS_AMF_CLIENT;
+	if(Client()->State() == IClient::STATE_OFFLINE)
+		SetMenuPage(PAGE_SETTINGS);
+	else
+		m_GamePage = PAGE_SETTINGS;
+	SetActive(true);
+}
+
+void CMenus::ShowAmfRunStatisticsEnableWarning()
+{
+	PopupMessage(
+		TCLocalize("Run Statistics", "AMF Client"),
+		TCLocalize("Run Statistics cannot be enabled during an active run. Reset and start the run again.", "AMF Client"),
+		Localize("Ok"));
+}
+
+void CMenus::ConfirmDeleteAmfImpactRun()
+{
+	if(m_AmfImpactDeleteRunId != 0
+#if defined(CONF_DEBUG)
+		&& m_AmfImpactDeleteRunId != AmfImpact::DEBUG_HISTORY_PREVIEW_RUN_ID
+#endif
+	)
+		GameClient()->m_ImpactSystem.DeleteHistoryRun(m_AmfImpactDeleteRunId);
+	if(m_AmfImpactDeleteRunId == m_AmfImpactDetailRunId)
+	{
+		m_AmfRunStatisticsDetail = false;
+		m_AmfRunStatisticsTab = 1;
+		m_AmfImpactDetailRunId = 0;
+	}
+	m_AmfImpactDeleteRunId = 0;
+}
+
+void CMenus::CancelDeleteAmfImpactRun()
+{
+	m_AmfImpactDeleteRunId = 0;
+}
+
+void CMenus::RenderAmfRunCompletionToast()
+{
+	if(Client()->State() != IClient::STATE_ONLINE ||
+		GameClient()->m_Motd.IsActive() || GameClient()->m_ImportantAlert.IsActive())
+		return;
+
+	const AmfImpact::CImpactSystem::SRunCompletionToast &Toast = GameClient()->m_ImpactSystem.RunCompletionToast();
+	if(!Toast.IsVisible(g_Config.m_AmfImpactStatisticsAccess))
+		return;
+
+	const int64_t ElapsedTicks = std::max<int64_t>(0, time_get() - Toast.m_StartTime);
+	const float Elapsed = static_cast<float>(ElapsedTicks) / static_cast<float>(std::max<int64_t>(1, time_freq()));
+	constexpr float EntryDuration = 0.24f;
+	constexpr float LifeDuration = AmfImpact::CImpactSystem::RUN_COMPLETION_TOAST_DURATION_MS / 1000.0f;
+	constexpr float ExitDuration = AmfImpact::CImpactSystem::RUN_COMPLETION_TOAST_EXIT_MS / 1000.0f;
+	constexpr float ExitStart = LifeDuration - ExitDuration;
+	const bool Smooth = g_Config.m_AmfSmoothHud != 0;
+	if(Elapsed >= LifeDuration || (!Smooth && Elapsed >= ExitStart))
+		return;
+
+	const char *pTitle = Toast.m_PendingSave ?
+		TCLocalize("Run ended", "AMF Client") : TCLocalize("Run saved", "AMF Client");
+	const char *pBody = Toast.m_PendingSave ? TCLocalize("You can save the run statistics", "AMF Client") :
+		TCLocalize("Run statistics were automatically saved", "AMF Client");
+	constexpr float TitleFontSize = 4.3f;
+	constexpr float BodyFontSize = 3.5f;
+	TextRender()->SetFontPreset(EFontPreset::DEFAULT_FONT);
+	const float TextWidth = std::max(TextRender()->TextWidth(TitleFontSize, pTitle), TextRender()->TextWidth(BodyFontSize, pBody));
+	const float Width = std::clamp(TextWidth + 25.0f, 68.0f, 166.0f);
+	const float ScreenHeight = 300.0f;
+	const float ScreenWidth = ScreenHeight * Graphics()->ScreenAspect();
+	constexpr float Height = 10.0f;
+	constexpr float Margin = 9.0f;
+	const float TargetX = ScreenWidth - Margin - Width;
+	float X = TargetX;
+	float Alpha = 1.0f;
+	if(Smooth && Elapsed < EntryDuration)
+	{
+		const float T = std::clamp(Elapsed / EntryDuration, 0.0f, 1.0f);
+		const float Ease = T * T * (3.0f - 2.0f * T);
+		X -= 20.0f * (1.0f - Ease);
+		Alpha = 0.78f + 0.22f * Ease;
+	}
+	else if(Smooth && Elapsed >= ExitStart)
+	{
+		const float T = std::clamp((Elapsed - ExitStart) / ExitDuration, 0.0f, 1.0f);
+		const float Ease = T * T * (3.0f - 2.0f * T);
+		X += Ease * (Width + Margin);
+		Alpha = 1.0f - Ease;
+	}
+
+	Graphics()->MapScreen(0.0f, 0.0f, ScreenWidth, ScreenHeight);
+	const float Y = 10.0f;
+	Graphics()->DrawRect(X, Y, Width, Height, ColorRGBA(0.018f, 0.026f, 0.048f, 0.92f * Alpha), IGraphics::CORNER_NONE, 0.0f);
+	const ColorRGBA AccentColor = Toast.m_Result == AmfImpact::ERunResult::FINISHED ?
+		ColorRGBA(0.24f, 0.78f, 0.48f, 0.94f * Alpha) : ColorRGBA(0.88f, 0.27f, 0.31f, 0.94f * Alpha);
+	Graphics()->DrawRect(X, Y, 1.0f, Height, AccentColor, IGraphics::CORNER_NONE, 0.0f);
+	const ColorRGBA PreviousTextColor = TextRender()->GetTextColor();
+	const ColorRGBA PreviousOutlineColor = TextRender()->GetTextOutlineColor();
+	TextRender()->TextColor(ColorRGBA(0.96f, 0.97f, 1.0f, Alpha));
+	TextRender()->TextOutlineColor(ColorRGBA(0.0f, 0.0f, 0.0f, 0.32f * Alpha));
+	TextRender()->SetFontPreset(EFontPreset::ICON_FONT);
+	TextRender()->Text(X + 3.2f, Y + 2.6f, 4.8f, FontIcon::BELL);
+	TextRender()->SetFontPreset(EFontPreset::DEFAULT_FONT);
+	TextRender()->Text(X + 13.5f, Y + 0.8f, TitleFontSize, pTitle, Width - 19.0f);
+	TextRender()->TextColor(ColorRGBA(0.80f, 0.83f, 0.90f, Alpha));
+	TextRender()->Text(X + 13.5f, Y + 5.6f, BodyFontSize, pBody, Width - 19.0f);
+	TextRender()->TextColor(PreviousTextColor);
+	TextRender()->TextOutlineColor(PreviousOutlineColor);
+	TextRender()->SetFontPreset(EFontPreset::DEFAULT_FONT);
+}
+
+// Copyright (c) 2026 alya? — original AMF Impact / Run Statistics code.
+// Developed for AMF Client; licensed under licenses/AMF-Impact-LICENSE.txt.
+// This notice covers only this function's original AMF-authored expression.
+void CMenus::RenderAmfRunStatisticsQuickOverlay(CUIRect Screen, float Progress)
+{
+	if((Client()->State() != IClient::STATE_ONLINE && Client()->State() != IClient::STATE_DEMOPLAYBACK) ||
+		!AmfImpact::CImpactSystem::IsStatisticsUiAccessible(g_Config.m_AmfImpactStatisticsAccess))
+		return;
+
+	// This overlay has its own UI render entry point. CMenus::Render normally
+	// maps the UI screen, while the active scoreboard also does so earlier in
+	// the component list. Do not rely on either path to establish our projection.
+	Ui()->MapScreen();
+
+	const AmfImpact::CImpactRun *pRun = GameClient()->m_ImpactSystem.LocalViewRun();
+	const std::vector<AmfImpact::SParticipant> *pParticipants = pRun != nullptr ? &pRun->Participants() : nullptr;
+	int ParticipantRows = 0;
+	float MaxPlayerNameWidth = 0.0f;
+	if(pParticipants != nullptr)
+		for(const AmfImpact::SParticipant &Participant : *pParticipants)
+		{
+			if(!AmfImpact::IsImpactStatisticsParticipant(Participant))
+				continue;
+			++ParticipantRows;
+			if(!Participant.m_Name.empty())
+				MaxPlayerNameWidth = std::max(MaxPlayerNameWidth, TextRender()->TextWidth(9.5f, Participant.m_Name.c_str()));
+		}
+
+	static CScrollRegion s_QuickStatisticsScroll;
+	static CAmfRunStatisticsQuickScrollIdentity s_QuickStatisticsScrollIdentity;
+	const uint64_t RunId = pRun != nullptr ? pRun->RunId() : 0;
+	if(s_QuickStatisticsScrollIdentity.Update(RunId, ParticipantRows))
+		s_QuickStatisticsScroll.Reset();
+
+	const SAmfRunStatisticsQuickOverlayLayout Layout = MakeAmfRunStatisticsQuickOverlayLayout(Screen.w, ParticipantRows, MaxPlayerNameWidth);
+	if(Layout.m_Width < 1.0f || Progress <= 0.0f)
+		return;
+
+	const float Fade = std::clamp(Progress, 0.0f, 1.0f);
+	CUIRect Panel(Screen.Center().x - Layout.m_Width * 0.5f,
+		Screen.y + std::max(12.0f, Screen.h * 0.08f), Layout.m_Width, Layout.m_Height);
+	CUIRect Reveal = Panel;
+	Reveal.h *= Fade;
+	Ui()->ClipEnable(&Reveal);
+
+	const ColorRGBA PreviousTextColor = TextRender()->GetTextColor();
+	const ColorRGBA PreviousOutlineColor = TextRender()->GetTextOutlineColor();
+	TextRender()->TextColor(PreviousTextColor.WithMultipliedAlpha(Fade));
+	TextRender()->TextOutlineColor(PreviousOutlineColor.WithMultipliedAlpha(Fade));
+	DrawAmfGlassPanel(Panel,
+		ColorRGBA(0.022f, 0.038f, 0.065f, 0.94f),
+		ColorRGBA(0.24f, 0.44f, 0.72f, 0.72f), 8.0f, IGraphics::CORNER_B, Fade);
+	CUIRect Accent, Content;
+	Panel.HSplitTop(AMF_RUN_STATISTICS_QUICK_OVERLAY_ACCENT_HEIGHT, &Accent, &Panel);
+	Accent.Draw(ColorRGBA(0.30f, 0.58f, 0.98f, 0.82f * Fade), IGraphics::CORNER_NONE, 0.0f);
+	Panel.Margin(AMF_RUN_STATISTICS_QUICK_OVERLAY_PADDING, &Content);
+	CUIRect Title, TitleText, MapName;
+	Content.HSplitTop(AMF_RUN_STATISTICS_QUICK_OVERLAY_TITLE_HEIGHT, &Title, &Content);
+	Title.VSplitRight(Title.w * 0.48f, &TitleText, &MapName);
+	Ui()->DoLabel(&TitleText, TCLocalize("Run Statistics", "AMF Client"), 13.0f, TEXTALIGN_ML);
+	if(pRun != nullptr && !pRun->Context().m_Map.empty())
+	{
+		Ui()->ClipEnable(&MapName);
+		Ui()->DoLabel(&MapName, pRun->Context().m_Map.c_str(), 9.5f, TEXTALIGN_MR);
+		Ui()->ClipDisable();
+	}
+	Content.HSplitTop(AMF_RUN_STATISTICS_QUICK_OVERLAY_TITLE_GAP, nullptr, &Content);
+
+	if(pRun == nullptr || ParticipantRows == 0)
+	{
+		CUIRect Empty;
+		Content.HSplitTop(AMF_RUN_STATISTICS_QUICK_OVERLAY_EMPTY_HEIGHT, &Empty, &Content);
+		const bool SupportedServer = GameClient()->m_ImpactSystem.EngineActive();
+		const int TeamMemberCount = GameClient()->m_ImpactSystem.TeamMemberCount();
+		const int EligibleParticipantCount = GameClient()->m_ImpactSystem.EligibleParticipantCount();
+		const bool TeamUnavailable = SupportedServer && TeamMemberCount == 0;
+		const char *pEmptyStatus = !SupportedServer ? TCLocalize("Unsupported server", "AMF Client") :
+			pRun != nullptr ? TCLocalize(AmfImpact::RunStatusLocalizationKey(pRun->State(), TeamMemberCount, EligibleParticipantCount), "AMF Client") :
+			TeamUnavailable ? TCLocalize("Impact analysis unavailable for this team", "AMF Client") :
+			TCLocalize("Waiting for another team member", "AMF Client");
+		Ui()->DoLabel(&Empty, pEmptyStatus, 10.5f, TEXTALIGN_MC);
+	}
+	else
+	{
+		CUIRect Header, Rows;
+		Content.HSplitTop(AMF_RUN_STATISTICS_QUICK_OVERLAY_HEADER_HEIGHT, &Header, &Content);
+		Content.HSplitTop(Layout.m_VisibleRows * AMF_RUN_STATISTICS_QUICK_OVERLAY_ROW_HEIGHT, &Rows, &Content);
+		DrawAmfGlassPanel(Header, ColorRGBA(0.075f, 0.15f, 0.26f, 0.82f), ColorRGBA(0.29f, 0.53f, 0.88f, 0.42f), 4.0f, IGraphics::CORNER_ALL, Fade);
+		Header.Margin(3.0f, &Header);
+		const std::array<const char *, 8> apHeaders = {
+			TCLocalize("Player", "AMF Client"),
+			TCLocalize("Rating", "AMF Client"),
+			TCLocalize("Impact", "AMF Client"),
+			TCLocalize("Saves", "AMF Client"),
+			TCLocalize("Aleds", "AMF Client"),
+			TCLocalize("Clutches", "AMF Client"),
+			TCLocalize("Falls", "AMF Client"),
+			TCLocalize("Stability", "AMF Client")};
+		constexpr std::array<float, 8> aColumnWeights = {0.24f, 0.10f, 0.11f, 0.10f, 0.10f, 0.10f, 0.10f, 0.15f};
+		auto RenderCells = [&](CUIRect Area, const std::array<std::string, 8> &aValues, bool IsHeader) {
+			CUIRect Remaining = Area;
+			for(size_t Column = 0; Column < aValues.size(); ++Column)
+			{
+				CUIRect Cell;
+				const float ColumnWidth = Column + 1 == aValues.size() ? Remaining.w : Area.w * aColumnWeights[Column];
+				Remaining.VSplitLeft(ColumnWidth, &Cell, &Remaining);
+				Ui()->ClipEnable(&Cell);
+				if(IsHeader)
+					Ui()->DoLabel(&Cell, apHeaders[Column], 8.7f, Column == 0 ? TEXTALIGN_ML : TEXTALIGN_MC);
+				else
+				{
+					SLabelProperties LabelProps;
+					if(Column == 2)
+						LabelProps.SetColor(AmfImpact::GetImpactDisplayColor(AmfImpact::EImpactDisplayColor::WHITE).WithMultipliedAlpha(Fade));
+					Ui()->DoLabel(&Cell, aValues[Column].c_str(), 9.5f, Column == 0 ? TEXTALIGN_ML : TEXTALIGN_MC, LabelProps);
+				}
+				Ui()->ClipDisable();
+			}
+		};
+		std::array<std::string, 8> aHeaderValues;
+		for(size_t Column = 0; Column < aHeaderValues.size(); ++Column)
+			aHeaderValues[Column] = apHeaders[Column];
+		RenderCells(Header, aHeaderValues, true);
+
+		CScrollRegionParams ScrollParams;
+		ScrollParams.m_ScrollUnit = AMF_RUN_STATISTICS_QUICK_OVERLAY_ROW_HEIGHT;
+		ScrollParams.m_ForceShowScrollbar = Layout.m_NeedsScroll;
+		ScrollParams.m_ScrollbarThickness = 8.0f;
+		ScrollParams.m_ScrollbarMargin = 2.0f;
+		CUIRect RowsViewport = Rows;
+		s_QuickStatisticsScroll.Begin(&RowsViewport, &ScrollParams);
+		CUIRect RemainingRows = RowsViewport;
+		int DisplayRow = 0;
+		for(const AmfImpact::SParticipant &Participant : *pParticipants)
+		{
+			if(!AmfImpact::IsImpactStatisticsParticipant(Participant))
+				continue;
+			CUIRect Row;
+			RemainingRows.HSplitTop(AMF_RUN_STATISTICS_QUICK_OVERLAY_ROW_HEIGHT, &Row, &RemainingRows);
+			const bool Visible = s_QuickStatisticsScroll.AddRect(Row);
+			if(Visible)
+			{
+				if((DisplayRow & 1) == 0)
+					Row.Draw(ColorRGBA(0.10f, 0.20f, 0.34f, 0.20f * Fade), IGraphics::CORNER_ALL, 3.0f);
+				Row.Margin(2.0f, &Row);
+				std::array<std::string, 8> aValues;
+				const AmfImpact::SImpactScoreDisplay ScoreDisplay = AmfImpact::BuildImpactScoreDisplay(Participant, pRun->IsFinalized());
+				aValues[0] = Participant.m_Name.empty() ? "—" : Participant.m_Name;
+				aValues[1] = ScoreDisplay.m_Rating;
+				aValues[2] = ScoreDisplay.m_Impact;
+				aValues[3] = std::to_string(Participant.m_RawStats.m_Saves);
+				aValues[4] = std::to_string(Participant.m_RawStats.m_Aleds);
+				aValues[5] = std::to_string(Participant.m_RawStats.m_Clutches);
+				aValues[6] = std::to_string(Participant.m_RawStats.m_Falls);
+				aValues[7] = ScoreDisplay.m_Stability;
+				RenderCells(Row, aValues, false);
+			}
+			++DisplayRow;
+		}
+		CUIRect ScrollEnd = RemainingRows;
+		ScrollEnd.h = 0.0f;
+		s_QuickStatisticsScroll.AddRect(ScrollEnd);
+		s_QuickStatisticsScroll.End();
+	}
+
+	TextRender()->TextColor(PreviousTextColor);
+	TextRender()->TextOutlineColor(PreviousOutlineColor);
+	Ui()->ClipDisable();
+}
+
+// Copyright (c) 2026 alya? — original AMF Impact / Run Statistics code.
+// Developed for AMF Client; licensed under licenses/AMF-Impact-LICENSE.txt.
+// This notice covers only this function's original AMF-authored expression.
+void CMenus::RenderAmfRunStatistics(CUIRect MainView)
+{
+	if(!AmfImpact::CImpactSystem::IsStatisticsUiAccessible(g_Config.m_AmfImpactStatisticsAccess))
+	{
+		m_AmfRunStatisticsOpen = false;
+		m_AmfRunStatisticsHold.Release();
+		m_AmfRunStatisticsDetail = false;
+		return;
+	}
+	CUIRect Panel;
+	MainView.Margin(MarginSmall, &Panel);
+	Panel.Draw(ColorRGBA(0.025f, 0.04f, 0.08f, 0.94f), IGraphics::CORNER_B, 8.0f);
+	CUIRect Accent;
+	Panel.HSplitTop(2.0f, &Accent, &Panel);
+	Accent.Draw(ColorRGBA(0.24f, 0.50f, 0.94f, 0.75f), IGraphics::CORNER_NONE, 0.0f);
+	Panel.Margin(12.0f, &Panel);
+	CUIRect AttributionRow;
+	Panel.HSplitBottom(14.0f, &Panel, &AttributionRow);
+	SLabelProperties AttributionProps;
+	AttributionProps.SetColor(ColorRGBA(0.62f, 0.69f, 0.80f, 0.70f));
+	Ui()->DoLabel(&AttributionRow, TCLocalize("Impact System by AMF Client", "AMF Client"), 8.0f, TEXTALIGN_MR, AttributionProps);
+
+	CUIRect Header, Body;
+	Panel.HSplitTop(LineSize, &Header, &Body);
+	CUIRect Title, BackButton, TitleIcon, TitleText;
+	Header.VSplitRight(80.0f, &Title, &BackButton);
+	Title.VSplitLeft(24.0f, &TitleIcon, &TitleText);
+	RenderFontIcon(TitleIcon, m_AmfRunStatisticsDetail ? FontIcon::LIST_UL : FontIcon::MAP, 12.0f, TEXTALIGN_MC);
+	Ui()->DoLabel(&TitleText, TCLocalize("Run Statistics", "AMF Client"), HeadlineFontSize, TEXTALIGN_ML);
+	static CButtonContainer s_BackButton;
+	if(DoButtonLineSize_Menu(&s_BackButton, TCLocalize("Back", "AMF Client"), 0, &BackButton, LineSize, false, nullptr, IGraphics::CORNER_ALL, 5.0f, 0.0f, ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f)))
+	{
+		if(m_AmfRunStatisticsDetail)
+		{
+			m_AmfRunStatisticsDetail = false;
+			m_AmfImpactDetailRunId = 0;
+			m_AmfRunStatisticsTab = 1;
+		}
+		else
+		{
+			m_AmfRunStatisticsOpen = false;
+			m_AmfImpactFullHistory = false;
+		}
+		Ui()->SetActiveItem(nullptr);
+		return;
+	}
+
+	Body.HSplitTop(MarginSmall, nullptr, &Body);
+	if(!m_AmfRunStatisticsDetail)
+	{
+		CUIRect Tabs, CurrentTab, HistoryTab;
+		Body.HSplitTop(LineSize, &Tabs, &Body);
+		Tabs.VSplitMid(&CurrentTab, &HistoryTab, MarginSmall);
+		static CButtonContainer s_CurrentTab, s_HistoryTab;
+		if(DoButton_Menu(&s_CurrentTab, TCLocalize("Current Run", "AMF Client"), m_AmfRunStatisticsTab == 0, &CurrentTab, BUTTONFLAG_LEFT, nullptr, IGraphics::CORNER_L))
+		{
+			m_AmfRunStatisticsTab = 0;
+			m_AmfImpactFullHistory = false;
+		}
+		if(DoButton_Menu(&s_HistoryTab, TCLocalize("History", "AMF Client"), m_AmfRunStatisticsTab == 1, &HistoryTab, BUTTONFLAG_LEFT, nullptr, IGraphics::CORNER_R))
+			m_AmfRunStatisticsTab = 1;
+		Body.HSplitTop(MarginSmall, nullptr, &Body);
+	}
+
+	auto DrawStatisticsSeparator = [&](const CUIRect &Separator) {
+		Separator.Draw(ColorRGBA(0.35f, 0.52f, 0.78f, 0.28f), IGraphics::CORNER_NONE, 0.0f);
+	};
+	auto RenderStatisticsSectionTitle = [&](CUIRect *pArea, const char *pTitle, const char *pIcon) {
+		CUIRect SectionHeader, IconRect, TextRect, Separator;
+		pArea->HSplitTop(20.0f, &SectionHeader, pArea);
+		SectionHeader.VSplitLeft(22.0f, &IconRect, &TextRect);
+		RenderFontIcon(IconRect, pIcon, 10.0f, TEXTALIGN_MC);
+		Ui()->DoLabel(&TextRect, pTitle, 12.0f, TEXTALIGN_ML);
+		pArea->HSplitTop(4.0f, nullptr, pArea);
+		pArea->HSplitTop(1.0f, &Separator, pArea);
+		DrawStatisticsSeparator(Separator);
+		pArea->HSplitTop(5.0f, nullptr, pArea);
+	};
+
+	auto FitTextFontSize = [&](const char *pText, float Preferred, float Minimum, float Width) {
+		while(Preferred > Minimum && TextRender()->TextWidth(Preferred, pText) > Width)
+			Preferred = std::max(Minimum, Preferred - 0.5f);
+		return Preferred;
+	};
+	auto RenderRatingValue = [&](CUIRect Rect, bool Available, double ExactRating, const std::string &DisplayValue, float FontSize) {
+		const AmfImpact::SRatingFrameStyle Style = AmfImpact::GetRatingFrameStyle(Available, ExactRating);
+		SLabelProperties TextProps;
+		TextProps.SetColor(Style.m_Text);
+		Ui()->DoLabel(&Rect, DisplayValue.c_str(), FontSize, TEXTALIGN_MC, TextProps);
+	};
+	auto RenderMetricValueWell = [&](CUIRect Rect) {
+		const AmfImpact::SRatingFrameStyle Style = AmfImpact::GetRatingFrameStyle(false, 0.0);
+		constexpr float Radius = 4.5f;
+		constexpr float BorderWidth = 1.0f;
+		Rect.Draw(Style.m_Border, IGraphics::CORNER_ALL, Radius);
+		Rect.Margin(BorderWidth, &Rect);
+		Rect.Draw(Style.m_Background, IGraphics::CORNER_ALL, Radius - BorderWidth);
+	};
+	auto MakeCenteredTextHitRect = [&](const CUIRect &Area, const std::string &Text, float FontSize) {
+		const float Width = std::min(Area.w, TextRender()->TextWidth(FontSize, Text.c_str()) + 2.0f);
+		const float Height = std::min(Area.h, FontSize + 2.0f);
+		return CUIRect(Area.Center().x - Width * 0.5f, Area.Center().y - Height * 0.5f, Width, Height);
+	};
+	auto MakeRatingTextHitRect = [&](const CUIRect &Area, const std::string &Text, float FontSize) {
+		float TextHeight = 0.0f;
+		float CharacterHeight = 0.0f;
+		STextSizeProperties TextSizeProps;
+		TextSizeProps.m_pHeight = &TextHeight;
+		TextSizeProps.m_pMaxCharacterHeightInLine = &CharacterHeight;
+		const float TextWidth = TextRender()->TextWidth(FontSize, Text.c_str(), -1, -1.0f, 0, TextSizeProps);
+		return AmfImpact::MakeRatingTooltipHitRect(Area, TextWidth, CharacterHeight);
+	};
+	auto RegisterStatisticTooltip = [&](const void *pId, const CUIRect &NumberRect, const std::vector<STooltipColoredLine> &vLines) {
+		if(Ui()->MouseHovered(&NumberRect))
+			Ui()->SetHotItem(pId);
+		GameClient()->m_Tooltips.DoColoredToolTip(pId, &NumberRect, vLines, 9.5f);
+	};
+	static const std::vector<STooltipColoredLine> s_vRatingTooltipLines = {
+		{AmfImpact::gs_aRatingTooltipText[0], ColorRGBA(0.88f, 0.92f, 0.98f, 1.0f)},
+		{AmfImpact::gs_aRatingTooltipText[1], AmfImpact::GetRatingFrameStyle(true, 0.50).m_Text},
+		{AmfImpact::gs_aRatingTooltipText[2], AmfImpact::GetRatingFrameStyle(true, 0.80).m_Text},
+		{AmfImpact::gs_aRatingTooltipText[3], AmfImpact::GetRatingFrameStyle(true, 1.20).m_Text},
+		{AmfImpact::gs_aRatingTooltipText[4], AmfImpact::GetRatingFrameStyle(true, 1.50).m_Text},
+		{AmfImpact::gs_aRatingTooltipText[5], AmfImpact::GetRatingFrameStyle(true, 1.80).m_Text},
+		{AmfImpact::gs_aRatingTooltipText[6], AmfImpact::GetRatingFrameStyle(true, 2.00).m_Text},
+	};
+	static const std::vector<STooltipColoredLine> s_vStabilityTooltipLines = {
+		{AmfImpact::gs_aStabilityTooltipText[0], ColorRGBA(0.88f, 0.92f, 0.98f, 1.0f)},
+		{AmfImpact::gs_aStabilityTooltipText[1], AmfImpact::GetStabilityTextColor(true, 20.0)},
+		{AmfImpact::gs_aStabilityTooltipText[2], AmfImpact::GetStabilityTextColor(true, 50.0)},
+		{AmfImpact::gs_aStabilityTooltipText[3], AmfImpact::GetStabilityTextColor(true, 70.0)},
+		{AmfImpact::gs_aStabilityTooltipText[4], AmfImpact::GetStabilityTextColor(true, 90.0)},
+	};
+	static const std::vector<STooltipColoredLine> s_vImpactTooltipLines = {
+		{AmfImpact::gs_aImpactTooltipText[0], ColorRGBA(0.88f, 0.92f, 0.98f, 1.0f)},
+		{AmfImpact::gs_aImpactTooltipText[1], AmfImpact::GetImpactDisplayColor(AmfImpact::EImpactDisplayColor::RED)},
+		{AmfImpact::gs_aImpactTooltipText[2], AmfImpact::GetImpactDisplayColor(AmfImpact::EImpactDisplayColor::WHITE)},
+		{AmfImpact::gs_aImpactTooltipText[3], AmfImpact::GetImpactDisplayColor(AmfImpact::EImpactDisplayColor::GREEN)},
+		{AmfImpact::gs_aImpactTooltipText[4], AmfImpact::GetImpactDisplayColor(AmfImpact::EImpactDisplayColor::PURPLE)},
+		{AmfImpact::gs_aImpactTooltipText[5], AmfImpact::GetImpactDisplayColor(AmfImpact::EImpactDisplayColor::GOLD)},
+	};
+	static char s_CentralRatingTooltipId;
+	static char s_CentralImpactTooltipId;
+	static char s_CentralStabilityTooltipId;
+	// Presentation only: the persisted result remains unchanged.
+	struct SRunStatusVisual
+	{
+		const char *m_pText;
+		const char *m_pIcon;
+		ColorRGBA m_Accent;
+	};
+	auto RunStatusVisual = [&](AmfImpact::ERunResult Result) -> SRunStatusVisual {
+		switch(Result)
+		{
+		case AmfImpact::ERunResult::FINISHED:
+			return {TCLocalize("Finished", "AMF Client"), FontIcon::FLAG_CHECKERED, ColorRGBA(0.24f, 0.78f, 0.57f, 0.95f)};
+		case AmfImpact::ERunResult::WIPED:
+		case AmfImpact::ERunResult::TEAM_RESET:
+			return {TCLocalize("Fail", "AMF Client"), FontIcon::XMARK, ColorRGBA(0.91f, 0.37f, 0.39f, 0.95f)};
+		case AmfImpact::ERunResult::ABORTED_MAP_CHANGE:
+		case AmfImpact::ERunResult::ABORTED_SERVER_CHANGE:
+			return {TCLocalize("Map was changed", "AMF Client"), FontIcon::ARROWS_ROTATE, ColorRGBA(0.91f, 0.37f, 0.39f, 0.95f)};
+		case AmfImpact::ERunResult::ABORTED_CONNECTION:
+			return {TCLocalize("Disconnected", "AMF Client"), FontIcon::RIGHT_FROM_BRACKET, ColorRGBA(0.91f, 0.37f, 0.39f, 0.95f)};
+		default:
+			return {TCLocalize(AmfImpact::RunResultDisplayName(Result), "AMF Client"), FontIcon::INFO, ColorRGBA(0.37f, 0.62f, 0.96f, 0.90f)};
+		}
+	};
+
+	auto RenderParticipantTable = [&](CUIRect Table, const std::vector<AmfImpact::SParticipant> &vParticipants, bool DashboardStyle, const AmfImpact::SImpactRunPresentation *pFinalPresentation) {
+		if(DashboardStyle)
+			DrawAmfGlassPanel(Table, ColorRGBA(0.015f, 0.030f, 0.058f, 0.96f), ColorRGBA(0.20f, 0.40f, 0.70f, 0.44f), 8.0f);
+		else
+			Table.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f), IGraphics::CORNER_ALL, 8.0f);
+		Table.Margin(6.0f, &Table);
+		const std::array<const char *, 8> apHeaders = {
+			TCLocalize("Player", "AMF Client"),
+			TCLocalize("Rating", "AMF Client"),
+			TCLocalize("Impact", "AMF Client"),
+			TCLocalize("Saves", "AMF Client"),
+			TCLocalize("Aleds", "AMF Client"),
+			TCLocalize("Clutches", "AMF Client"),
+			TCLocalize("Falls", "AMF Client"),
+			TCLocalize("Stability", "AMF Client")};
+		const CUIRect TableBounds = Table;
+		// Allocate the table as a single centered unit: names get the only
+		// intentionally wider column, while numeric columns share predictable
+		// centered cells instead of retaining gaps from the old 11-column layout.
+		constexpr std::array<float, 8> aColumnWeights = {0.24f, 0.10f, 0.11f, 0.10f, 0.10f, 0.10f, 0.10f, 0.15f};
+		CUIRect Header, Remaining;
+		const float HeaderHeight = DashboardStyle ? 30.0f : 26.0f;
+		Table.HSplitTop(HeaderHeight, &Header, &Table);
+		if(DashboardStyle)
+			DrawAmfGlassPanel(Header, ColorRGBA(0.075f, 0.15f, 0.26f, 0.86f), ColorRGBA(0.29f, 0.53f, 0.88f, 0.48f), 4.0f);
+		else
+			Header.Draw(ColorRGBA(0.14f, 0.24f, 0.38f, 0.42f), IGraphics::CORNER_ALL, 4.0f);
+		Header.Margin(4.0f, &Header);
+		Remaining = Header;
+		for(size_t Column = 0; Column < apHeaders.size(); ++Column)
+		{
+			CUIRect Cell;
+			const float ColumnWidth = Column + 1 == apHeaders.size() ? Remaining.w : Header.w * aColumnWeights[Column];
+			Remaining.VSplitLeft(ColumnWidth, &Cell, &Remaining);
+			if(DashboardStyle && Column == 0)
+				Cell.VSplitLeft(28.0f, nullptr, &Cell);
+			Ui()->DoLabel(&Cell, apHeaders[Column], DashboardStyle ? 10.0f : 9.5f, Column == 0 ? TEXTALIGN_ML : TEXTALIGN_MC);
+		}
+		int VisibleRow = 0;
+		const bool FinalizedView = pFinalPresentation != nullptr && pFinalPresentation->m_Finalized;
+		const size_t DisplayCount = FinalizedView ? pFinalPresentation->m_vDisplayOrder.size() : vParticipants.size();
+		for(size_t DisplayIndex = 0; DisplayIndex < DisplayCount; ++DisplayIndex)
+		{
+			const size_t ParticipantIndex = FinalizedView ? pFinalPresentation->m_vDisplayOrder[DisplayIndex] : DisplayIndex;
+			if(ParticipantIndex >= vParticipants.size())
+				continue;
+			const AmfImpact::SParticipant &Participant = vParticipants[ParticipantIndex];
+			if(!AmfImpact::IsImpactStatisticsParticipant(Participant))
+				continue;
+			const int DisplayRow = VisibleRow++;
+			const AmfImpact::SImpactScoreDisplay ScoreDisplay = AmfImpact::BuildImpactScoreDisplay(Participant, FinalizedView);
+			CUIRect Row;
+			Table.HSplitTop(DashboardStyle ? 40.0f : 24.0f, &Row, &Table);
+			dbg_assert(Row.y >= TableBounds.y && Row.y + Row.h <= TableBounds.y + TableBounds.h + 0.01f, "AMF participant row exceeds table bounds");
+			if((DisplayRow & 1) == 0)
+				Row.Draw(DashboardStyle ? ColorRGBA(0.10f, 0.20f, 0.34f, 0.22f) : ColorRGBA(0.15f, 0.25f, 0.40f, 0.12f), IGraphics::CORNER_ALL, 3.0f);
+			Row.Margin(DashboardStyle ? 2.0f : 3.0f, &Row);
+			Remaining = Row;
+			std::array<std::string, 8> aValues;
+			aValues[0] = Participant.m_Name.empty() ? "—" : Participant.m_Name;
+			if(FinalizedView && Participant.m_TerminalStatus == AmfImpact::EParticipantTerminalStatus::LEFT)
+				aValues[0] = std::string(TCLocalize("Left the run", "AMF Client")) + " · " + aValues[0];
+			aValues[1] = ScoreDisplay.m_Rating;
+			aValues[2] = ScoreDisplay.m_Impact;
+			aValues[3] = std::to_string(Participant.m_RawStats.m_Saves);
+			aValues[4] = std::to_string(Participant.m_RawStats.m_Aleds);
+			aValues[5] = std::to_string(Participant.m_RawStats.m_Clutches);
+			aValues[6] = std::to_string(Participant.m_RawStats.m_Falls);
+			aValues[7] = ScoreDisplay.m_Stability;
+			GameClient()->m_ImpactSystem.DebugLogUiFallValue(Participant.m_Id, Participant.m_RawStats.m_Falls);
+			for(size_t Column = 0; Column < aValues.size(); ++Column)
+			{
+				CUIRect Cell;
+				const float ColumnWidth = Column + 1 == aValues.size() ? Remaining.w : Row.w * aColumnWeights[Column];
+				Remaining.VSplitLeft(ColumnWidth, &Cell, &Remaining);
+				if(DashboardStyle && Column == 0)
+				{
+					CUIRect RankBadge, Name;
+					Cell.VSplitLeft(28.0f, &RankBadge, &Name);
+					RankBadge.w = 18.0f;
+					RankBadge.x += 2.0f;
+					RankBadge.HMargin(std::max(0.0f, (RankBadge.h - 18.0f) * 0.5f), &RankBadge);
+					DrawAmfGlassPanel(RankBadge, ColorRGBA(0.10f, 0.22f, 0.38f, 0.82f), ColorRGBA(0.27f, 0.49f, 0.78f, 0.36f), 4.0f);
+					char aRank[16];
+					const int Place = FinalizedView && ParticipantIndex < pFinalPresentation->m_vPlaces.size() ? pFinalPresentation->m_vPlaces[ParticipantIndex] : 0;
+					if(Place > 0)
+						str_format(aRank, sizeof(aRank), "%d", Place);
+					else
+						str_copy(aRank, "—");
+					Ui()->DoLabel(&RankBadge, aRank, 9.0f, TEXTALIGN_MC);
+					Ui()->DoLabel(&Name, aValues[Column].c_str(), 11.0f, TEXTALIGN_ML);
+				}
+				else if(DashboardStyle && Column == 1)
+				{
+					CUIRect RatingLine, StarsLine;
+					Cell.HSplitTop(20.0f, &RatingLine, &StarsLine);
+					RatingLine.y -= 0.75f;
+					RatingLine.y += 8.0f * Ui()->PixelSize();
+					RenderRatingValue(RatingLine, ScoreDisplay.m_Available, Participant.m_Score.m_Rating, aValues[Column], 12.0f);
+					if(ScoreDisplay.m_Available)
+					{
+						const CUIRect RatingHitRect = MakeRatingTextHitRect(RatingLine, aValues[Column], 12.0f);
+						// m_Id is the first SParticipant member and aliases &Participant as a tooltip cache key.
+						// Use a distinct, stable member address so Stability registration cannot replace this rect.
+						RegisterStatisticTooltip(&Participant.m_Name, RatingHitRect, s_vRatingTooltipLines);
+					}
+					const int FilledStars = AmfImpact::RatingStarCount(ScoreDisplay.m_Available, Participant.m_Score.m_Rating);
+					if(ScoreDisplay.m_Available && std::isfinite(Participant.m_Score.m_Rating))
+					{
+						constexpr float StarWidth = 7.0f;
+						constexpr float StarGap = 1.2f;
+						constexpr float StarFontSize = 7.2f;
+						constexpr float StarsWidth = 5.0f * StarWidth + 4.0f * StarGap;
+						const float StarScale = std::min(1.0f, std::max(0.0f, Cell.w - 4.0f) / StarsWidth);
+						const float ScaledStarsWidth = StarsWidth * StarScale;
+						const float StarY = StarsLine.y - 3.0f;
+						for(int Star = 0; Star < 5; ++Star)
+						{
+							CUIRect StarRect(Cell.Center().x - ScaledStarsWidth * 0.5f + Star * (StarWidth + StarGap) * StarScale, StarY, StarWidth * StarScale, 10.0f);
+							SLabelProperties StarProps;
+							StarProps.SetColor(AmfImpact::RatingStarTextColor(Star < FilledStars));
+							RenderFontIcon(StarRect, FontIcon::STAR, StarFontSize * StarScale, TEXTALIGN_MC, StarProps);
+						}
+					}
+				}
+				else if(DashboardStyle && Column == 2)
+				{
+					SLabelProperties ImpactProps;
+					ImpactProps.SetColor(ScoreDisplay.m_HasImpactColor ? AmfImpact::GetImpactDisplayColor(ScoreDisplay.m_ImpactColor) : ColorRGBA(0.50f, 0.59f, 0.71f, 1.0f));
+					Ui()->DoLabel(&Cell, aValues[Column].c_str(), 10.0f, TEXTALIGN_MC, ImpactProps);
+					if(ScoreDisplay.m_Available)
+					{
+						const float TextWidth = TextRender()->TextWidth(10.0f, aValues[Column].c_str());
+						const CUIRect ImpactHitRect = AmfImpact::MakeStatisticTooltipHitRect(Cell, TextWidth, 10.0f);
+						RegisterStatisticTooltip(&Participant.m_Score.m_Impact, ImpactHitRect, s_vImpactTooltipLines);
+					}
+				}
+				else if(DashboardStyle && Column == 7)
+				{
+					SLabelProperties StabilityProps;
+					StabilityProps.SetColor(AmfImpact::GetTableStabilityTextColor(ScoreDisplay.m_Available, Participant.m_Score.m_Stability));
+					Ui()->DoLabel(&Cell, aValues[Column].c_str(), ScoreDisplay.m_Available ? 11.0f : 10.0f, TEXTALIGN_MC, StabilityProps);
+					if(ScoreDisplay.m_Available)
+					{
+						const CUIRect StabilityHitRect = MakeCenteredTextHitRect(Cell, aValues[Column], 11.0f);
+						RegisterStatisticTooltip(&Participant.m_Id, StabilityHitRect, s_vStabilityTooltipLines);
+					}
+				}
+				else
+					Ui()->DoLabel(&Cell, aValues[Column].c_str(), DashboardStyle ? 11.0f : 10.0f, Column == 0 ? TEXTALIGN_ML : TEXTALIGN_MC);
+			}
+		}
+		if(VisibleRow == 0)
+		{
+			CUIRect Row;
+			Table.HSplitTop(DashboardStyle ? 40.0f : 24.0f, &Row, &Table);
+			Row.Draw(ColorRGBA(0.10f, 0.20f, 0.34f, 0.22f), IGraphics::CORNER_ALL, 3.0f);
+			Row.Margin(DashboardStyle ? 2.0f : 3.0f, &Row);
+			Remaining = Row;
+			SLabelProperties UnavailableProps;
+			UnavailableProps.SetColor(ColorRGBA(0.58f, 0.67f, 0.79f, 1.0f));
+			for(size_t Column = 0; Column < aColumnWeights.size(); ++Column)
+			{
+				CUIRect Cell;
+				const float ColumnWidth = Column + 1 == aColumnWeights.size() ? Remaining.w : Row.w * aColumnWeights[Column];
+				Remaining.VSplitLeft(ColumnWidth, &Cell, &Remaining);
+				if(DashboardStyle && Column == 0)
+					Cell.VSplitLeft(28.0f, nullptr, &Cell);
+				Ui()->DoLabel(&Cell, "—", 10.0f, Column == 0 ? TEXTALIGN_ML : TEXTALIGN_MC, UnavailableProps);
+			}
+		}
+	};
+
+	auto RenderRunDashboard = [&](CUIRect &DashboardBody, const char *pMapName, const std::string &Difficulty, const char *pServerName, int ParticipantCount, int64_t DurationCentiseconds, int64_t SavedAt, const char *pStatusText, ColorRGBA StatusAccent, const std::vector<AmfImpact::SParticipant> *pParticipants, const AmfImpact::SImpactRunPresentation *pFinalPresentation, const AmfImpact::SParticipant *pMvpParticipant) {
+			CUIRect Card;
+			DashboardBody.HSplitTop(200.0f, &Card, &DashboardBody);
+			const bool CompactMetrics = Card.w < 590.0f;
+			// The overview and future MVP metrics share one continuous card.
+			CUIRect EventTileRow;
+			char aParticipants[32], aDuration[64], aSavedAt[64];
+			str_format(aParticipants, sizeof(aParticipants), "%d", ParticipantCount);
+			str_time(DurationCentiseconds, ETimeFormat::DAYS, aDuration, sizeof(aDuration));
+			if(SavedAt > 0)
+				str_timestamp_ex(SavedAt, aSavedAt, sizeof(aSavedAt), Card.w < 620.0f ? "%m-%d %H:%M" : "%Y-%m-%d %H:%M");
+			else
+				str_copy(aSavedAt, "—");
+			const char *pResult = pStatusText;
+			const ColorRGBA ResultAccent = StatusAccent;
+
+			DrawAmfGlassPanel(Card, ColorRGBA(0.016f, 0.034f, 0.067f, 0.98f), ColorRGBA(0.23f, 0.46f, 0.78f, 0.65f), 8.0f);
+			CUIRect LeftPanel, HeroPanel, BrandPanel, HeroRemaining;
+			const float HeroGap = 0.0f;
+			const float HeroUsableWidth = Card.w;
+			const bool CompactHero = Card.w < 820.0f;
+			const float LeftPanelWidth = HeroUsableWidth * (CompactHero ? 0.31f : 0.25f);
+			const float HeroPanelWidth = HeroUsableWidth * (CompactHero ? 0.49f : 0.55f);
+			Card.VSplitLeft(LeftPanelWidth, &LeftPanel, &HeroRemaining);
+			HeroRemaining.VSplitLeft(HeroGap, nullptr, &HeroRemaining);
+			HeroRemaining.VSplitLeft(HeroPanelWidth, &HeroPanel, &HeroRemaining);
+			HeroRemaining.VSplitLeft(HeroGap, nullptr, &HeroRemaining);
+			BrandPanel = HeroRemaining;
+
+			Graphics()->DrawRect(HeroPanel.x, Card.y + 9.0f, 0.6f, Card.h - 18.0f, ColorRGBA(0.28f, 0.48f, 0.76f, 0.36f), IGraphics::CORNER_NONE, 0.0f);
+			Graphics()->DrawRect(BrandPanel.x, Card.y + 9.0f, 0.6f, Card.h - 18.0f, ColorRGBA(0.28f, 0.48f, 0.76f, 0.36f), IGraphics::CORNER_NONE, 0.0f);
+			// Match the reference's three aligned bands within the existing
+			// central slot: 48/66/54 high with 6/10 gaps and 8 outer padding.
+			CUIRect CentralContent, MvpHeader, ScoreArea;
+			HeroPanel.Margin(vec2(7.0f, 8.0f), &CentralContent);
+			CentralContent.HSplitTop(48.0f, &MvpHeader, &CentralContent);
+			CentralContent.HSplitTop(6.0f, nullptr, &CentralContent);
+			CentralContent.HSplitTop(66.0f, &ScoreArea, &CentralContent);
+			CentralContent.HSplitTop(6.0f, nullptr, &EventTileRow);
+
+			CUIRect LeftContent;
+			LeftPanel.Margin(std::min(10.0f, LeftPanel.w * 0.06f), &LeftContent);
+			CUIRect MapTitleRow, MapIcon, MapTitle, StatusRow;
+			LeftContent.HSplitTop(25.0f, &MapTitleRow, &LeftContent);
+			MapTitleRow.VSplitLeft(20.0f, &MapIcon, &MapTitle);
+			RenderFontIcon(MapIcon, FontIcon::MAP, 10.0f, TEXTALIGN_MC);
+			Ui()->ClipEnable(&MapTitle);
+			Ui()->DoLabel(&MapTitle, pMapName, std::max(15.0f, HeadlineFontSize - 2.0f), TEXTALIGN_ML);
+			Ui()->ClipDisable();
+			LeftContent.HSplitTop(4.0f, nullptr, &LeftContent);
+			LeftContent.HSplitTop(5.0f, nullptr, &LeftContent);
+			LeftContent.HSplitTop(21.0f, &StatusRow, &LeftContent);
+			const float DifficultyWidth = std::min(StatusRow.w * 0.60f, std::max(52.0f, TextRender()->TextWidth(8.8f, Difficulty.c_str()) + 14.0f));
+			CUIRect DifficultyBadge, StatusRemaining, ResultBadge;
+			StatusRow.VSplitLeft(DifficultyWidth, &DifficultyBadge, &StatusRemaining);
+			StatusRemaining.VSplitLeft(5.0f, nullptr, &StatusRemaining);
+			const float ResultWidth = std::min(StatusRemaining.w, TextRender()->TextWidth(8.8f, pResult) + 14.0f);
+			StatusRemaining.VSplitLeft(ResultWidth, &ResultBadge, nullptr);
+			DrawAmfGlassPanel(DifficultyBadge, ColorRGBA(0.075f, 0.15f, 0.27f, 0.88f), ColorRGBA(0.26f, 0.48f, 0.78f, 0.45f), 4.0f);
+			Ui()->ClipEnable(&DifficultyBadge);
+			Ui()->DoLabel(&DifficultyBadge, Difficulty.c_str(), 8.8f, TEXTALIGN_MC);
+			Ui()->ClipDisable();
+			DrawAmfGlassPanel(ResultBadge, ResultAccent.WithMultipliedAlpha(0.14f), ResultAccent.WithMultipliedAlpha(0.34f), 4.0f);
+			Ui()->ClipEnable(&ResultBadge);
+			Ui()->DoLabel(&ResultBadge, pResult, 8.8f, TEXTALIGN_MC);
+			Ui()->ClipDisable();
+			LeftContent.HSplitTop(6.0f, nullptr, &LeftContent);
+			const std::array<std::pair<const char *, const char *>, 4> aRunFacts = {{
+				{TCLocalize("Duration", "AMF Client"), aDuration},
+				{TCLocalize("Participants", "AMF Client"), aParticipants},
+				{TCLocalize("Date", "AMF Client"), aSavedAt},
+				{TCLocalize("Server", "AMF Client"), pServerName},
+			}};
+			for(size_t FactIndex = 0; FactIndex < aRunFacts.size(); ++FactIndex)
+			{
+				if(FactIndex == 3 && pServerName[0] == '\0')
+					break;
+				const auto &Fact = aRunFacts[FactIndex];
+				CUIRect FactRow, FactLabel, FactValue;
+				LeftContent.HSplitTop(23.0f, &FactRow, &LeftContent);
+				FactRow.VSplitLeft(FactRow.w * 0.40f, &FactLabel, &FactValue);
+				Ui()->DoLabel(&FactLabel, Fact.first, 8.0f, TEXTALIGN_ML);
+				SLabelProperties FactValueProps;
+				FactValueProps.SetColor(ColorRGBA(0.89f, 0.93f, 0.99f, 1.0f));
+				if(FactIndex == 3)
+				{
+					FactValueProps.m_MinimumFontSize = 10.0f;
+					FactValueProps.m_MaxWidth = FactValue.w;
+					FactValueProps.m_EllipsisAtEnd = true;
+				}
+				Ui()->ClipEnable(&FactValue);
+				Ui()->DoLabel(&FactValue, Fact.second, FactIndex == 3 ? 10.0f : FitTextFontSize(Fact.second, 10.0f, 7.0f, FactValue.w), TEXTALIGN_ML, FactValueProps);
+				Ui()->ClipDisable();
+			}
+
+			DrawAmfDashboardGradientPanel(MvpHeader, ColorRGBA(0.23f, 0.50f, 0.89f, 0.76f),
+				ColorRGBA(0.060f, 0.145f, 0.280f, 0.96f), ColorRGBA(0.027f, 0.075f, 0.155f, 0.96f),
+				ColorRGBA(0.030f, 0.095f, 0.195f, 0.96f), ColorRGBA(0.010f, 0.039f, 0.092f, 0.96f), 7.0f);
+			// Restrained diagonal depth behind the MVP header.
+			CUIRect MvpInterior;
+			MvpHeader.Margin(1.0f, &MvpInterior);
+			Ui()->ClipEnable(&MvpInterior);
+			Graphics()->TextureClear();
+			Graphics()->QuadsBegin();
+			Graphics()->SetColor(ColorRGBA(0.27f, 0.52f, 0.91f, 0.075f));
+			IGraphics::CFreeformItem Diagonal(MvpHeader.x + MvpHeader.w * 0.54f, MvpHeader.y,
+				MvpHeader.x + MvpHeader.w * 0.70f, MvpHeader.y,
+				MvpHeader.x + MvpHeader.w * 0.82f, MvpHeader.y + MvpHeader.h,
+				MvpHeader.x + MvpHeader.w * 0.67f, MvpHeader.y + MvpHeader.h);
+			Graphics()->QuadsDrawFreeform(&Diagonal, 1);
+			Graphics()->SetColor(ColorRGBA(0.23f, 0.43f, 0.77f, 0.035f));
+			IGraphics::CFreeformItem SecondaryDiagonal(MvpHeader.x + MvpHeader.w * 0.43f, MvpHeader.y,
+				MvpHeader.x + MvpHeader.w * 0.54f, MvpHeader.y,
+				MvpHeader.x + MvpHeader.w * 0.68f, MvpHeader.y + MvpHeader.h,
+				MvpHeader.x + MvpHeader.w * 0.57f, MvpHeader.y + MvpHeader.h);
+			Graphics()->QuadsDrawFreeform(&SecondaryDiagonal, 1);
+			Graphics()->QuadsEnd();
+			Ui()->ClipDisable();
+			// The crown glyph is provided by the existing Font Awesome icon font.
+			constexpr const char *pCrownIcon = "\xEF\x94\xA1"; // U+F521
+			CUIRect CrownWatermark(MvpHeader.x + MvpHeader.w * 0.67f, MvpHeader.y + 1.0f, MvpHeader.w * 0.19f, MvpHeader.h - 2.0f);
+			SLabelProperties CrownProps;
+			CrownProps.SetColor(ColorRGBA(0.25f, 0.47f, 0.83f, 0.09f));
+			RenderFontIcon(CrownWatermark, pCrownIcon, 42.0f, TEXTALIGN_MC, CrownProps);
+
+			CUIRect MvpContent, Avatar, MvpText, MvpLabel, MvpName;
+			MvpHeader.Margin(vec2(9.0f, 6.0f), &MvpContent);
+			MvpContent.VSplitLeft(41.0f, &Avatar, &MvpText);
+			Avatar.w = 34.0f;
+			Avatar.HMargin(1.0f, &Avatar);
+			MvpText.VSplitLeft(5.0f, nullptr, &MvpText);
+			MvpText.VSplitRight(15.0f, &MvpText, nullptr);
+			Avatar.Draw(ColorRGBA(0.10f, 0.22f, 0.39f, 0.95f), IGraphics::CORNER_ALL, 6.0f);
+			const AmfImpact::SParticipantCosmeticSnapshot *pCosmetics = pMvpParticipant == nullptr ? nullptr : &pMvpParticipant->m_Cosmetics;
+			const char *pSkinName = pCosmetics != nullptr && pCosmetics->m_Available && CSkin::IsValidName(pCosmetics->m_SkinName.c_str()) ? pCosmetics->m_SkinName.c_str() : "default";
+			CTeeRenderInfo TeeInfo;
+			TeeInfo.Apply(GameClient()->m_Skins.Find(pSkinName));
+			TeeInfo.ApplyColors(pCosmetics != nullptr && pCosmetics->m_Available && pCosmetics->m_UseCustomColor,
+				pCosmetics == nullptr ? 0 : pCosmetics->m_ColorBody, pCosmetics == nullptr ? 0 : pCosmetics->m_ColorFeet);
+			TeeInfo.m_Size = std::min(33.0f, Avatar.h * 0.94f);
+			const CAnimState *pIdleState = CAnimState::GetIdle();
+			vec2 TeeOffset;
+			CRenderTools::GetRenderTeeOffsetToRenderedTee(pIdleState, &TeeInfo, TeeOffset);
+			Ui()->ClipEnable(&MvpHeader);
+			RenderTools()->RenderTee(pIdleState, &TeeInfo, EMOTE_NORMAL, vec2(1.0f, 0.0f), Avatar.Center() + TeeOffset);
+			Ui()->ClipDisable();
+
+			MvpText.HSplitTop(18.0f, &MvpLabel, &MvpName);
+			CUIRect MvpLabelText, MvpStar;
+			const float MvpLabelTextWidth = TextRender()->TextWidth(9.0f, "MVP") + 0.5f;
+			MvpLabel.VSplitLeft(MvpLabelTextWidth, &MvpLabelText, &MvpStar);
+			MvpStar.w = 10.0f;
+			SLabelProperties MvpLabelProps;
+			MvpLabelProps.SetColor(pMvpParticipant == nullptr ? ColorRGBA(0.60f, 0.72f, 0.88f, 1.0f) : ColorRGBA(0.93f, 0.79f, 0.46f, 1.0f));
+			Ui()->DoLabel(&MvpLabelText, "MVP", 9.0f, TEXTALIGN_ML, MvpLabelProps);
+			SLabelProperties MvpStarProps;
+			MvpStarProps.SetColor(ColorRGBA(0.96f, 0.77f, 0.37f, pMvpParticipant == nullptr ? 0.78f : 1.0f));
+			RenderFontIcon(MvpStar, FontIcon::STAR, 7.0f, TEXTALIGN_ML, MvpStarProps);
+			const char *pMvpName = pMvpParticipant == nullptr || pMvpParticipant->m_Name.empty() ? "—" : pMvpParticipant->m_Name.c_str();
+			SLabelProperties MvpNameProps;
+			MvpNameProps.SetColor(ColorRGBA(0.94f, 0.97f, 1.0f, 1.0f));
+			MvpNameProps.m_MaxWidth = MvpName.w;
+			MvpNameProps.m_EllipsisAtEnd = true;
+			MvpNameProps.m_MinimumFontSize = 8.0f;
+			CUIRect MvpNameText = MvpName;
+			constexpr float MvpNameTextRaise = 4.0f;
+			MvpNameText.y -= MvpNameTextRaise;
+			Ui()->ClipEnable(&MvpText);
+			Ui()->DoLabel(&MvpNameText, pMvpName, FitTextFontSize(pMvpName, 13.0f, 8.0f, MvpName.w), TEXTALIGN_ML, MvpNameProps);
+			Ui()->ClipDisable();
+
+			const AmfImpact::SImpactScoreDisplay MvpScoreDisplay = pMvpParticipant == nullptr ? AmfImpact::SImpactScoreDisplay{} : AmfImpact::BuildImpactScoreDisplay(*pMvpParticipant, pFinalPresentation != nullptr && pFinalPresentation->m_Finalized);
+			{
+				const std::array<const char *, 3> apLabels = {
+					TCLocalize("Rating", "AMF Client"),
+					TCLocalize("Impact", "AMF Client"),
+					TCLocalize("Stability", "AMF Client")};
+				const std::array<const char *, 3> apIcons = {"\xEF\x82\x80", "\xEF\x85\x80", "\xEF\x84\xB2"}; // chart, bullseye, shield
+				const std::array<std::string, 3> aValues = {
+					MvpScoreDisplay.m_Rating,
+					MvpScoreDisplay.m_Impact,
+					MvpScoreDisplay.m_Stability};
+				constexpr float MetricValueFontSize = 13.3f;
+				const float CardGap = CompactMetrics ? 4.0f : 6.0f;
+				const float MetricCardWidth = (ScoreArea.w - CardGap * 2.0f) / 3.0f;
+				for(size_t Index = 0; Index < apLabels.size(); ++Index)
+				{
+					CUIRect MetricCard = CUIRect(ScoreArea.x + static_cast<float>(Index) * (MetricCardWidth + CardGap), ScoreArea.y, MetricCardWidth, ScoreArea.h);
+					DrawAmfDashboardGradientPanel(MetricCard, ColorRGBA(0.22f, 0.43f, 0.69f, 0.51f),
+						ColorRGBA(0.028f, 0.067f, 0.119f, 0.88f), ColorRGBA(0.016f, 0.044f, 0.084f, 0.88f),
+						ColorRGBA(0.013f, 0.038f, 0.073f, 0.90f), ColorRGBA(0.011f, 0.032f, 0.064f, 0.90f), 7.0f);
+					const CUIRect MetricOuter = MetricCard;
+					MetricCard.Margin(vec2(5.0f, 5.0f), &MetricCard);
+					CUIRect LabelRow, IconBadge, Label, Value, ValueWell;
+					MetricCard.HSplitTop(21.0f, &LabelRow, &Value);
+					LabelRow.VSplitLeft(18.0f, &IconBadge, &Label);
+					IconBadge.h = 18.0f;
+					IconBadge.y += (LabelRow.h - IconBadge.h) * 0.5f;
+					IconBadge.Draw(ColorRGBA(0.10f, 0.21f, 0.35f, 0.78f), IGraphics::CORNER_ALL, 5.0f);
+					RenderFontIcon(IconBadge, apIcons[Index], 8.5f, TEXTALIGN_MC);
+					Label.VSplitLeft(4.0f, nullptr, &Label);
+					Ui()->DoLabel(&Label, apLabels[Index], FitTextFontSize(apLabels[Index], 9.0f, 6.0f, Label.w), TEXTALIGN_ML);
+					ValueWell.w = std::min(Value.w, MetricOuter.w * 0.40f);
+					ValueWell.x = MetricOuter.Center().x - ValueWell.w * 0.5f;
+					ValueWell.h = std::min(Value.h, 28.0f);
+					ValueWell.y = Value.Center().y - ValueWell.h * 0.5f;
+					RenderMetricValueWell(ValueWell);
+					if(Index == 0)
+					{
+						RenderRatingValue(ValueWell, MvpScoreDisplay.m_Available, pMvpParticipant == nullptr ? 0.0 : pMvpParticipant->m_Score.m_Rating, aValues[Index], MetricValueFontSize);
+						if(MvpScoreDisplay.m_Available && pMvpParticipant != nullptr)
+						{
+							const CUIRect RatingHitRect = MakeCenteredTextHitRect(ValueWell, aValues[Index], 15.0f);
+							RegisterStatisticTooltip(&s_CentralRatingTooltipId, RatingHitRect, s_vRatingTooltipLines);
+						}
+					}
+					else
+					{
+						SLabelProperties ValueProps;
+						if(Index == 1)
+							ValueProps.SetColor(MvpScoreDisplay.m_HasImpactColor ? AmfImpact::GetImpactDisplayColor(MvpScoreDisplay.m_ImpactColor) : ColorRGBA(0.58f, 0.67f, 0.79f, 1.0f));
+						else if(Index == 2)
+							ValueProps.SetColor(AmfImpact::GetStabilityTextColor(MvpScoreDisplay.m_Available, pMvpParticipant == nullptr ? 0.0 : pMvpParticipant->m_Score.m_Stability));
+						else
+							ValueProps.SetColor(MvpScoreDisplay.m_Available ? ColorRGBA(0.93f, 0.96f, 1.0f, 1.0f) : ColorRGBA(0.58f, 0.67f, 0.79f, 1.0f));
+						Ui()->DoLabel(&ValueWell, aValues[Index].c_str(), MetricValueFontSize, TEXTALIGN_MC, ValueProps);
+						if(Index == 1 && MvpScoreDisplay.m_Available && pMvpParticipant != nullptr)
+						{
+							const float TextWidth = TextRender()->TextWidth(MetricValueFontSize, aValues[Index].c_str());
+						const CUIRect ImpactHitRect = AmfImpact::MakeStatisticTooltipHitRect(ValueWell, TextWidth, MetricValueFontSize);
+						RegisterStatisticTooltip(&s_CentralImpactTooltipId, ImpactHitRect, s_vImpactTooltipLines);
+					}
+					else if(Index == 2 && MvpScoreDisplay.m_Available && pMvpParticipant != nullptr)
+						{
+							const CUIRect StabilityHitRect = MakeCenteredTextHitRect(ValueWell, aValues[Index], 15.0f);
+							RegisterStatisticTooltip(&s_CentralStabilityTooltipId, StabilityHitRect, s_vStabilityTooltipLines);
+						}
+					}
+				}
+			}
+
+			CUIRect BrandContent, BrandTitle, BrandRule, BrandSubtitle, BrandFoot;
+			BrandPanel.Margin(std::min(10.0f, BrandPanel.w * 0.08f), &BrandContent);
+			BrandContent.HMargin(std::max(0.0f, (BrandContent.h - 62.0f) * 0.5f), &BrandContent);
+			BrandContent.HSplitTop(26.0f, &BrandTitle, &BrandContent);
+			Ui()->DoLabel(&BrandTitle, "AMF", 21.0f, TEXTALIGN_MC);
+			BrandContent.HSplitTop(3.0f, nullptr, &BrandContent);
+			BrandContent.HSplitTop(1.0f, &BrandRule, &BrandContent);
+			BrandRule.Draw(ColorRGBA(0.29f, 0.56f, 0.94f, 0.60f), IGraphics::CORNER_NONE, 0.0f);
+			BrandContent.HSplitTop(5.0f, nullptr, &BrandContent);
+			BrandContent.HSplitTop(16.0f, &BrandSubtitle, &BrandFoot);
+			Ui()->DoLabel(&BrandSubtitle, TCLocalize("AMF Client", "AMF Client"), 8.8f, TEXTALIGN_MC);
+			Ui()->DoLabel(&BrandFoot, TCLocalize("Run report", "AMF Client"), 8.0f, TEXTALIGN_MC);
+
+			struct SRunEventMetric
+			{
+				const char *m_pIcon;
+				const char *m_pLabel;
+				ColorRGBA m_Accent;
+			};
+			const std::array<std::string, 4> aEventValues = pMvpParticipant == nullptr ?
+				std::array<std::string, 4>{"—", "—", "—", "—"} :
+				std::array<std::string, 4>{std::to_string(pMvpParticipant->m_RawStats.m_Saves), std::to_string(pMvpParticipant->m_RawStats.m_Aleds), std::to_string(pMvpParticipant->m_RawStats.m_Clutches), std::to_string(pMvpParticipant->m_RawStats.m_Falls)};
+			const std::array<SRunEventMetric, 4> aEventMetrics = {{
+				{FontIcon::HEART, TCLocalize("Saves", "AMF Client"), ColorRGBA(0.34f, 0.66f, 1.0f, 0.95f)},
+				{FontIcon::ARROWS_LEFT_RIGHT, TCLocalize("Aleds", "AMF Client"), ColorRGBA(0.34f, 0.66f, 1.0f, 0.95f)},
+				{FontIcon::STAR, TCLocalize("Clutches", "AMF Client"), ColorRGBA(0.34f, 0.66f, 1.0f, 0.95f)},
+				{FontIcon::TRIANGLE_EXCLAMATION, TCLocalize("Falls", "AMF Client"), ColorRGBA(0.34f, 0.66f, 1.0f, 0.95f)},
+			}};
+			const std::array<ColorRGBA, 4> aMetricTopTints = {
+				ColorRGBA(0.032f, 0.074f, 0.132f, 0.90f),
+				ColorRGBA(0.032f, 0.074f, 0.132f, 0.90f),
+				ColorRGBA(0.032f, 0.074f, 0.132f, 0.90f),
+				ColorRGBA(0.032f, 0.074f, 0.132f, 0.90f)};
+			const std::array<ColorRGBA, 4> aMetricBottomTints = {
+				ColorRGBA(0.016f, 0.042f, 0.080f, 0.91f),
+				ColorRGBA(0.016f, 0.042f, 0.080f, 0.91f),
+				ColorRGBA(0.016f, 0.042f, 0.080f, 0.91f),
+				ColorRGBA(0.016f, 0.042f, 0.080f, 0.91f)};
+			const int EventColumns = 4;
+			const float TileGap = CompactMetrics ? 3.0f : 5.0f;
+			const float TileWidth = (EventTileRow.w - TileGap * static_cast<float>(EventColumns - 1)) / static_cast<float>(EventColumns);
+			for(size_t Index = 0; Index < aEventMetrics.size(); ++Index)
+			{
+				CUIRect Tile, HeaderRow, IconBacking, ValueRect, LabelRect;
+				const int Row = 0;
+				const int Column = static_cast<int>(Index) % EventColumns;
+				Tile = CUIRect(EventTileRow.x + Column * (TileWidth + TileGap), EventTileRow.y + Row * (EventTileRow.h + 7.0f), TileWidth, EventTileRow.h);
+				DrawAmfDashboardGradientPanel(Tile, aEventMetrics[Index].m_Accent.WithMultipliedAlpha(0.30f),
+					aMetricTopTints[Index], aMetricTopTints[Index].WithMultipliedAlpha(0.88f),
+					aMetricBottomTints[Index], aMetricBottomTints[Index], 7.0f);
+				Tile.Margin(std::min(6.0f, Tile.w * 0.05f), &Tile);
+				Tile.HSplitTop(24.0f, &HeaderRow, &ValueRect);
+				HeaderRow.VSplitLeft(20.0f, &IconBacking, &LabelRect);
+				IconBacking.h = 18.0f;
+				IconBacking.y += (HeaderRow.h - IconBacking.h) * 0.5f;
+				IconBacking.Draw(aEventMetrics[Index].m_Accent.WithMultipliedAlpha(0.14f), IGraphics::CORNER_ALL, 5.0f);
+				RenderFontIcon(IconBacking, aEventMetrics[Index].m_pIcon, 9.0f, TEXTALIGN_MC);
+				LabelRect.VSplitLeft(3.0f, nullptr, &LabelRect);
+				SLabelProperties MetricValueProps;
+				MetricValueProps.SetColor(pMvpParticipant == nullptr ? ColorRGBA(0.52f, 0.61f, 0.74f, 1.0f) : ColorRGBA(0.92f, 0.96f, 1.0f, 1.0f));
+				constexpr float EventValueCenterRaise = 2.0f;
+				CUIRect ValueTextRect = ValueRect;
+				ValueTextRect.y -= EventValueCenterRaise;
+				Ui()->DoLabel(&ValueTextRect, aEventValues[Index].c_str(), 15.0f, TEXTALIGN_MC, MetricValueProps);
+				SLabelProperties MetricLabelProps;
+				MetricLabelProps.SetColor(ColorRGBA(0.69f, 0.77f, 0.88f, 1.0f));
+				Ui()->DoLabel(&LabelRect, aEventMetrics[Index].m_pLabel, FitTextFontSize(aEventMetrics[Index].m_pLabel, 8.5f, 6.0f, LabelRect.w), TEXTALIGN_ML, MetricLabelProps);
+			}
+
+			if(pParticipants != nullptr && AmfImpact::ImpactStatisticsParticipantCount(*pParticipants) > 0)
+			{
+				CUIRect SectionGap;
+				DashboardBody.HSplitTop(MarginSmall, &SectionGap, &DashboardBody);
+				SectionGap.y += SectionGap.h - 1.0f;
+				SectionGap.h = 1.0f;
+				DrawStatisticsSeparator(SectionGap);
+				RenderStatisticsSectionTitle(&DashboardBody, TCLocalize("Player statistics", "AMF Client"), FontIcon::ICON_USERS);
+				CUIRect PlayerTable;
+				const float PlayerTableHeight = 42.0f + 40.0f * static_cast<float>(AmfImpact::ImpactStatisticsParticipantCount(*pParticipants));
+				DashboardBody.HSplitTop(PlayerTableHeight, &PlayerTable, &DashboardBody);
+			RenderParticipantTable(PlayerTable, *pParticipants, true, pFinalPresentation);
+			}
+			else
+			{
+				CUIRect SectionGap;
+				DashboardBody.HSplitTop(MarginSmall, &SectionGap, &DashboardBody);
+				SectionGap.y += SectionGap.h - 1.0f;
+				SectionGap.h = 1.0f;
+				DrawStatisticsSeparator(SectionGap);
+				RenderStatisticsSectionTitle(&DashboardBody, TCLocalize("Player statistics", "AMF Client"), FontIcon::ICON_USERS);
+				CUIRect PlayerTable;
+				DashboardBody.HSplitTop(82.0f, &PlayerTable, &DashboardBody);
+			RenderParticipantTable(PlayerTable, std::vector<AmfImpact::SParticipant>{}, true, pFinalPresentation);
+			}
+	};
+
+	const auto &vStoredHistory = GameClient()->m_ImpactSystem.History();
+#if defined(CONF_DEBUG)
+	AmfImpact::SRunSnapshot DebugHistoryPreview;
+	const bool PreviewRunIdAvailable = std::none_of(vStoredHistory.begin(), vStoredHistory.end(), [](const AmfImpact::SRunSnapshot &SnapshotData) {
+		return SnapshotData.m_RunId == AmfImpact::DEBUG_HISTORY_PREVIEW_RUN_ID;
+	});
+	const AmfImpact::SRunSnapshot *pDebugHistoryPreview = nullptr;
+	if(g_Config.m_ClImpactHistoryPreview != 0 && PreviewRunIdAvailable)
+	{
+		DebugHistoryPreview = AmfImpact::BuildDebugHistoryPreviewSnapshot();
+		pDebugHistoryPreview = &DebugHistoryPreview;
+	}
+#else
+	const AmfImpact::SRunSnapshot *pDebugHistoryPreview = nullptr;
+#endif
+	const size_t HistoryCount = vStoredHistory.size() + (pDebugHistoryPreview != nullptr ? 1U : 0U);
+	const auto HistorySnapshotAt = [&](size_t Index) -> const AmfImpact::SRunSnapshot & {
+		if(Index < vStoredHistory.size())
+			return vStoredHistory[Index];
+		return *pDebugHistoryPreview;
+	};
+
+	if(m_AmfRunStatisticsDetail)
+	{
+		const AmfImpact::SRunSnapshot *pSelectedRun = nullptr;
+		for(size_t Index = 0; Index < HistoryCount; ++Index)
+		{
+			const AmfImpact::SRunSnapshot &SnapshotData = HistorySnapshotAt(Index);
+			if(SnapshotData.m_RunId == m_AmfImpactDetailRunId)
+			{
+				pSelectedRun = &SnapshotData;
+				break;
+			}
+		}
+		if(pSelectedRun == nullptr)
+		{
+			m_AmfRunStatisticsDetail = false;
+			m_AmfImpactDetailRunId = 0;
+			m_AmfRunStatisticsTab = 1;
+		}
+		else
+		{
+			static CScrollRegion s_DetailScroll;
+			CScrollRegionParams DetailScrollParams;
+			DetailScrollParams.m_ScrollUnit = 40.0f;
+			DetailScrollParams.m_ForceShowScrollbar = true;
+			s_DetailScroll.Begin(&Body, &DetailScrollParams);
+			CUIRect DetailBody = Body;
+			const std::string Difficulty = AmfImpact::MapDifficultyDisplayName(pSelectedRun->m_Context);
+			const char *pMapName = pSelectedRun->m_Context.m_Map.empty() ? "—" : pSelectedRun->m_Context.m_Map.c_str();
+			const SRunStatusVisual ResultVisual = RunStatusVisual(pSelectedRun->m_Result);
+			GameClient()->m_ImpactSystem.LogDifficultyUiSource("HISTORY_DETAIL", pSelectedRun->m_RunId, pSelectedRun->m_Context, "SELECTED_HISTORY_ENTRY");
+			const AmfImpact::SImpactRunPresentation FinalPresentation = AmfImpact::BuildImpactRunPresentation(*pSelectedRun);
+			const AmfImpact::SParticipant *pMvpParticipant = FinalPresentation.m_HasMvp && FinalPresentation.m_MvpParticipantIndex < pSelectedRun->m_vParticipants.size() ?
+				&pSelectedRun->m_vParticipants[FinalPresentation.m_MvpParticipantIndex] : nullptr;
+			RenderRunDashboard(DetailBody, pMapName, Difficulty, pSelectedRun->m_Context.m_ServerName.c_str(),
+				static_cast<int>(pSelectedRun->m_vParticipants.size()), ImpactSnapshotDurationCentiseconds(*pSelectedRun), pSelectedRun->m_SavedAt,
+				ResultVisual.m_pText, ResultVisual.m_Accent, &pSelectedRun->m_vParticipants, &FinalPresentation, pMvpParticipant);
+			CUIRect ScrollEnd = DetailBody;
+			ScrollEnd.h = 0.0f;
+			s_DetailScroll.AddRect(ScrollEnd);
+			s_DetailScroll.End();
+		}
+	}
+	else if(m_AmfRunStatisticsTab == 0)
+	{
+		static CScrollRegion s_CurrentRunScroll;
+		CScrollRegionParams CurrentScrollParams;
+		CurrentScrollParams.m_ScrollUnit = 40.0f;
+		CurrentScrollParams.m_ForceShowScrollbar = true;
+		s_CurrentRunScroll.Begin(&Body, &CurrentScrollParams);
+		CUIRect CurrentBody = Body;
+		const AmfImpact::CImpactRun *pRun = GameClient()->m_ImpactSystem.LocalViewRun();
+		const std::vector<uint64_t> PendingRunIds = GameClient()->m_ImpactSystem.PendingSaveRunIds();
+		const AmfImpact::SRunSnapshot *pLocalReset = GameClient()->m_ImpactSystem.LocalResetSnapshot();
+		const AmfImpact::SRunSnapshot *pPendingRun = pRun == nullptr && pLocalReset != nullptr ? pLocalReset :
+			PendingRunIds.empty() ? nullptr : GameClient()->m_ImpactSystem.PendingSaveRun(PendingRunIds.front());
+		const bool SupportedServer = GameClient()->m_ImpactSystem.EngineActive();
+		const int TeamMemberCount = GameClient()->m_ImpactSystem.TeamMemberCount();
+		const int EligibleParticipantCount = GameClient()->m_ImpactSystem.EligibleParticipantCount();
+		const bool SupportedTeamUnavailable = SupportedServer && pRun == nullptr && TeamMemberCount == 0;
+		const char *pStateText = !SupportedServer ? TCLocalize("Unsupported server", "AMF Client") :
+			SupportedTeamUnavailable ? TCLocalize("Impact analysis unavailable for this team", "AMF Client") :
+			TCLocalize("Waiting for another team member", "AMF Client");
+		const char *pResultText = "—";
+		int Participants = SupportedServer ? TeamMemberCount : 0;
+		int DurationSeconds = 0;
+		const char *pMap = "—";
+		std::string Difficulty = "—";
+		if(SupportedServer && pRun != nullptr)
+		{
+			GameClient()->m_ImpactSystem.LogDifficultyUiSource("CURRENT_ACTIVE_RUN", pRun->RunId(), pRun->Context(), "CURRENT_TAB_ACTIVE_RUN");
+			pStateText = TCLocalize(AmfImpact::RunStatusLocalizationKey(pRun->State(), TeamMemberCount, EligibleParticipantCount), "AMF Client");
+			pResultText = TCLocalize(AmfImpact::RunResultDisplayName(pRun->Result()), "AMF Client");
+			Participants = static_cast<int>(AmfImpact::ImpactStatisticsParticipantCount(pRun->Participants()));
+			DurationSeconds = pRun->TeamRaceSeconds(Client()->GameTick(g_Config.m_ClDummy));
+			pMap = pRun->Context().m_Map.empty() ? "—" : pRun->Context().m_Map.c_str();
+			Difficulty = AmfImpact::MapDifficultyDisplayName(pRun->Context());
+		}
+		else if(pPendingRun != nullptr)
+		{
+			GameClient()->m_ImpactSystem.LogDifficultyUiSource("PENDING_SAVE_RUN", pPendingRun->m_RunId, pPendingRun->m_Context, "CURRENT_TAB_PENDING_RUN");
+			pStateText = TCLocalize("Partial statistics", "AMF Client");
+			pResultText = TCLocalize(AmfImpact::RunResultDisplayName(pPendingRun->m_Result), "AMF Client");
+			Participants = static_cast<int>(pPendingRun->m_vParticipants.size());
+			DurationSeconds = static_cast<int>(ImpactSnapshotDurationCentiseconds(*pPendingRun) / 100);
+			pMap = pPendingRun->m_Context.m_Map.empty() ? "—" : pPendingRun->m_Context.m_Map.c_str();
+			Difficulty = AmfImpact::MapDifficultyDisplayName(pPendingRun->m_Context);
+		}
+
+		char aParticipants[32], aDuration[64];
+		str_format(aParticipants, sizeof(aParticipants), "%d", Participants);
+		str_time(static_cast<int64_t>(DurationSeconds) * 100, ETimeFormat::DAYS, aDuration, sizeof(aDuration));
+		const std::vector<AmfImpact::SParticipant> *pParticipants = pRun != nullptr ? &pRun->Participants() : pPendingRun != nullptr ? &pPendingRun->m_vParticipants : nullptr;
+		const char *pServerName = SupportedServer && pRun != nullptr ? pRun->Context().m_ServerName.c_str() : pPendingRun != nullptr ? pPendingRun->m_Context.m_ServerName.c_str() : "";
+		const int64_t SavedAt = pRun == nullptr && pPendingRun != nullptr ? pPendingRun->m_SavedAt : 0;
+		const AmfImpact::ERunResult Result = SupportedServer && pRun != nullptr ? pRun->Result() : pPendingRun != nullptr ? pPendingRun->m_Result : AmfImpact::ERunResult::NONE;
+		const SRunStatusVisual ResultVisual = RunStatusVisual(Result);
+		const char *pStatus = Result == AmfImpact::ERunResult::NONE ? pStateText : pResultText;
+		AmfImpact::SImpactRunPresentation PendingPresentation;
+		const AmfImpact::SImpactRunPresentation *pFinalPresentation = nullptr;
+		const AmfImpact::SParticipant *pMvpParticipant = nullptr;
+		if(pPendingRun != nullptr)
+		{
+			PendingPresentation = AmfImpact::BuildImpactRunPresentation(*pPendingRun);
+			if(PendingPresentation.m_Finalized)
+			{
+				pFinalPresentation = &PendingPresentation;
+				if(PendingPresentation.m_HasMvp && PendingPresentation.m_MvpParticipantIndex < pPendingRun->m_vParticipants.size())
+					pMvpParticipant = &pPendingRun->m_vParticipants[PendingPresentation.m_MvpParticipantIndex];
+			}
+		}
+		RenderRunDashboard(CurrentBody, pMap, Difficulty, pServerName, Participants,
+			static_cast<int64_t>(DurationSeconds) * 100, SavedAt, pStatus,
+			Result == AmfImpact::ERunResult::NONE ? ColorRGBA(0.37f, 0.62f, 0.96f, 0.90f) : ResultVisual.m_Accent,
+			pParticipants, pFinalPresentation, pMvpParticipant);
+		if(!PendingRunIds.empty())
+		{
+			CurrentBody.HSplitTop(MarginSmall, nullptr, &CurrentBody);
+			static std::vector<CButtonContainer> s_vPendingSaveButtons;
+			static std::vector<CButtonContainer> s_vPendingDiscardButtons;
+			s_vPendingSaveButtons.resize(PendingRunIds.size());
+			s_vPendingDiscardButtons.resize(PendingRunIds.size());
+			for(size_t PendingIndex = 0; PendingIndex < PendingRunIds.size(); ++PendingIndex)
+			{
+				const uint64_t RunId = PendingRunIds[PendingIndex];
+				const AmfImpact::SRunSnapshot *pPending = GameClient()->m_ImpactSystem.PendingSaveRun(RunId);
+				if(pPending == nullptr)
+					continue;
+
+				CUIRect PendingCard;
+				CurrentBody.HSplitTop(76.0f, &PendingCard, &CurrentBody);
+				PendingCard.Draw(ColorRGBA(0.025f, 0.04f, 0.08f, 0.72f), IGraphics::CORNER_ALL, 7.0f);
+				PendingCard.Margin(6.0f, &PendingCard);
+				CUIRect PendingTitle, PendingMeta, PendingButtons, PendingIcon, PendingTitleText, ResultBadge, Divider;
+				PendingCard.HSplitTop(18.0f, &PendingTitle, &PendingCard);
+				PendingTitle.VSplitLeft(20.0f, &PendingIcon, &PendingTitleText);
+				RenderFontIcon(PendingIcon, FontIcon::FLAG_CHECKERED, 10.0f, TEXTALIGN_MC);
+				const char *pPendingMap = !pPending->m_Context.m_Map.empty() ? pPending->m_Context.m_Map.c_str() : "—";
+				PendingTitleText.VSplitRight(82.0f, &PendingTitleText, &ResultBadge);
+				Ui()->ClipEnable(&PendingTitleText);
+				Ui()->DoLabel(&PendingTitleText, pPendingMap, StandardFontSize, TEXTALIGN_ML);
+				Ui()->ClipDisable();
+				ResultBadge.Draw(ColorRGBA(0.14f, 0.22f, 0.34f, 0.75f), IGraphics::CORNER_ALL, 4.0f);
+				Ui()->DoLabel(&ResultBadge, pPending != nullptr ? TCLocalize(AmfImpact::RunResultDisplayName(pPending->m_Result), "AMF Client") : "—", 9.0f, TEXTALIGN_MC);
+				PendingCard.HSplitTop(2.0f, nullptr, &PendingCard);
+				PendingCard.HSplitTop(1.0f, &Divider, &PendingCard);
+				Divider.Draw(ColorRGBA(0.35f, 0.52f, 0.78f, 0.25f), IGraphics::CORNER_NONE, 0.0f);
+				PendingCard.HSplitTop(2.0f, nullptr, &PendingCard);
+				PendingCard.HSplitTop(14.0f, &PendingMeta, &PendingCard);
+				char aDetails[256], aDuration[64];
+				str_time(ImpactSnapshotDurationCentiseconds(*pPending), ETimeFormat::DAYS, aDuration, sizeof(aDuration));
+				// Format the countdown separately so translated singular/plural strings remain localizable.
+				char aCountdown[64];
+				const int SecondsLeft = GameClient()->m_ImpactSystem.PendingSaveSecondsRemaining(RunId);
+				str_format(aCountdown, sizeof(aCountdown), SecondsLeft == 1 ? TCLocalize("1 second remaining", "AMF Client") : TCLocalize("%d seconds remaining", "AMF Client"), SecondsLeft);
+				str_format(aDetails, sizeof(aDetails), "%s · %s", aDuration, aCountdown);
+				Ui()->DoLabel(&PendingMeta, aDetails, 9.5f, TEXTALIGN_ML);
+				PendingCard.HSplitTop(2.0f, nullptr, &PendingCard);
+				PendingButtons = PendingCard;
+				CUIRect SaveButton, DontSaveButton;
+				PendingButtons.VSplitMid(&SaveButton, &DontSaveButton, MarginSmall);
+				if(DoButtonLineSize_Menu(&s_vPendingSaveButtons[PendingIndex], TCLocalize("Save Run", "AMF Client"), 0, &SaveButton, LineSize, false, nullptr, IGraphics::CORNER_L, 5.0f, 0.0f, ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f)))
+					GameClient()->m_ImpactSystem.SavePendingRun(RunId);
+				if(DoButtonLineSize_Menu(&s_vPendingDiscardButtons[PendingIndex], TCLocalize("Don't Save", "AMF Client"), 0, &DontSaveButton, LineSize, false, nullptr, IGraphics::CORNER_R, 5.0f, 0.0f, ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f)))
+					GameClient()->m_ImpactSystem.DiscardPendingRun(RunId);
+				CurrentBody.HSplitTop(MarginSmall, nullptr, &CurrentBody);
+			}
+		}
+
+		CUIRect ScrollEnd = CurrentBody;
+		ScrollEnd.h = 0.0f;
+		s_CurrentRunScroll.AddRect(ScrollEnd);
+		s_CurrentRunScroll.End();
+	}
+	else
+	{
+		// CScrollRegion keeps its scroll position/UI identity by address. A
+		// history page is rendered every frame, so the region must outlive this
+		// call just like the current-run and detail regions above.
+		static CScrollRegion HistoryScroll;
+		CScrollRegionParams ScrollParams;
+		ScrollParams.m_ScrollUnit = 40.0f;
+		ScrollParams.m_ForceShowScrollbar = true;
+		ScrollParams.m_ScrollbarMargin = 5.0f;
+		HistoryScroll.Begin(&Body, &ScrollParams);
+		CUIRect HistoryBody = Body;
+		float HistoryContentHeight = 0.0f;
+		static CButtonContainer s_ShowFullHistoryButton;
+		static std::vector<CButtonContainer> s_vHistoryButtons;
+		static std::vector<CButtonContainer> s_vDeleteButtons;
+		constexpr float HistoryEntryHeight = 45.0f;
+		constexpr float HistoryEntryGap = 3.0f;
+		const size_t FirstHistoryIndex = AmfImpact::HistoryViewStartIndex(HistoryCount, m_AmfImpactFullHistory);
+		s_vHistoryButtons.resize(HistoryCount);
+		s_vDeleteButtons.resize(HistoryCount);
+		if(HistoryCount == 0)
+		{
+			Ui()->DoLabel(&HistoryBody, TCLocalize("No saved runs", "AMF Client"), StandardFontSize, TEXTALIGN_ML);
+			HistoryContentHeight = LineSize;
+		}
+		else
+		{
+			CUIRect HistoryHeader, HistoryHeaderContent, HistoryHeaderIcon, HistoryHeaderText;
+			HistoryBody.HSplitTop(39.0f, &HistoryHeader, &HistoryBody);
+			DrawAmfGlassPanel(HistoryHeader, ColorRGBA(0.024f, 0.047f, 0.085f, 0.86f), ColorRGBA(0.23f, 0.44f, 0.72f, 0.30f), 5.0f);
+			HistoryHeader.Margin(6.0f, &HistoryHeaderContent);
+			HistoryHeaderText = HistoryHeaderContent;
+			HistoryHeaderText.VSplitLeft(23.0f, &HistoryHeaderIcon, &HistoryHeaderText);
+			RenderFontIcon(HistoryHeaderIcon, FontIcon::LIST_UL, 12.0f, TEXTALIGN_MC);
+			CUIRect SectionTitle, SectionSubtitle;
+			HistoryHeaderText.HSplitTop(15.0f, &SectionTitle, &SectionSubtitle);
+			Ui()->DoLabel(&SectionTitle, TCLocalize("Run History", "AMF Client"), 10.0f, TEXTALIGN_ML);
+			Ui()->DoLabel(&SectionSubtitle, TCLocalize("Saved runs", "AMF Client"), 7.2f, TEXTALIGN_ML);
+			HistoryBody.HSplitTop(MarginSmall, nullptr, &HistoryBody);
+			HistoryContentHeight += 39.0f + MarginSmall;
+			for(size_t Index = HistoryCount; Index-- > FirstHistoryIndex;)
+			{
+				CUIRect Entry, EntryContent, EntryText, ActionGroup;
+				HistoryBody.HSplitTop(HistoryEntryHeight, &Entry, &HistoryBody);
+				const bool Visible = HistoryScroll.AddRect(Entry);
+				if(!Visible)
+				{
+					HistoryBody.HSplitTop(HistoryEntryGap, nullptr, &HistoryBody);
+					HistoryContentHeight += HistoryEntryHeight + HistoryEntryGap;
+					continue;
+				}
+				const AmfImpact::SRunSnapshot &SnapshotData = HistorySnapshotAt(Index);
+				const ColorRGBA ResultAccent = SnapshotData.m_Result == AmfImpact::ERunResult::FINISHED ?
+					ColorRGBA(0.24f, 0.78f, 0.57f, 0.95f) : ColorRGBA(0.91f, 0.37f, 0.39f, 0.95f);
+				DrawAmfGlassPanel(Entry,
+					ColorRGBA(0.018f, 0.038f, 0.075f, (Index & 1) ? 0.78f : 0.88f),
+					ColorRGBA(0.15f, 0.31f, 0.56f, (Index & 1) ? 0.20f : 0.28f),
+					4.0f);
+				Entry.Margin(6.0f, &EntryContent);
+				const float DeleteButtonWidth = std::clamp(TextRender()->TextWidth(8.2f, TCLocalize("Delete", "AMF Client")) + 23.0f, 54.0f, 72.0f);
+				const float ActionWidth = std::min(EntryContent.w, DeleteButtonWidth + 4.0f);
+				EntryContent.VSplitRight(ActionWidth, &EntryText, &ActionGroup);
+				GameClient()->m_ImpactSystem.LogDifficultyUiSource("HISTORY_ROW", SnapshotData.m_RunId, SnapshotData.m_Context, "HISTORY_LIST_ENTRY");
+				char aDateTime[64], aDuration[64], aParticipants[32];
+				char aStars[32];
+				// Keep stored timestamps at full precision, but show history entries as a
+				// compact time-of-day. Run duration below intentionally remains precise.
+				str_timestamp_ex(SnapshotData.m_SavedAt, aDateTime, sizeof(aDateTime), "%Y-%m-%d %H:%M");
+				str_time(ImpactSnapshotDurationCentiseconds(SnapshotData), ETimeFormat::DAYS, aDuration, sizeof(aDuration));
+				str_format(aParticipants, sizeof(aParticipants), "%d", static_cast<int>(SnapshotData.m_vParticipants.size()));
+				if(SnapshotData.m_Context.m_MapStars > 0 && SnapshotData.m_Context.m_MapStars <= AmfImpact::MAX_MAP_DIFFICULTY_STARS)
+				{
+					std::string Stars;
+					for(int Star = 0; Star < SnapshotData.m_Context.m_MapStars; ++Star)
+						Stars += "★";
+					str_copy(aStars, Stars.c_str());
+				}
+				else
+					str_copy(aStars, "—");
+				const char *pDifficulty = SnapshotData.m_Context.m_MapDifficulty.empty() ? "—" : SnapshotData.m_Context.m_MapDifficulty.c_str();
+				CUIRect TitleRow, MapIcon, HistoryTitle, HistoryMeta;
+				EntryText.HSplitTop(18.0f, &TitleRow, &HistoryMeta);
+				TitleRow.VSplitLeft(17.0f, &MapIcon, &HistoryTitle);
+				RenderFontIcon(MapIcon, FontIcon::MAP, 9.5f, TEXTALIGN_MC);
+				Graphics()->DrawRect(Entry.x + 1.0f, Entry.y + 7.0f, 1.4f, Entry.h - 14.0f, ResultAccent.WithMultipliedAlpha(0.74f), IGraphics::CORNER_ALL, 0.7f);
+				const char *pHistoryMapName = SnapshotData.m_Context.m_Map.empty() ? "—" : SnapshotData.m_Context.m_Map.c_str();
+				const float TitleFontSize = std::max(10.5f, HeadlineFontSize - 5.0f);
+				CUIRect ActionRow, DeleteButton, DeleteContent;
+				ActionGroup.HMargin(std::max(0.0f, (ActionGroup.h - 22.0f) * 0.5f), &ActionRow);
+				ActionRow.VSplitRight(DeleteButtonWidth, nullptr, &DeleteContent);
+				DeleteButton = DeleteContent;
+				DeleteButton.x -= 5.0f;
+				DeleteButton.w += 10.0f;
+				DeleteButton.x -= 8.0f;
+				DeleteContent.x -= 8.0f;
+				// Include the card padding and metadata in the row hitbox;
+				// only the independent Delete control is excluded.
+				CUIRect RowHitbox = Entry;
+				RowHitbox.w = std::max(0.0f, DeleteButton.x - Entry.x - 2.0f);
+				if(Ui()->DoButtonLogic(&s_vHistoryButtons[Index], 0, &RowHitbox, BUTTONFLAG_LEFT))
+				{
+					m_AmfRunStatisticsDetail = true;
+					m_AmfImpactDetailRunId = SnapshotData.m_RunId;
+					m_AmfImpactFullHistory = false;
+				}
+				Ui()->ClipEnable(&HistoryTitle);
+				Ui()->DoLabel(&HistoryTitle, pHistoryMapName, TitleFontSize, TEXTALIGN_ML);
+				Ui()->ClipDisable();
+				const std::array<const char *, 5> aMetadataGroups = {aDateTime, pDifficulty, aStars, aDuration, aParticipants};
+				const float MetaFontSize = HistoryMeta.w < 470.0f ? 8.0f : 8.8f;
+				const float MetaRight = HistoryMeta.x + HistoryMeta.w;
+				float MetaX = HistoryMeta.x;
+				int RenderedGroups = 0;
+				SLabelProperties MetaLabelProps;
+				MetaLabelProps.SetColor(ColorRGBA(0.73f, 0.79f, 0.88f, 1.0f));
+				Ui()->ClipEnable(&HistoryMeta);
+				for(size_t MetaIndex = 0; MetaIndex < aMetadataGroups.size(); ++MetaIndex)
+				{
+					if(RenderedGroups > 0)
+					{
+						const float SeparatorX = MetaX + 2.5f;
+						Graphics()->DrawRect(SeparatorX, HistoryMeta.y + 4.0f, 0.6f, std::max(0.0f, HistoryMeta.h - 8.0f), ColorRGBA(0.50f, 0.63f, 0.80f, 0.17f), IGraphics::CORNER_NONE, 0.0f);
+						MetaX += 7.0f;
+					}
+					const char *pValue = aMetadataGroups[MetaIndex];
+					const bool IsStars = MetaIndex == 2;
+					const bool IsParticipants = MetaIndex == 4;
+					const float IconWidth = IsParticipants ? 11.0f : 0.0f;
+					const float GroupWidth = TextRender()->TextWidth(MetaFontSize, pValue) + IconWidth + (IsParticipants ? 3.0f : 0.0f);
+					const float AvailableWidth = std::max(0.0f, MetaRight - MetaX);
+					const float CellWidth = std::min(GroupWidth, AvailableWidth);
+					CUIRect MetaCell(MetaX, HistoryMeta.y, CellWidth, HistoryMeta.h);
+					if(RenderedGroups > 0)
+						MetaCell.x += 1.0f;
+					if(IsStars)
+					{
+						SLabelProperties StarProps;
+						StarProps.SetColor(ColorRGBA(0.87f, 0.78f, 0.50f, 1.0f));
+						Ui()->DoLabel(&MetaCell, pValue, MetaFontSize, TEXTALIGN_ML, StarProps);
+					}
+					else if(IsParticipants)
+					{
+						CUIRect UsersIcon, ParticipantsValue;
+						MetaCell.VSplitLeft(IconWidth, &UsersIcon, &ParticipantsValue);
+						RenderFontIcon(UsersIcon, FontIcon::ICON_USERS, 8.5f, TEXTALIGN_MC);
+						ParticipantsValue.VSplitLeft(3.0f, nullptr, &ParticipantsValue);
+						Ui()->DoLabel(&ParticipantsValue, pValue, MetaFontSize, TEXTALIGN_ML, MetaLabelProps);
+					}
+					else
+					{
+						Ui()->DoLabel(&MetaCell, pValue, MetaFontSize, TEXTALIGN_ML, MetaLabelProps);
+					}
+					MetaX += CellWidth;
+					++RenderedGroups;
+				}
+				Ui()->ClipDisable();
+#if defined(CONF_DEBUG)
+				if(AmfImpact::IsDebugHistoryPreview(SnapshotData))
+				{
+					SLabelProperties PreviewProps;
+					PreviewProps.SetColor(ColorRGBA(0.55f, 0.72f, 0.94f, 0.90f));
+					const char *pDevPreview = TCLocalize("DEV PREVIEW", "AMF Client");
+					Ui()->DoLabel(&DeleteButton, pDevPreview, FitTextFontSize(pDevPreview, 7.4f, 6.2f, DeleteButton.w), TEXTALIGN_MC, PreviewProps);
+				}
+				else
+#endif
+				{
+					const bool DeleteClicked = Ui()->DoButtonLogic(&s_vDeleteButtons[Index], 0, &DeleteButton, BUTTONFLAG_LEFT);
+					const bool DeleteHovered = Ui()->HotItem() == &s_vDeleteButtons[Index];
+					DrawAmfGlassPanel(DeleteButton,
+						DeleteHovered ? ColorRGBA(0.30f, 0.078f, 0.11f, 0.82f) : ColorRGBA(0.19f, 0.060f, 0.085f, 0.74f),
+						DeleteHovered ? ColorRGBA(0.96f, 0.46f, 0.50f, 0.90f) : ColorRGBA(0.78f, 0.35f, 0.40f, 0.62f), 4.0f);
+					CUIRect DeleteIcon, DeleteLabel;
+					DeleteContent.VSplitLeft(17.0f, &DeleteIcon, &DeleteLabel);
+					RenderFontIcon(DeleteIcon, FontIcon::TRASH, 8.2f, TEXTALIGN_MC);
+					Ui()->DoLabel(&DeleteLabel, TCLocalize("Delete", "AMF Client"), FitTextFontSize(TCLocalize("Delete", "AMF Client"), 8.2f, 6.7f, DeleteLabel.w - 2.0f), TEXTALIGN_ML);
+					if(DeleteClicked)
+					{
+						m_AmfImpactDeleteRunId = SnapshotData.m_RunId;
+						char aMessage[256];
+						str_format(aMessage, sizeof(aMessage), "%s?", TCLocalize("Delete saved run", "AMF Client"));
+						PopupConfirm(TCLocalize("Delete Run", "AMF Client"), aMessage, TCLocalize("Delete", "AMF Client"), TCLocalize("Cancel", "AMF Client"), &CMenus::ConfirmDeleteAmfImpactRun, POPUP_NONE, &CMenus::CancelDeleteAmfImpactRun);
+					}
+				}
+				HistoryBody.HSplitTop(HistoryEntryGap, nullptr, &HistoryBody);
+				HistoryContentHeight += HistoryEntryHeight + HistoryEntryGap;
+			}
+			if(HistoryCount > AmfImpact::MAX_RECENT_HISTORY_RUNS && !m_AmfImpactFullHistory)
+			{
+				CUIRect Footer, FooterHeading, FooterButton;
+				HistoryBody.HSplitTop(40.0f, &Footer, &HistoryBody);
+				const bool FooterVisible = HistoryScroll.AddRect(Footer);
+				Footer.HSplitTop(17.0f, &FooterHeading, &FooterButton);
+				const char *pEndLabel = TCLocalize("END OF THE LAST 30 RUNS", "AMF Client");
+				const char *pMoreLabel = TCLocalize("SHOW MORE RUNS", "AMF Client");
+				if(FooterVisible)
+				{
+					const float HeadingSize = FitTextFontSize(pEndLabel, 7.0f, 5.0f, FooterHeading.w * 0.72f);
+					const float HeadingWidth = TextRender()->TextWidth(HeadingSize, pEndLabel);
+					const float LineWidth = std::max(0.0f, (FooterHeading.w - HeadingWidth) * 0.5f - 9.0f);
+					const ColorRGBA LineColor(0.52f, 0.62f, 0.76f, 0.36f);
+					Graphics()->DrawRect(FooterHeading.x, FooterHeading.y + FooterHeading.h * 0.5f, LineWidth, 0.6f, LineColor, IGraphics::CORNER_NONE, 0.0f);
+					Graphics()->DrawRect(FooterHeading.x + FooterHeading.w - LineWidth, FooterHeading.y + FooterHeading.h * 0.5f, LineWidth, 0.6f, LineColor, IGraphics::CORNER_NONE, 0.0f);
+					SLabelProperties HeadingProps;
+					HeadingProps.SetColor(ColorRGBA(0.66f, 0.75f, 0.86f, 0.92f));
+					Ui()->DoLabel(&FooterHeading, pEndLabel, HeadingSize, TEXTALIGN_MC, HeadingProps);
+					FooterButton.HSplitTop(3.0f, nullptr, &FooterButton);
+					const float ButtonSize = FitTextFontSize(pMoreLabel, 10.0f, 7.0f, FooterButton.w);
+					CUIRect ButtonHitbox = FooterButton;
+					ButtonHitbox.w = std::min(FooterButton.w, TextRender()->TextWidth(ButtonSize, pMoreLabel) + 12.0f);
+					ButtonHitbox.x += (FooterButton.w - ButtonHitbox.w) * 0.5f;
+					if(Ui()->DoButtonLogic(&s_ShowFullHistoryButton, 0, &ButtonHitbox, BUTTONFLAG_LEFT))
+						m_AmfImpactFullHistory = true;
+					SLabelProperties ButtonProps;
+					ButtonProps.SetColor(Ui()->HotItem() == &s_ShowFullHistoryButton ? ColorRGBA(0.91f, 0.96f, 1.0f, 1.0f) : ColorRGBA(0.73f, 0.81f, 0.91f, 1.0f));
+					Ui()->DoLabel(&FooterButton, pMoreLabel, ButtonSize, TEXTALIGN_MC, ButtonProps);
+				}
+				HistoryContentHeight += 40.0f;
+			}
+		}
+		// The remaining rect becomes negative once the list is taller than the
+		// viewport. Build the extent explicitly from rendered rows so content size
+		// cannot collapse to the viewport height or depend on that residual rect.
+		CUIRect ScrollEnd = Body;
+		ScrollEnd.y = Body.y + HistoryContentHeight;
+		ScrollEnd.h = 0.0f;
+		HistoryScroll.AddRect(ScrollEnd);
+		HistoryScroll.End();
+	}
+
+	if(Ui()->ConsumeHotkey(CUi::HOTKEY_ESCAPE))
+	{
+		m_AmfRunStatisticsOpen = false;
+		m_AmfImpactFullHistory = false;
+		Ui()->SetActiveItem(nullptr);
+	}
+}
+
 void CMenus::RenderAspectRatioTestView(CUIRect MainView)
 {
 	// This view is intentionally UI-only. It visualizes the ratio that the
@@ -1090,12 +2543,25 @@ void CMenus::RenderAspectRatioTestView(CUIRect MainView)
 
 void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 {
+	if(m_AmfSettingsSearchTemporaryPage != m_AmfSettingsPage)
+		m_AmfSettingsPage = AmfSettingsTabPolicy::ResolvePage(g_Config.m_TcTClientSettingsTabs, m_AmfSettingsPage);
+	if(m_AmfRunStatisticsOpen)
+	{
+		RenderAmfRunStatistics(MainView);
+		return;
+	}
 	CUIRect TabBar, Content, LeftView, RightView, Button, Label;
 	MainView.HSplitTop(LineSize, &TabBar, &Content);
-	static int s_AmfClientPage = 0;
+	static int s_LastAmfClientPage = 0;
 	static float s_AmfPageTransition = 1.0f;
 	static int s_AmfPageTransitionDirection = 0;
-	static CButtonContainer s_GeneralTab, s_VisualTab, s_InformationTab;
+	if(s_LastAmfClientPage != m_AmfSettingsPage)
+	{
+		s_AmfPageTransitionDirection = m_AmfSettingsPage > s_LastAmfClientPage ? -1 : 1;
+		s_AmfPageTransition = 0.0f;
+		s_LastAmfClientPage = m_AmfSettingsPage;
+	}
+	static CButtonContainer s_aAmfPageTabs[3];
 	static SUIAnimator s_aAmfPageAnimators[3] = {};
 	static bool s_AmfPageAnimatorsInitialized = false;
 	const bool SmoothHudWindowActive = Kernel()->RequestInterface<IEngineGraphics>()->WindowActive();
@@ -1114,35 +2580,47 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 		}
 		s_AmfPageAnimatorsInitialized = true;
 	}
-	CUIRect GeneralTab, VisualTab, InformationTab;
+	CUIRect AmfTab;
 	// Keep every animated tab inside the tab-row. The tab geometry itself is
 	// fixed above; this is an additional guard for fills/highlights at every UI
 	// scale and for long localized labels.
 	const CUIRect TabBarClip = TabBar;
-	const float TabWidth = TabBar.w / 3.0f;
-	TabBar.VSplitLeft(TabWidth, &GeneralTab, &TabBar);
-	TabBar.VSplitLeft(TabWidth, &VisualTab, &InformationTab);
-	const char *pGeneral = TCLocalize("General", "AMF Client");
-	const char *pVisual = TCLocalize("Visual", "AMF Client");
-	const char *pInformation = TCLocalize("Information", "AMF Client");
+	const char *apAmfPageNames[] = {
+		TCLocalize("General", "AMF Client"),
+		TCLocalize("Visual", "AMF Client"),
+		TCLocalize("Information", "AMF Client")};
+	const char *apAmfPageTooltips[] = {
+		TCLocalize("Controls AMF input and prediction features.", "AMF Client"),
+		TCLocalize("Controls AMF visual features.", "AMF Client"),
+		TCLocalize("Shows AMF Client information and links.", "AMF Client")};
+	int VisibleTabCount = 0;
+	for(int Page = AmfSettingsTabPolicy::PAGE_GENERAL; Page <= AmfSettingsTabPolicy::PAGE_INFORMATION; ++Page)
+		VisibleTabCount += !AmfSettingsTabPolicy::IsHidden(g_Config.m_TcTClientSettingsTabs, Page) || Page == m_AmfSettingsSearchTemporaryPage;
+	const float TabWidth = TabBar.w / VisibleTabCount;
 	Ui()->ClipEnable(&TabBarClip);
 	const auto SelectAmfPage = [&](int Page) {
-		if(Page == s_AmfClientPage)
+		m_AmfSettingsSearchNavigationActive = false;
+		m_AmfSettingsSearchTemporaryPage = -1;
+		if(Page == m_AmfSettingsPage)
 			return;
-		s_AmfPageTransitionDirection = Page > s_AmfClientPage ? -1 : 1;
-		s_AmfClientPage = Page; // Logical page/input changes immediately.
+		s_AmfPageTransitionDirection = Page > m_AmfSettingsPage ? -1 : 1;
+		m_AmfSettingsPage = Page; // Logical page/input changes immediately.
+		s_LastAmfClientPage = Page;
 		s_AmfPageTransition = g_Config.m_AmfSmoothHud && SmoothHudWindowActive && g_Config.m_AmfAnimMenu ? 0.0f : 1.0f;
 	};
-	if(DoButton_MenuTab(&s_GeneralTab, pGeneral, s_AmfClientPage == 0, &GeneralTab, IGraphics::CORNER_L, g_Config.m_AmfSmoothHud && SmoothHudWindowActive && g_Config.m_AmfAnimMenu ? &s_aAmfPageAnimators[0] : nullptr, nullptr, nullptr, nullptr, 4.0f))
-		SelectAmfPage(0);
-	if(DoButton_MenuTab(&s_VisualTab, pVisual, s_AmfClientPage == 1, &VisualTab, IGraphics::CORNER_NONE, g_Config.m_AmfSmoothHud && SmoothHudWindowActive && g_Config.m_AmfAnimMenu ? &s_aAmfPageAnimators[1] : nullptr, nullptr, nullptr, nullptr, 4.0f))
-		SelectAmfPage(1);
-	if(DoButton_MenuTab(&s_InformationTab, pInformation, s_AmfClientPage == 2, &InformationTab, IGraphics::CORNER_R, g_Config.m_AmfSmoothHud && SmoothHudWindowActive && g_Config.m_AmfAnimMenu ? &s_aAmfPageAnimators[2] : nullptr, nullptr, nullptr, nullptr, 4.0f))
-		SelectAmfPage(2);
+	int VisibleTabIndex = 0;
+	for(int Page = AmfSettingsTabPolicy::PAGE_GENERAL; Page <= AmfSettingsTabPolicy::PAGE_INFORMATION; ++Page)
+	{
+		if(AmfSettingsTabPolicy::IsHidden(g_Config.m_TcTClientSettingsTabs, Page) && Page != m_AmfSettingsSearchTemporaryPage)
+			continue;
+		TabBar.VSplitLeft(VisibleTabIndex + 1 == VisibleTabCount ? TabBar.w : TabWidth, &AmfTab, &TabBar);
+		const int Corners = VisibleTabIndex == 0 ? IGraphics::CORNER_L : VisibleTabIndex + 1 == VisibleTabCount ? IGraphics::CORNER_R : IGraphics::CORNER_NONE;
+		if(DoButton_MenuTab(&s_aAmfPageTabs[Page], apAmfPageNames[Page], m_AmfSettingsPage == Page, &AmfTab, Corners, g_Config.m_AmfSmoothHud && SmoothHudWindowActive && g_Config.m_AmfAnimMenu ? &s_aAmfPageAnimators[Page] : nullptr, nullptr, nullptr, nullptr, 4.0f))
+			SelectAmfPage(Page);
+		GameClient()->m_Tooltips.DoToolTip(&s_aAmfPageTabs[Page], &AmfTab, apAmfPageTooltips[Page]);
+		++VisibleTabIndex;
+	}
 	Ui()->ClipDisable();
-	GameClient()->m_Tooltips.DoToolTip(&s_GeneralTab, &GeneralTab, TCLocalize("Controls AMF input and prediction features.", "AMF Client"));
-	GameClient()->m_Tooltips.DoToolTip(&s_VisualTab, &VisualTab, TCLocalize("Controls AMF visual features.", "AMF Client"));
-	GameClient()->m_Tooltips.DoToolTip(&s_InformationTab, &InformationTab, TCLocalize("Shows AMF Client information and links.", "AMF Client"));
 	const bool AnimatePageTransition = g_Config.m_AmfSmoothHud && SmoothHudWindowActive && g_Config.m_AmfAnimMenu;
 	if(AnimatePageTransition && s_AmfPageTransition < 1.0f)
 		s_AmfPageTransition = SmoothApproachDuration(s_AmfPageTransition, 1.0f, Client()->RenderFrameTime(), std::clamp(g_Config.m_AmfAnimDuration * 11 / 10, 100, 180));
@@ -1164,7 +2642,7 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 	// origin so the user never has to hunt for the confirmation controls after
 	// the aspect test starts. The previous scroll position is kept by CMenus and
 	// restored when the test is reverted or times out.
-	if(s_AmfClientPage == 1 && m_AspectConfirmActive)
+	if(m_AmfSettingsPage == 1 && m_AspectConfirmActive)
 	{
 		m_AspectTestViewRendered = true;
 		RenderAspectRatioTestView(Content);
@@ -1173,7 +2651,7 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 		return;
 	}
 
-	if(s_AmfClientPage == 0)
+	if(m_AmfSettingsPage == 0)
 	{
 		static CScrollRegion s_GeneralScrollRegion;
 		CScrollRegionParams ScrollParams;
@@ -1192,7 +2670,6 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 		Content = GeneralLeftColumn;
 		// Cards in the two columns intentionally flow independently. A short card
 		// in one column must never reserve vertical space in the other one.
-		const float GeneralCardGap = MarginSmall;
 
 		int InputsMode = g_Config.m_AmfInputMode;
 		bool InputsEnabled = InputsMode != AMF_INPUTS_OFF;
@@ -1201,9 +2678,16 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			s_LastNonOffMode = InputsMode;
 		const int DisplayedInputsMode = InputsEnabled ? InputsMode : s_LastNonOffMode;
 		const bool InputsBestMode = DisplayedInputsMode == AMF_INPUTS_BEST;
-		const float DetailRows = InputsBestMode ? 9.0f : 5.0f;
+		const float InputModeDetailRows = InputsBestMode ? 6.0f : 2.0f;
 		constexpr float BaseCardHeight = 2.0f * 8.0f + HeadlineHeight + MarginExtraSmall + LineSize;
-		const float FullInputDetailsHeight = MarginExtraSmall + LineSize + DetailRows * (MarginExtraSmall + LineSize);
+		// The input selector and three shared rows use MarginExtraSmall, while
+		// every mode-specific row is preceded by MarginSmall. Reserve the actual
+		// content height so the final Auto Margin label (including descenders)
+		// remains inside both the card and its animated clip.
+		constexpr float InputCommonDetailRows = 4.0f;
+		const float FullInputDetailsHeight =
+			InputCommonDetailRows * (MarginExtraSmall + LineSize) +
+			InputModeDetailRows * (MarginSmall + LineSize);
 		static CSmoothUiSectionAnimation s_InputDetailsSection;
 		const bool AnimateInputDetails = g_Config.m_AmfSmoothHud && SmoothHudWindowActive && g_Config.m_AmfAnimMenu;
 		constexpr int InputDetailsDuration = 180;
@@ -1215,12 +2699,169 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 		const float CardHeight = BaseCardHeight + FullInputDetailsHeight * InputDetailsProgress;
 
 		CUIRect Card, CardContent, ContentRow;
-		Content.HSplitTop(CardHeight, &Card, &Content);
-		Card.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f), IGraphics::CORNER_ALL, 8.0f);
+		Card = AmfSettingsPolicy::TakeCard(Content, CardHeight);
+		AmfUiTheme::DrawUiBlock(&Card, IGraphics::CORNER_ALL, 8.0f);
 		Card.Margin(8.0f, &CardContent);
 		const auto DoAmfTooltip = [&](const void *pId, const CUIRect *pRect, const char *pText) {
 			GameClient()->m_Tooltips.DoToolTip(pId, pRect, TCLocalize(pText, "AMF Client"));
 		};
+		auto BeginGeneralFeatureCard = [&](CUIRect &Column, const char *pTitle, float Rows, CButtonContainer *pHeaderButton = nullptr, bool HeaderButtonEnabled = false, const char *pHeaderTooltip = nullptr) {
+			CUIRect FeatureCard, FeatureContent;
+			const float Height = 16.0f + HeadlineHeight + MarginExtraSmall + Rows * (LineSize + MarginExtraSmall);
+			FeatureCard = AmfSettingsPolicy::TakeCard(Column, Height);
+			AmfUiTheme::DrawUiBlock(&FeatureCard, IGraphics::CORNER_ALL, 8.0f);
+			FeatureCard.Margin(8.0f, &FeatureContent);
+			FeatureContent.HSplitTop(HeadlineHeight, &Label, &FeatureContent);
+			if(pHeaderButton)
+			{
+				CUIRect TitleLabel, HeaderButton;
+				Label.VSplitRight(LineSize + 8.0f, &TitleLabel, &HeaderButton);
+				const bool HeaderButtonClicked = Ui()->DoButton_FontIcon(pHeaderButton, FontIcon::ARROW_UP_RIGHT_FROM_SQUARE, HeaderButtonEnabled ? 0 : -1, &HeaderButton, BUTTONFLAG_LEFT);
+				GameClient()->m_Tooltips.DoToolTip(pHeaderButton, &HeaderButton, TCLocalize(pHeaderTooltip, "AMF Client"));
+				GameClient()->m_Tooltips.SetFadeTime(pHeaderButton, 0.0f);
+				Ui()->DoLabel(&TitleLabel, TCLocalize(pTitle, "AMF Client"), HeadlineFontSize, TEXTALIGN_ML);
+				if(HeaderButtonClicked && HeaderButtonEnabled)
+					OpenAmfHudEditor();
+			}
+			else
+				Ui()->DoLabel(&Label, TCLocalize(pTitle, "AMF Client"), HeadlineFontSize, TEXTALIGN_ML);
+			FeatureContent.HSplitTop(MarginExtraSmall, nullptr, &FeatureContent);
+			return FeatureContent;
+		};
+		auto DoGeneralFeatureCheck = [&](CUIRect &FeatureContent, int *pValue, const char *pLabel) {
+			CUIRect Row;
+			FeatureContent.HSplitTop(LineSize, &Row, &FeatureContent);
+			DoButton_CheckBoxAutoVMarginAndSet(pValue, TCLocalize(pLabel, "AMF Client"), pValue, &Row, LineSize);
+			FeatureContent.HSplitTop(MarginExtraSmall, nullptr, &FeatureContent);
+		};
+		auto DoGeneralFeatureSlider = [&](CUIRect &FeatureContent, int *pValue, const char *pLabel, int Min, int Max, const char *pSuffix) {
+			CUIRect Row;
+			FeatureContent.HSplitTop(LineSize, &Row, &FeatureContent);
+			Ui()->DoScrollbarOption(pValue, pValue, &Row, TCLocalize(pLabel, "AMF Client"), Min, Max, &CUi::ms_LinearScrollbarScale, CUi::SCROLLBAR_OPTION_NOCLAMPVALUE, pSuffix);
+			FeatureContent.HSplitTop(MarginExtraSmall, nullptr, &FeatureContent);
+		};
+		// Keep the three BestClient-derived General cards compact and animate
+		// their dependent controls with the existing AMF Smooth HUD section state.
+		const bool AnimateFeatureSections = g_Config.m_AmfSmoothHud && SmoothHudWindowActive && g_Config.m_AmfAnimMenu;
+		constexpr int FeatureSectionDuration = 180;
+		static CSmoothUiSectionAnimation s_FinishPredictionSection;
+		static CSmoothUiSectionAnimation s_FinishPredictionTimeSection;
+		static CSmoothUiSectionAnimation s_GoresModeSection;
+		static CSmoothUiSectionAnimation s_OptimizerSection;
+		static CSmoothUiSectionAnimation s_OptimizerFogSection;
+		const float FeatureDeltaTime = Client()->RenderFrameTime();
+		const float FinishTimeProgress = s_FinishPredictionTimeSection.Update(
+			g_Config.m_AmfFinishPrediction && g_Config.m_AmfFinishPredictionShowTime,
+			FeatureDeltaTime, FeatureSectionDuration, AnimateFeatureSections);
+		const float FinishPredictionProgress = s_FinishPredictionSection.Update(
+			g_Config.m_AmfFinishPrediction != 0,
+			FeatureDeltaTime, FeatureSectionDuration, AnimateFeatureSections);
+		const float FinishPredictionRows = 1.0f + FinishPredictionProgress * (4.0f + 2.0f * FinishTimeProgress);
+		static CButtonContainer s_AmfFinishPredictionHudEditorButton;
+		const bool FinishPredictionCanOpenHudEditor = Client()->State() == IClient::STATE_ONLINE || Client()->State() == IClient::STATE_DEMOPLAYBACK;
+		CUIRect FinishPredictionContent = BeginGeneralFeatureCard(Content, "Finish Prediction", FinishPredictionRows, &s_AmfFinishPredictionHudEditorButton, FinishPredictionCanOpenHudEditor, FinishPredictionCanOpenHudEditor ? "Open in HUD editor" : "Join a game first");
+		DoGeneralFeatureCheck(FinishPredictionContent, &g_Config.m_AmfFinishPrediction, "Enable finish prediction");
+		if(s_FinishPredictionSection.IsVisible())
+		{
+			const float FinishDetailsTargetHeight = (4.0f + 2.0f * FinishTimeProgress) * (LineSize + MarginExtraSmall);
+			CUIRect FinishDetailsClip;
+			FinishPredictionContent.HSplitTop(FinishPredictionProgress * FinishDetailsTargetHeight, &FinishDetailsClip, &FinishPredictionContent);
+			CUIRect FinishDetails = FinishDetailsClip;
+			FinishDetails.h = FinishDetailsTargetHeight;
+			Ui()->ClipEnable(&FinishDetailsClip);
+			DoGeneralFeatureCheck(FinishDetails, &g_Config.m_AmfFinishPredictionShowTime, "Show time");
+			if(s_FinishPredictionTimeSection.IsVisible())
+			{
+				CUIRect TimeDetailsClip;
+				FinishDetails.HSplitTop(FinishTimeProgress * 2.0f * (LineSize + MarginExtraSmall), &TimeDetailsClip, &FinishDetails);
+				CUIRect TimeDetails = TimeDetailsClip;
+				TimeDetails.h = 2.0f * (LineSize + MarginExtraSmall);
+				Ui()->ClipEnable(&TimeDetailsClip);
+				CUIRect ModeRow, TimeLeft, FinishTime;
+				TimeDetails.HSplitTop(LineSize, &ModeRow, &TimeDetails);
+				TimeDetails.HSplitTop(MarginExtraSmall, nullptr, &TimeDetails);
+				ModeRow.VSplitMid(&TimeLeft, &FinishTime, 2.0f);
+				static CButtonContainer s_AmfFinishTimeLeftButton, s_AmfFinishTimeButton;
+				if(DoButton_Menu(&s_AmfFinishTimeLeftButton, TCLocalize("Time left", "AMF Client"), g_Config.m_AmfFinishPredictionTimeMode == 0, &TimeLeft, BUTTONFLAG_LEFT, nullptr, IGraphics::CORNER_L))
+					g_Config.m_AmfFinishPredictionTimeMode = 0;
+				if(DoButton_Menu(&s_AmfFinishTimeButton, TCLocalize("Finish time", "AMF Client"), g_Config.m_AmfFinishPredictionTimeMode == 1, &FinishTime, BUTTONFLAG_LEFT, nullptr, IGraphics::CORNER_R))
+					g_Config.m_AmfFinishPredictionTimeMode = 1;
+				DoGeneralFeatureCheck(TimeDetails, &g_Config.m_AmfFinishPredictionShowMillis, "Show milliseconds");
+				Ui()->ClipDisable();
+			}
+			DoGeneralFeatureCheck(FinishDetails, &g_Config.m_AmfFinishPredictionShowPercentage, "Show percentage");
+			DoGeneralFeatureCheck(FinishDetails, &g_Config.m_AmfFinishPredictionShowAlways, "Show always");
+			const int OldConsiderFreezeWalls = g_Config.m_AmfFinishPredictionConsiderFreezeWalls;
+			DoGeneralFeatureCheck(FinishDetails, &g_Config.m_AmfFinishPredictionConsiderFreezeWalls, "Consider freeze walls");
+			if(OldConsiderFreezeWalls != g_Config.m_AmfFinishPredictionConsiderFreezeWalls)
+				GameClient()->m_AmfFinishPrediction.RequestPathRebuild();
+			Ui()->ClipDisable();
+		}
+
+		CUIRect *pGeneralFeatureColumn = HasTwoGeneralColumns ? &GeneralRightColumn : &Content;
+		const float GoresProgress = s_GoresModeSection.Update(g_Config.m_AmfGoresMode != 0, FeatureDeltaTime, FeatureSectionDuration, AnimateFeatureSections);
+		CUIRect GoresContent = BeginGeneralFeatureCard(*pGeneralFeatureColumn, "Gores Mode", 1.0f + GoresProgress);
+		DoGeneralFeatureCheck(GoresContent, &g_Config.m_AmfGoresMode, "Enable gores mode");
+		if(s_GoresModeSection.IsVisible())
+		{
+			CUIRect GoresDetailsClip;
+			GoresContent.HSplitTop(GoresProgress * (LineSize + MarginExtraSmall), &GoresDetailsClip, &GoresContent);
+			CUIRect GoresDetails = GoresDetailsClip;
+			GoresDetails.h = LineSize + MarginExtraSmall;
+			Ui()->ClipEnable(&GoresDetailsClip);
+			DoGeneralFeatureCheck(GoresDetails, &g_Config.m_AmfGoresModeDisableIfWeapons, "Disable if you have shotgun, grenade or laser");
+			Ui()->ClipDisable();
+		}
+
+		const float OptimizerFogProgress = s_OptimizerFogSection.Update(
+			g_Config.m_AmfOptimizer && g_Config.m_AmfOptimizerFpsFog,
+			FeatureDeltaTime, FeatureSectionDuration, AnimateFeatureSections);
+		const float OptimizerProgress = s_OptimizerSection.Update(g_Config.m_AmfOptimizer != 0, FeatureDeltaTime, FeatureSectionDuration, AnimateFeatureSections);
+		const float OptimizerRows = 1.0f + OptimizerProgress * (4.0f + 4.0f * OptimizerFogProgress);
+		CUIRect OptimizerContent = BeginGeneralFeatureCard(*pGeneralFeatureColumn, "Optimizer", OptimizerRows);
+		DoGeneralFeatureCheck(OptimizerContent, &g_Config.m_AmfOptimizer, "Enable optimizer");
+		if(s_OptimizerSection.IsVisible())
+		{
+			const float OptimizerDetailsTargetHeight = (4.0f + 4.0f * OptimizerFogProgress) * (LineSize + MarginExtraSmall);
+			CUIRect OptimizerDetailsClip;
+			OptimizerContent.HSplitTop(OptimizerProgress * OptimizerDetailsTargetHeight, &OptimizerDetailsClip, &OptimizerContent);
+			CUIRect OptimizerDetails = OptimizerDetailsClip;
+			OptimizerDetails.h = OptimizerDetailsTargetHeight;
+			Ui()->ClipEnable(&OptimizerDetailsClip);
+			DoGeneralFeatureCheck(OptimizerDetails, &g_Config.m_AmfOptimizerDisableParticles, "Disable all particles render");
+			DoGeneralFeatureCheck(OptimizerDetails, &g_Config.m_AmfOptimizerDisableQuads, "Disable map quads render");
+			CUIRect HighDetailRow;
+			OptimizerDetails.HSplitTop(LineSize, &HighDetailRow, &OptimizerDetails);
+			if(DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_AmfOptimizerDisableHighDetail, TCLocalize("Disable high detail", "AMF Client"), &g_Config.m_AmfOptimizerDisableHighDetail, &HighDetailRow, LineSize))
+				GameClient()->m_AmfOptimizer.OnOptimizerDisableHighDetailToggled();
+			OptimizerDetails.HSplitTop(MarginExtraSmall, nullptr, &OptimizerDetails);
+			DoGeneralFeatureCheck(OptimizerDetails, &g_Config.m_AmfOptimizerFpsFog, "FPS fog (cull outside limit)");
+			if(s_OptimizerFogSection.IsVisible())
+			{
+				CUIRect FogDetailsClip;
+				OptimizerDetails.HSplitTop(OptimizerFogProgress * 4.0f * (LineSize + MarginExtraSmall), &FogDetailsClip, &OptimizerDetails);
+				CUIRect FogDetails = FogDetailsClip;
+				FogDetails.h = 4.0f * (LineSize + MarginExtraSmall);
+				Ui()->ClipEnable(&FogDetailsClip);
+				DoGeneralFeatureCheck(FogDetails, &g_Config.m_AmfOptimizerFpsFogRenderRect, "Render FPS fog rectangle");
+				DoGeneralFeatureCheck(FogDetails, &g_Config.m_AmfOptimizerFpsFogCullMapTiles, "Cull map tiles outside FPS fog");
+				CUIRect ModeRow, RadiusButton, ZoomButton;
+				FogDetails.HSplitTop(LineSize, &ModeRow, &FogDetails);
+				ModeRow.VSplitMid(&RadiusButton, &ZoomButton, 2.0f);
+				static CButtonContainer s_AmfOptimizerRadiusButton, s_AmfOptimizerZoomButton;
+				if(DoButton_Menu(&s_AmfOptimizerRadiusButton, TCLocalize("Radius", "AMF Client"), g_Config.m_AmfOptimizerFpsFogMode == 0, &RadiusButton, BUTTONFLAG_LEFT, nullptr, IGraphics::CORNER_L))
+					g_Config.m_AmfOptimizerFpsFogMode = 0;
+				if(DoButton_Menu(&s_AmfOptimizerZoomButton, TCLocalize("Zoom %", "AMF Client"), g_Config.m_AmfOptimizerFpsFogMode == 1, &ZoomButton, BUTTONFLAG_LEFT, nullptr, IGraphics::CORNER_R))
+					g_Config.m_AmfOptimizerFpsFogMode = 1;
+				FogDetails.HSplitTop(MarginExtraSmall, nullptr, &FogDetails);
+				if(g_Config.m_AmfOptimizerFpsFogMode == 0)
+					DoGeneralFeatureSlider(FogDetails, &g_Config.m_AmfOptimizerFpsFogRadiusTiles, "Radius (tiles)", 5, 300, "");
+				else
+					DoGeneralFeatureSlider(FogDetails, &g_Config.m_AmfOptimizerFpsFogZoomPercent, "Visible area (%)", 10, 120, "%");
+				Ui()->ClipDisable();
+			}
+			Ui()->ClipDisable();
+		}
 
 		CardContent.HSplitTop(HeadlineHeight, &Label, &CardContent);
 		Ui()->DoLabel(&Label, TCLocalize("Fast Input Mode"), HeadlineFontSize, TEXTALIGN_ML);
@@ -1269,12 +2910,13 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 
 			CardContent.HSplitTop(MarginExtraSmall, nullptr, &CardContent);
 			CardContent.HSplitTop(LineSize, &Button, &CardContent);
+			AmfSettingsSearch::DrawItemHighlight(&g_Config.m_AmfInputMode, &Button);
 			CUIRect InputModeLabel, InputModeDropDown;
 			Button.VSplitLeft(std::min(110.0f, Button.w * 0.35f), &InputModeLabel, &InputModeDropDown);
 			Ui()->DoLabel(&InputModeLabel, TCLocalize("Input"), 12.0f, TEXTALIGN_ML);
 			// Localize every frame so a language switch is immediate, while avoiding
 			// the dynamic vector assignment formerly done for this render path.
-			static constexpr std::array<int, 9> s_aInputModeValues = {
+			static constexpr std::array<int, 8> s_aInputModeValues = {
 				AMF_INPUTS_FAST,
 				AMF_INPUTS_BEST,
 				AMF_INPUTS_SAIKO,
@@ -1282,9 +2924,8 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 				AMF_INPUTS_DELTA,
 				AMF_INPUTS_F,
 				AMF_INPUTS_MEOW,
-				AMF_INPUTS_CLOUD_OLD,
 				AMF_INPUTS_CLOUD};
-			std::array<const char *, 9> aInputModeNames = {
+			std::array<const char *, 8> aInputModeNames = {
 				TCLocalize("Fast"),
 				TCLocalize("Best"),
 				TCLocalize("Saiko"),
@@ -1292,7 +2933,6 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 				TCLocalize("Delta"),
 				TCLocalize("F"),
 				TCLocalize("Meow Input", "AMF Client"),
-				TCLocalize("Cloud Input Old", "AMF Client"),
 				TCLocalize("Cloud Input", "AMF Client")};
 			auto InputModeIndex = [&](int Mode) {
 				for(size_t i = 0; i < s_aInputModeValues.size(); ++i)
@@ -1460,17 +3100,6 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_AmfCloudInputOthers, TCLocalize("Cloud Input others", "AMF Client"), &g_Config.m_AmfCloudInputOthers, &ContentRow, LineSize);
 			DoAmfTooltip(&g_Config.m_AmfCloudInputOthers, &ContentRow, "Applies Cloud Input prediction to other tees.");
 		}
-		else if(DisplayedInputsMode == AMF_INPUTS_CLOUD_OLD)
-		{
-			CardContent.HSplitTop(MarginSmall, nullptr, &CardContent);
-			CardContent.HSplitTop(LineSize, &Button, &CardContent);
-			DoTickAmountSlider(&g_Config.m_AmfCloudInputOldAmount, &Button, TCLocalize("Prediction offset"), 0, 500);
-			CardContent.HSplitTop(MarginSmall, nullptr, &CardContent);
-			CardContent.HSplitTop(LineSize, &ContentRow, &CardContent);
-			DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_AmfCloudInputOldOthers, TCLocalize("Cloud Input Old others", "AMF Client"), &g_Config.m_AmfCloudInputOldOthers, &ContentRow, LineSize);
-			DoAmfTooltip(&g_Config.m_AmfCloudInputOldOthers, &ContentRow, "Applies Cloud Input Old prediction to other tees.");
-		}
-
 		CardContent.HSplitTop(MarginExtraSmall, nullptr, &CardContent);
 		CardContent.HSplitTop(LineSize, &ContentRow, &CardContent);
 		DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_ClSubTickAiming, TCLocalize("Sub-Tick aiming"), &g_Config.m_ClSubTickAiming, &ContentRow, LineSize);
@@ -1484,7 +3113,7 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 		CardContent.HSplitTop(LineSize, &Label, &CardContent);
 		char aAutoMargin[128];
 		const int CurrentMargin = Client()->PredictionMargin();
-		str_format(aAutoMargin, sizeof(aAutoMargin), "Prediction margin: %d.%dms", CurrentMargin / 10, std::abs(CurrentMargin % 10));
+		str_format(aAutoMargin, sizeof(aAutoMargin), TCLocalize("Prediction margin: %dms"), CurrentMargin);
 		SLabelProperties AutoMarginProps;
 		AutoMarginProps.SetColor((g_Config.m_AmfAutoMargin ? ColorRGBA(0.68f, 0.78f, 0.95f, 1.0f) : ColorRGBA(0.58f, 0.62f, 0.72f, 1.0f)).WithMultipliedAlpha(InputDetailsProgress));
 		Ui()->DoLabel(&Label, aAutoMargin, 11.0f, TEXTALIGN_ML, AutoMarginProps);
@@ -1513,7 +3142,6 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			}
 		}
 
-		Content.HSplitTop(GeneralCardGap, nullptr, &Content);
 		const bool SnapTapEnabled = g_Config.m_AmfSnapTap != 0;
 		const bool SnapTapBlocked = GameClient()->IsSnapTapBlockedByCommunity();
 		constexpr int SnapTapSettingsDuration = 180;
@@ -1533,7 +3161,7 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			std::round(FullSnapTapSettingsHeight * SnapTapSettingsProgress / GeneralUiPixelSize) * GeneralUiPixelSize :
 			0.0f;
 		CUIRect SnapTapCard, SnapTapContent;
-		Content.HSplitTop(SnapTapBaseHeight + SnapTapSettingsHeight, &SnapTapCard, &Content);
+		SnapTapCard = AmfSettingsPolicy::TakeCard(Content, SnapTapBaseHeight + SnapTapSettingsHeight);
 		SnapTapCard.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f), IGraphics::CORNER_ALL, 8.0f);
 		SnapTapCard.Margin(8.0f, &SnapTapContent);
 		SnapTapContent.HSplitTop(HeadlineHeight, &Label, &SnapTapContent);
@@ -1615,7 +3243,6 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			Ui()->ClipDisable();
 		}
 
-		Content.HSplitTop(GeneralCardGap, nullptr, &Content);
 		constexpr float MovingTilesCardPadding = 6.0f;
 		constexpr float MovingTilesTitleFontSize = 16.0f;
 		constexpr float MovingTilesTitleHeight = 18.0f;
@@ -1623,13 +3250,14 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 		constexpr float MovingTilesSectionGap = 2.0f;
 		constexpr float MovingTilesCardHeight = 2.0f * MovingTilesCardPadding + MovingTilesTitleHeight + MovingTilesSectionGap + MovingTilesSelectorHeight;
 		CUIRect MovingTilesCard, MovingTilesContent;
-		Content.HSplitTop(MovingTilesCardHeight, &MovingTilesCard, &Content);
+		MovingTilesCard = AmfSettingsPolicy::TakeCard(Content, MovingTilesCardHeight);
 		MovingTilesCard.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f), IGraphics::CORNER_ALL, 8.0f);
 		MovingTilesCard.Margin(MovingTilesCardPadding, &MovingTilesContent);
 		MovingTilesContent.HSplitTop(MovingTilesTitleHeight, &Label, &MovingTilesContent);
 		Ui()->DoLabel(&Label, TCLocalize("Moving Tiles", "AMF Client"), MovingTilesTitleFontSize, TEXTALIGN_ML);
 		MovingTilesContent.HSplitTop(MovingTilesSectionGap, nullptr, &MovingTilesContent);
 		MovingTilesContent.HSplitTop(MovingTilesSelectorHeight, &Button, &MovingTilesContent);
+		AmfSettingsSearch::DrawItemHighlight(&g_Config.m_AmfMovingTilesMode, &Button);
 		static CButtonContainer s_aMovingTilesModeButtons[3];
 		const std::array<const char *, 3> aMovingTilesModeNames = {
 			TCLocalize("Off", "AMF Client"),
@@ -1660,10 +3288,8 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 		GeneralLeftColumn = Content;
 		if(HasTwoGeneralColumns)
 			Content = GeneralRightColumn;
-		else
-			Content.HSplitTop(GeneralCardGap, nullptr, &Content);
 		CUIRect PriorityCard, PriorityContent;
-		Content.HSplitTop(2.0f * 8.0f + HeadlineHeight + 2.0f * MarginExtraSmall + 2.0f * LineSize, &PriorityCard, &Content);
+		PriorityCard = AmfSettingsPolicy::TakeCard(Content, 2.0f * 8.0f + HeadlineHeight + 3.0f * MarginExtraSmall + 3.0f * LineSize);
 		PriorityCard.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f), IGraphics::CORNER_ALL, 8.0f);
 		PriorityCard.Margin(8.0f, &PriorityContent);
 		PriorityContent.HSplitTop(HeadlineHeight, &Label, &PriorityContent);
@@ -1671,6 +3297,7 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 		PriorityContent.HSplitTop(MarginExtraSmall, nullptr, &PriorityContent);
 		PriorityContent.HSplitTop(LineSize, &Button, &PriorityContent);
 		static CButtonContainer s_AmfHighPriorityButton;
+		AmfSettingsSearch::DrawItemHighlight(&g_Config.m_AmfHighPriority, &Button);
 		// Keep this transition explicit. Unlike regular visual settings it changes
 		// a Windows process property and must not depend on a deferred config poll.
 		if(DoButton_CheckBox(
@@ -1690,6 +3317,7 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 		PriorityContent.HSplitTop(MarginExtraSmall, nullptr, &PriorityContent);
 		PriorityContent.HSplitTop(LineSize, &Button, &PriorityContent);
 		static CButtonContainer s_AmfDiscordLowPriorityButton;
+		AmfSettingsSearch::DrawItemHighlight(&g_Config.m_AmfDiscordLowPriority, &Button);
 		if(DoButton_CheckBox(
 			&s_AmfDiscordLowPriorityButton,
 			TCLocalize("Low Priority Discord", "AMF Client"),
@@ -1697,14 +3325,31 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			&Button))
 		{
 			g_Config.m_AmfDiscordLowPriority ^= 1;
-			GameClient()->ApplyAmfDiscordProcessPriority(true);
+			GameClient()->ApplyAmfProcessPrioritySettings();
 		}
 		GameClient()->m_Tooltips.DoToolTip(
 			&s_AmfDiscordLowPriorityButton,
 			&Button,
 			TCLocalize("Sets only Discord.exe processes to Windows Low priority while enabled.", "AMF Client"));
 
-		Content.HSplitTop(GeneralCardGap, nullptr, &Content);
+		PriorityContent.HSplitTop(MarginExtraSmall, nullptr, &PriorityContent);
+		PriorityContent.HSplitTop(LineSize, &Button, &PriorityContent);
+		static CButtonContainer s_AmfSpotifySoundCloudLowPriorityButton;
+		AmfSettingsSearch::DrawItemHighlight(&g_Config.m_AmfSpotifySoundCloudLowPriority, &Button);
+		if(DoButton_CheckBox(
+			&s_AmfSpotifySoundCloudLowPriorityButton,
+			TCLocalize("Low Priority Spotify | SoundCloud", "AMF Client"),
+			g_Config.m_AmfSpotifySoundCloudLowPriority,
+			&Button))
+		{
+			g_Config.m_AmfSpotifySoundCloudLowPriority ^= 1;
+			GameClient()->ApplyAmfProcessPrioritySettings();
+		}
+		GameClient()->m_Tooltips.DoToolTip(
+			&s_AmfSpotifySoundCloudLowPriorityButton,
+			&Button,
+			TCLocalize("Sets Spotify.exe and the SoundCloud desktop app to Windows Low priority while enabled.", "AMF Client"));
+
 		const bool FocusModeEnabled = g_Config.m_AmfFocusMode != 0;
 		const float FocusModeDetailsHeight = 9.0f * (MarginExtraSmall + LineSize);
 		constexpr int FocusModeSettingsDuration = 180;
@@ -1721,7 +3366,7 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			0.0f;
 		const float FocusModeCardHeight = 2.0f * 8.0f + HeadlineHeight + MarginExtraSmall + LineSize + FocusModeSettingsHeight;
 		CUIRect FocusModeCard, FocusModeContent;
-		Content.HSplitTop(FocusModeCardHeight, &FocusModeCard, &Content);
+		FocusModeCard = AmfSettingsPolicy::TakeCard(Content, FocusModeCardHeight);
 		FocusModeCard.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f), IGraphics::CORNER_ALL, 8.0f);
 		FocusModeCard.Margin(8.0f, &FocusModeContent);
 		FocusModeContent.HSplitTop(HeadlineHeight, &Label, &FocusModeContent);
@@ -1857,6 +3502,137 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			Ui()->ClipDisable();
 		}
 
+		const bool StatisticsEnabled = AmfImpact::CImpactSystem::IsStatisticsUiAccessible(g_Config.m_AmfImpactStatisticsAccess);
+		constexpr int StatisticsButtonDuration = 180;
+		constexpr float FullStatisticsButtonHeight = MarginExtraSmall + LineSize;
+		static CSmoothUiSectionAnimation s_StatisticsButtonSection;
+		const bool AnimateStatisticsButton = g_Config.m_AmfSmoothHud && SmoothHudWindowActive && g_Config.m_AmfAnimMenu;
+		float StatisticsButtonProgress = s_StatisticsButtonSection.Update(
+			StatisticsEnabled,
+			Client()->RenderFrameTime(),
+			StatisticsButtonDuration,
+			AnimateStatisticsButton);
+		const bool StatisticsButtonVisible = s_StatisticsButtonSection.IsVisible();
+		const float StatisticsUiPixelSize = Ui()->PixelSize();
+		const float StatisticsButtonHeight = StatisticsButtonVisible ?
+			std::round(FullStatisticsButtonHeight * StatisticsButtonProgress / StatisticsUiPixelSize) * StatisticsUiPixelSize :
+			0.0f;
+		constexpr float FullQuickStatisticsKeySettingHeight = LineSize + 2.0f * MarginExtraSmall;
+		const float QuickStatisticsKeySettingHeight = StatisticsButtonVisible ?
+			std::round(FullQuickStatisticsKeySettingHeight * StatisticsButtonProgress / StatisticsUiPixelSize) * StatisticsUiPixelSize :
+			0.0f;
+		const float StatisticsCardHeight = 2.0f * 8.0f + HeadlineHeight + MarginExtraSmall + LineSize + QuickStatisticsKeySettingHeight + StatisticsButtonHeight;
+		CUIRect StatisticsCard = AmfSettingsPolicy::TakeCard(Content, StatisticsCardHeight);
+		CUIRect StatisticsCardContent;
+		StatisticsCard.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f), IGraphics::CORNER_ALL, 8.0f);
+		StatisticsCard.Margin(8.0f, &StatisticsCardContent);
+		StatisticsCardContent.HSplitTop(HeadlineHeight, &Label, &StatisticsCardContent);
+		CUIRect StatisticsTitle = Label;
+		DrawRunStatisticsBetaBadge(Graphics(), Ui(), TextRender(), &StatisticsTitle, MarginSmall);
+		Ui()->DoLabel(&StatisticsTitle, TCLocalize("Run Statistics", "AMF Client"), HeadlineFontSize, TEXTALIGN_ML);
+		StatisticsCardContent.HSplitTop(MarginExtraSmall, nullptr, &StatisticsCardContent);
+		StatisticsCardContent.HSplitTop(LineSize, &Button, &StatisticsCardContent);
+		static CButtonContainer s_AmfImpactStatisticsAccessButton;
+		const bool StatisticsToggleChanged = DoButton_CheckBoxAutoVMarginAndSet(&s_AmfImpactStatisticsAccessButton, TCLocalize("Enable Run Statistics", "AMF Client"), &g_Config.m_AmfImpactStatisticsAccess, &Button, LineSize);
+		GameClient()->m_Tooltips.DoToolTip(&s_AmfImpactStatisticsAccessButton, &Button, TCLocalize("Enables local Run Statistics collection and its UI. A run must be enabled before START.", "AMF Client"));
+		if(StatisticsToggleChanged)
+		{
+			StatisticsButtonProgress = s_StatisticsButtonSection.Update(
+				g_Config.m_AmfImpactStatisticsAccess != 0,
+				0.0f,
+				StatisticsButtonDuration,
+				AnimateStatisticsButton);
+		}
+		if(StatisticsButtonVisible)
+		{
+			CUIRect QuickStatisticsKeyClip;
+			StatisticsCardContent.HSplitTop(QuickStatisticsKeySettingHeight, &QuickStatisticsKeyClip, &StatisticsCardContent);
+			CUIRect QuickStatisticsKeyContent = QuickStatisticsKeyClip;
+			QuickStatisticsKeyContent.h = FullQuickStatisticsKeySettingHeight;
+			QuickStatisticsKeyContent.y += std::round((1.0f - StatisticsButtonProgress) * 3.0f / StatisticsUiPixelSize) * StatisticsUiPixelSize;
+			Ui()->ClipEnable(&QuickStatisticsKeyClip);
+			const ColorRGBA OldQuickKeyTextColor = TextRender()->GetTextColor();
+			const ColorRGBA OldQuickKeyOutlineColor = TextRender()->GetTextOutlineColor();
+			TextRender()->TextColor(OldQuickKeyTextColor.WithMultipliedAlpha(StatisticsButtonProgress));
+			TextRender()->TextOutlineColor(OldQuickKeyOutlineColor.WithMultipliedAlpha(StatisticsButtonProgress));
+			static CButtonContainer s_AmfRunStatisticsHoldReader;
+			static CButtonContainer s_AmfRunStatisticsHoldClear;
+			const bool QuickStatisticsKeyInteractive = StatisticsEnabled && s_StatisticsButtonSection.AcceptsInput();
+			if(QuickStatisticsKeyInteractive)
+			{
+				DoLine_KeyReader(
+					QuickStatisticsKeyContent,
+					s_AmfRunStatisticsHoldReader,
+					s_AmfRunStatisticsHoldClear,
+					TCLocalize("Quick Statistics Hold Key", "AMF Client"),
+					AMF_RUN_STATISTICS_BIND_COMMAND);
+			}
+			else
+			{
+				CBindSlot Bind(KEY_UNKNOWN, KeyModifier::NONE);
+				for(int Mod = 0; Mod < KeyModifier::COMBINATION_COUNT; ++Mod)
+				{
+					for(int KeyId = 0; KeyId < KEY_LAST; ++KeyId)
+					{
+						if(str_comp(GameClient()->m_Binds.Get(KeyId, Mod), AMF_RUN_STATISTICS_BIND_COMMAND) == 0)
+						{
+							Bind = CBindSlot(KeyId, Mod);
+							break;
+						}
+					}
+				}
+				CUIRect KeyRow, KeyLabel, ReaderButton, ClearButton;
+				QuickStatisticsKeyContent.HSplitTop(MarginExtraSmall, nullptr, &QuickStatisticsKeyContent);
+				QuickStatisticsKeyContent.HSplitTop(LineSize, &KeyRow, &QuickStatisticsKeyContent);
+				KeyRow.VSplitMid(&KeyLabel, &ReaderButton);
+				char aKeyLabel[128];
+				str_format(aKeyLabel, sizeof(aKeyLabel), "%s:", TCLocalize("Quick Statistics Hold Key", "AMF Client"));
+				Ui()->DoLabel(&KeyLabel, aKeyLabel, FontSize, TEXTALIGN_ML);
+				ReaderButton.VSplitRight(ReaderButton.h, &ReaderButton, &ClearButton);
+				ReaderButton.Draw(ColorRGBA(1.0f, 1.0f, 1.0f, 0.5f * StatisticsButtonProgress), IGraphics::CORNER_L, 5.0f);
+				ClearButton.Draw(ColorRGBA(1.0f, 1.0f, 1.0f, 0.25f * StatisticsButtonProgress), IGraphics::CORNER_R, 5.0f);
+				char aBindName[64];
+				if(Bind.m_Key == KEY_UNKNOWN)
+					aBindName[0] = '\0';
+				else
+					GameClient()->m_Binds.GetKeyBindName(Bind.m_Key, Bind.m_ModifierMask, aBindName, sizeof(aBindName));
+				CUIRect BindLabel;
+				ReaderButton.HMargin(1.0f, &BindLabel);
+				Ui()->DoLabel(&BindLabel, aBindName, BindLabel.h * CUi::ms_FontmodHeight, TEXTALIGN_MC);
+				TextRender()->SetRenderFlags(ETextRenderFlags::TEXT_RENDER_FLAG_ONLY_ADVANCE_WIDTH | ETextRenderFlags::TEXT_RENDER_FLAG_NO_X_BEARING | ETextRenderFlags::TEXT_RENDER_FLAG_NO_Y_BEARING | ETextRenderFlags::TEXT_RENDER_FLAG_NO_OVERSIZE | ETextRenderFlags::TEXT_RENDER_FLAG_NO_PIXEL_ALIGNMENT);
+				TextRender()->SetFontPreset(EFontPreset::ICON_FONT);
+				Ui()->DoLabel(&ClearButton, FontIcon::TRASH, ClearButton.h * CUi::ms_FontmodHeight, TEXTALIGN_MC);
+				TextRender()->SetFontPreset(EFontPreset::DEFAULT_FONT);
+				TextRender()->SetRenderFlags(0);
+			}
+			Ui()->ClipDisable();
+			TextRender()->TextColor(OldQuickKeyTextColor);
+			TextRender()->TextOutlineColor(OldQuickKeyOutlineColor);
+		}
+		StatisticsCardContent.HSplitTop(MarginExtraSmall, nullptr, &StatisticsCardContent);
+		static CButtonContainer s_AmfImpactStatisticsButton;
+		if(StatisticsButtonVisible)
+		{
+			CUIRect StatisticsButtonClip;
+			StatisticsCardContent.HSplitTop(StatisticsButtonHeight, &StatisticsButtonClip, &StatisticsCardContent);
+			CUIRect StatisticsButtonContent = StatisticsButtonClip;
+			StatisticsButtonContent.h = FullStatisticsButtonHeight;
+			StatisticsButtonContent.y += std::round((1.0f - StatisticsButtonProgress) * 3.0f / StatisticsUiPixelSize) * StatisticsUiPixelSize;
+			Ui()->ClipEnable(&StatisticsButtonClip);
+			const ColorRGBA OldTextColor = TextRender()->GetTextColor();
+			const ColorRGBA OldOutlineColor = TextRender()->GetTextOutlineColor();
+			TextRender()->TextColor(OldTextColor.WithMultipliedAlpha(StatisticsButtonProgress));
+			TextRender()->TextOutlineColor(OldOutlineColor.WithMultipliedAlpha(StatisticsButtonProgress));
+			StatisticsButtonContent.HSplitTop(MarginExtraSmall, nullptr, &StatisticsButtonContent);
+			StatisticsButtonContent.HSplitTop(LineSize, &Button, &StatisticsButtonContent);
+			if(s_StatisticsButtonSection.AcceptsInput() &&
+				DoButtonLineSize_Menu(&s_AmfImpactStatisticsButton, TCLocalize("Statistics", "AMF Client"), 0, &Button, LineSize, false, nullptr, IGraphics::CORNER_ALL, 4.0f, 0.0f, ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f)))
+				OpenAmfRunStatistics();
+			Ui()->ClipDisable();
+			TextRender()->TextColor(OldTextColor);
+			TextRender()->TextOutlineColor(OldOutlineColor);
+		}
+
 		CUIRect ScrollEnd = Content;
 		ScrollEnd.y = HasTwoGeneralColumns ? std::max(GeneralLeftColumn.y, Content.y) : Content.y;
 		ScrollEnd.h = 0.0f;
@@ -1868,9 +3644,8 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 		return;
 	}
 
-	if(s_AmfClientPage == 1)
+	if(m_AmfSettingsPage == 1)
 	{
-		const float VisualCardGap = MarginSmall;
 
 		// Keep the page-level HUD Editor action outside the scroll viewport. The
 		// button keeps its existing margin/alignment while only the cards below it
@@ -1903,7 +3678,7 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			&HudEditorButton,
 			CanOpenHudEditor ? TCLocalize("Drag, scale, reset and save the position of AMF HUD elements.", "AMF Client") : TCLocalize("Connect to a server first to open the HUD Editor.", "AMF Client"));
 
-		Content.HSplitTop(VisualCardGap, nullptr, &Content);
+		Content.HSplitTop(AmfSettingsPolicy::SectionGap, nullptr, &Content);
 		CUIRect VisualScrollViewport = Content;
 		CScrollRegionParams VisualScrollParams;
 		VisualScrollParams.m_ScrollUnit = 40.0f;
@@ -1923,46 +3698,17 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 		constexpr float VisualCardRounding = 8.0f;
 		const auto BeginVisualCard = [&](CUIRect &Column, const float Height) {
 			CUIRect Card, CardContent;
-			Column.HSplitTop(Height, &Card, &Column);
+			Card = AmfSettingsPolicy::TakeCard(Column, Height);
 			Card.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f), IGraphics::CORNER_ALL, VisualCardRounding);
 			Card.Margin(VisualCardPadding, &CardContent);
 			return CardContent;
-		};
-		auto RenderTuneZoneColorSetting = [&](CUIRect &Column) {
-			// The selector uses the same compact label/control rhythm as the other
-			// settings inside a Visuals card.
-			CUIRect SettingLabel, Selector;
-			Column.HSplitTop(LineSize, &SettingLabel, &Column);
-			Column.HSplitTop(MarginExtraSmall, nullptr, &Column);
-			Column.HSplitTop(LineSize, &Selector, &Column);
-			Ui()->DoLabel(&SettingLabel, TCLocalize("Tune Zone Color", "AMF Client"), 12.0f, TEXTALIGN_ML);
-
-			static CButtonContainer s_aTuneZoneColorButtons[TuneZoneColor::PRESET_COUNT];
-			const std::array<const char *, TuneZoneColor::PRESET_COUNT> aPresetNames = {
-				TCLocalize("Blue", "AMF Client"),
-				TCLocalize("Red", "AMF Client"),
-				TCLocalize("Green", "AMF Client"),
-				TCLocalize("Purple", "AMF Client")};
-			const int CurrentPreset = TuneZoneColor::NormalizePreset(g_Config.m_AmfTuneZoneColorPreset);
-			for(int Preset = TuneZoneColor::PRESET_BLUE; Preset < TuneZoneColor::PRESET_COUNT; ++Preset)
-			{
-				CUIRect Segment;
-				const int RemainingSegments = TuneZoneColor::PRESET_COUNT - Preset;
-				if(RemainingSegments > 1)
-					Selector.VSplitLeft(Selector.w / RemainingSegments, &Segment, &Selector);
-				else
-					Segment = Selector;
-				const int Corners = Preset == TuneZoneColor::PRESET_BLUE ? IGraphics::CORNER_L :
-					Preset == TuneZoneColor::PRESET_PURPLE ? IGraphics::CORNER_R : IGraphics::CORNER_NONE;
-				if(DoButton_Menu(&s_aTuneZoneColorButtons[Preset], aPresetNames[Preset], CurrentPreset == Preset, &Segment, BUTTONFLAG_LEFT, nullptr, Corners))
-					GameClient()->m_MapImages.SetTuneZoneColorPreset(Preset);
-			}
 		};
 		CUIRect VisualLeftColumn = Content;
 		CUIRect VisualRightColumn = Content;
 		const bool HasTwoVisualColumns = Content.w >= 620.0f;
 		if(HasTwoVisualColumns)
 			Content.VSplitMid(&VisualLeftColumn, &VisualRightColumn, MarginSmall);
+		RenderAmfBestFeatureVisuals(VisualLeftColumn, VisualRightColumn, HasTwoVisualColumns, true);
 
 		constexpr int DependentSettingsDuration = 180;
 		const bool AnimateDependentSettings = g_Config.m_AmfSmoothHud && SmoothHudWindowActive && g_Config.m_AmfAnimMenu;
@@ -1989,6 +3735,93 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 		};
 		const bool AnimateSmoothHudSection = ShouldAnimateSmoothHudSection();
 		const float UiPixelSize = Ui()->PixelSize();
+		auto RenderTuneZoneColorCard = [&]() {
+			static CButtonContainer s_TuneZoneColorsEnabledButton;
+			static CSmoothUiSectionAnimation s_TuneZoneSelectorSection;
+			const bool TuneZoneColorsEnabled = g_Config.m_AmfTuneZoneColors != 0;
+			float SelectorProgress = s_TuneZoneSelectorSection.Update(
+				TuneZoneColorsEnabled,
+				Client()->RenderFrameTime(),
+				DependentSettingsDuration,
+				AnimateDependentSettings);
+			constexpr float FullSelectorHeight = MarginExtraSmall + LineSize;
+			const bool SelectorVisible = s_TuneZoneSelectorSection.IsVisible();
+			const float SelectorHeight = SelectorVisible ?
+				std::round(FullSelectorHeight * SelectorProgress / UiPixelSize) * UiPixelSize :
+				0.0f;
+			const float TuneZoneColorCardHeight = VisualCardPadding * 2.0f + LineSize + SelectorHeight;
+			CUIRect CardContent = BeginVisualCard(VisualRightColumn, TuneZoneColorCardHeight);
+			CardContent.HSplitTop(LineSize, &Button, &CardContent);
+			if(DoButton_CheckBoxAutoVMarginAndSet(
+				&s_TuneZoneColorsEnabledButton,
+				TCLocalize("Custom Tune Zone Colors", "AMF Client"),
+				&g_Config.m_AmfTuneZoneColors,
+				&Button,
+				LineSize))
+			{
+				GameClient()->m_MapImages.SetTuneZoneColorsEnabled(g_Config.m_AmfTuneZoneColors);
+				SelectorProgress = s_TuneZoneSelectorSection.Update(
+					g_Config.m_AmfTuneZoneColors != 0,
+					0.0f,
+					DependentSettingsDuration,
+					AnimateDependentSettings);
+			}
+			GameClient()->m_Tooltips.DoToolTip(
+				&s_TuneZoneColorsEnabledButton,
+				&Button,
+				TCLocalize("Toggle the custom tint used for tune zones.", "AMF Client"));
+
+			if(SelectorVisible)
+			{
+				CUIRect SelectorClip;
+				CardContent.HSplitTop(SelectorHeight, &SelectorClip, &CardContent);
+				CUIRect SelectorContent = SelectorClip;
+				SelectorContent.h = FullSelectorHeight;
+				SelectorContent.y += std::round((1.0f - SelectorProgress) * 3.0f / UiPixelSize) * UiPixelSize;
+				Ui()->ClipEnable(&SelectorClip);
+				const ColorRGBA OldTextColor = TextRender()->GetTextColor();
+				const ColorRGBA OldOutlineColor = TextRender()->GetTextOutlineColor();
+				TextRender()->TextColor(OldTextColor.WithMultipliedAlpha(SelectorProgress));
+				TextRender()->TextOutlineColor(OldOutlineColor.WithMultipliedAlpha(SelectorProgress));
+
+				SelectorContent.HSplitTop(MarginExtraSmall, nullptr, &SelectorContent);
+				SelectorContent.HSplitTop(LineSize, &Button, &SelectorContent);
+
+				const char *apPresetNames[TuneZoneColor::PRESET_COUNT] = {
+					TCLocalize("Standard", "AMF Client"),
+					TCLocalize("Red", "AMF Client"),
+					TCLocalize("Green", "AMF Client"),
+					TCLocalize("Purple", "AMF Client"),
+					TCLocalize("Yellow", "AMF Client"),
+					TCLocalize("White", "AMF Client"),
+					TCLocalize("Black", "AMF Client")};
+				const int CurrentPreset = TuneZoneColor::NormalizePreset(g_Config.m_AmfTuneZoneColorPreset);
+				static CUi::SDropDownState s_TuneZoneColorDropDownState;
+				static CScrollRegion s_TuneZoneColorDropDownScrollRegion;
+				s_TuneZoneColorDropDownState.m_SelectionPopupContext.m_pScrollRegion = &s_TuneZoneColorDropDownScrollRegion;
+				const bool SelectorInteractive = s_TuneZoneSelectorSection.AcceptsInput();
+				if(SelectorInteractive)
+				{
+					const int SelectedPreset = Ui()->DoDropDown(
+						&Button,
+						CurrentPreset,
+						apPresetNames,
+						(int)std::size(apPresetNames),
+						s_TuneZoneColorDropDownState);
+					if(SelectedPreset != CurrentPreset)
+						GameClient()->m_MapImages.SetTuneZoneColorPreset(SelectedPreset);
+				}
+				else
+				{
+					Button.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f * SelectorProgress), IGraphics::CORNER_ALL, 4.0f);
+					Ui()->DoLabel(&Button, apPresetNames[CurrentPreset], 12.0f, TEXTALIGN_MC);
+				}
+
+				TextRender()->TextColor(OldTextColor);
+				TextRender()->TextOutlineColor(OldOutlineColor);
+				Ui()->ClipDisable();
+			}
+		};
 		float AnimationSectionProgress = s_AnimationSettingsSection.Update(
 			g_Config.m_AmfSmoothHud != 0,
 			Client()->RenderFrameTime(),
@@ -2162,7 +3995,32 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			TextRender()->TextOutlineColor(OldOutlineColor);
 		}
 
-		VisualLeftColumn.HSplitTop(VisualCardGap, nullptr, &VisualLeftColumn);
+		// Reserve Aspect Ratio at the top, then place Enhanced Weapons second.
+		// TakeCard owns the vertical progression and shared gap; the feature helper
+		// appends the remaining right-column cards afterward.
+		const bool AspectBlocked = GameClient()->IsAspectRatioBlockedByFng();
+		const int AspectMode = g_Config.m_AmfCustomAspectRatioMode >= 0 ?
+			g_Config.m_AmfCustomAspectRatioMode : (g_Config.m_AmfCustomAspectRatio > 0 ? 1 : 0);
+		const bool AspectCustomMode = AspectMode == 2 || m_AspectCustomEditPending;
+		const float AspectCustomHeight = AspectCustomMode ? (MarginSmall + LineSize + MarginSmall + LineSize) : 0.0f;
+		const float AspectBlockedHeight = AspectBlocked ? (MarginSmall + LineSize) : 0.0f;
+		const float AspectSummaryHeight = LineSize;
+		const float AspectCardHeight = VisualCardPadding * 2.0f +
+			LineSize + MarginSmall + LineSize + MarginSmall + LineSize +
+			AspectCustomHeight + MarginSmall + AspectSummaryHeight + AspectBlockedHeight;
+		CUIRect AspectCardRect;
+		if(HasTwoVisualColumns)
+		{
+			AspectCardRect = AmfSettingsPolicy::TakeCard(VisualRightColumn, AspectCardHeight);
+			RenderSettingsAmfEnhancedWeapons(VisualRightColumn);
+		}
+		RenderAmfBestFeatureVisuals(VisualLeftColumn, VisualRightColumn, HasTwoVisualColumns, false);
+		if(!HasTwoVisualColumns)
+		{
+			VisualRightColumn = VisualLeftColumn;
+		}
+		if(!HasTwoVisualColumns)
+			VisualLeftColumn = VisualRightColumn;
 		static CButtonContainer s_AmfClientIndicatorButton;
 		static bool s_IndicatorSettingsAutoScrollRequested = false;
 		// Update the section once before handling the parent click. This preserves
@@ -2308,11 +4166,6 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 		if(!HasTwoVisualColumns)
 		{
 			VisualRightColumn = VisualLeftColumn;
-			// In the single-column layout the right column aliases the left one.
-			// Reserve the same outer-card gap used everywhere else before placing
-			// Aspect Ratio, otherwise its border touches Indicators at narrow
-			// resolutions (notably 4:3).
-			VisualRightColumn.HSplitTop(VisualCardGap, nullptr, &VisualRightColumn);
 		}
 
 		// Both module-local buttons use the same activation path; their owning
@@ -2341,27 +4194,13 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 
 		// Best Client custom aspect ratio controls. Keep the donor's stored
 		// values and transitions, while exposing them inside AMF Visuals.
-		const bool AspectBlocked = GameClient()->IsAspectRatioBlockedByFng();
-		const int AspectMode = g_Config.m_AmfCustomAspectRatioMode >= 0 ?
-			g_Config.m_AmfCustomAspectRatioMode : (g_Config.m_AmfCustomAspectRatio > 0 ? 1 : 0);
 		// Custom is an editor state until Apply is pressed. Keep the active
 		// graphics/config aspect untouched while the user edits the two fields.
-		const bool AspectCustomMode = AspectMode == 2 || m_AspectCustomEditPending;
-		const float AspectCustomHeight = AspectCustomMode ? (MarginSmall + LineSize + MarginSmall + LineSize) : 0.0f;
-		const float AspectBlockedHeight = AspectBlocked ? (MarginSmall + LineSize) : 0.0f;
-		// The detailed geometry preview is shown only by the active confirmation
-		// view below. Keep the idle card compact and derive its height solely from
-		// the controls that are actually rendered here.
-		const float AspectSummaryHeight = LineSize;
-		const float AspectCardHeight = VisualCardPadding * 2.0f +
-			LineSize + MarginSmall + LineSize + MarginSmall + LineSize +
-			AspectCustomHeight + MarginSmall + AspectSummaryHeight + AspectBlockedHeight;
-		const CUIRect AspectCardRect = {
-			VisualRightColumn.x,
-			VisualRightColumn.y,
-			VisualRightColumn.w,
-			AspectCardHeight};
-		CUIRect AspectCardContent = BeginVisualCard(VisualRightColumn, AspectCardHeight);
+		if(!HasTwoVisualColumns)
+			AspectCardRect = AmfSettingsPolicy::TakeCard(VisualRightColumn, AspectCardHeight);
+		AspectCardRect.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f), IGraphics::CORNER_ALL, VisualCardRounding);
+		CUIRect AspectCardContent;
+		AspectCardRect.Margin(VisualCardPadding, &AspectCardContent);
 		AspectCardContent.HSplitTop(LineSize, &Label, &AspectCardContent);
 		Ui()->DoLabel(&Label, TCLocalize("Aspect Ratio", "AMF Client"), HeadlineFontSize, TEXTALIGN_ML);
 		AspectCardContent.HSplitTop(MarginSmall, nullptr, &AspectCardContent);
@@ -2533,44 +4372,10 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			BlockedProperties.SetColor(ColorRGBA(1.0f, 0.4f, 0.4f, 1.0f));
 			Ui()->DoLabel(&Label, TCLocalize("This feature is blocked on this server", "AMF Client"), 11.0f, TEXTALIGN_ML, BlockedProperties);
 		}
-		VisualRightColumn.HSplitTop(VisualCardGap, nullptr, &VisualRightColumn);
-		const float TuneZoneColorCardHeight = VisualCardPadding * 2.0f + LineSize + MarginExtraSmall + LineSize;
-		CUIRect TuneZoneColorCardContent = BeginVisualCard(VisualRightColumn, TuneZoneColorCardHeight);
-		RenderTuneZoneColorSetting(TuneZoneColorCardContent);
-		VisualRightColumn.HSplitTop(VisualCardGap, nullptr, &VisualRightColumn);
-
-		// The idle Visuals page keeps its regular cards compact; the full aspect
-		// preview is rendered only while its confirmation test is active above.
-		const float FancyWeaponsCardHeight = VisualCardPadding * 2.0f +
-			LineSize + MarginExtraSmall + LineSize + 48.0f + MarginExtraSmall + LineSize + 48.0f;
-		Content = BeginVisualCard(VisualRightColumn, FancyWeaponsCardHeight);
-		Content.HSplitTop(LineSize, &Button, &Content);
-		static CButtonContainer s_AmfFancyWeaponsButton;
-		DoButton_CheckBoxAutoVMarginAndSet(
-			&s_AmfFancyWeaponsButton,
-			TCLocalize("Fancy Weapons", "AMF Client"),
-			&g_Config.m_AmfFancyWeapons,
-			&Button,
-			LineSize);
-		GameClient()->m_Tooltips.DoToolTip(
-			&s_AmfFancyWeaponsButton,
-			&Button,
-			TCLocalize("Renders rifle and shotgun lasers with the AMF visual effect without changing gameplay.", "AMF Client"));
-		Content.HSplitTop(MarginExtraSmall, nullptr, &Content);
-		Content.HSplitTop(LineSize, &Label, &Content);
-		Ui()->DoLabel(&Label, TCLocalize("Rifle preview", "AMF Client"), 12.0f, TEXTALIGN_ML);
-		Content.HSplitTop(48.0f, &Button, &Content);
-		DoLaserPreview(&Button, ColorHSLA(g_Config.m_ClLaserRifleOutlineColor), ColorHSLA(g_Config.m_ClLaserRifleInnerColor), LASERTYPE_RIFLE);
-		Content.HSplitTop(MarginExtraSmall, nullptr, &Content);
-		Content.HSplitTop(LineSize, &Label, &Content);
-		Ui()->DoLabel(&Label, TCLocalize("Shotgun preview", "AMF Client"), 12.0f, TEXTALIGN_ML);
-		Content.HSplitTop(48.0f, &Button, &Content);
-		DoLaserPreview(&Button, ColorHSLA(g_Config.m_ClLaserShotgunOutlineColor), ColorHSLA(g_Config.m_ClLaserShotgunInnerColor), LASERTYPE_SHOTGUN);
-
-		VisualRightColumn.HSplitTop(VisualCardGap, nullptr, &VisualRightColumn);
+		const bool KeyIndicatorEnabled = g_Config.m_AmfKeyIndicator != 0;
+		auto RenderKeyIndicatorCard = [&]() {
 		static CButtonContainer s_AmfKeyIndicatorButton;
 		static CSmoothUiSectionAnimation s_KeyIndicatorSettingsSection;
-		const bool KeyIndicatorEnabled = g_Config.m_AmfKeyIndicator != 0;
 		float KeyIndicatorSettingsProgress = s_KeyIndicatorSettingsSection.Update(
 			KeyIndicatorEnabled,
 			Client()->RenderFrameTime(),
@@ -2686,15 +4491,15 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 		}
 		if(KeyIndicatorEnabled)
 		{
-			VisualRightColumn.HSplitTop(VisualCardGap, nullptr, &VisualRightColumn);
 			CUIRect KeyIndicatorHudEditorCardContent = BeginVisualCard(VisualRightColumn, VisualCardPadding * 2.0f + LineSize);
 			CUIRect KeyIndicatorHudEditorButton;
 			KeyIndicatorHudEditorCardContent.HSplitTop(LineSize, &KeyIndicatorHudEditorButton, &KeyIndicatorHudEditorCardContent);
 			static CButtonContainer s_AmfKeyIndicatorHudEditorButton;
 			RenderModuleHudEditorButton(KeyIndicatorHudEditorButton, &s_AmfKeyIndicatorHudEditorButton);
 		}
+		};
 
-		VisualRightColumn.HSplitTop(VisualCardGap, nullptr, &VisualRightColumn);
+		auto RenderMusicPlayerCard = [&]() {
 		const bool MusicPlayerEnabled = g_Config.m_AmfMusicPlayer != 0;
 		const bool ShowMusicPlayerHudEditorButton = !KeyIndicatorEnabled && MusicPlayerEnabled;
 		// The selected color mode is layout state, not visibility state. Keeping it
@@ -2709,7 +4514,7 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			180,
 			AnimateMusicPlayerSettings);
 		const float MusicPlayerExpandedSettingsHeight =
-			8.0f * (MarginExtraSmall + LineSize) +
+			9.0f * (MarginExtraSmall + LineSize) +
 			(MusicPlayerShowsStaticColor ? MarginExtraSmall + ColorPickerLineSize : 0.0f);
 		const bool MusicPlayerSettingsVisible = s_MusicPlayerSettingsSection.IsVisible();
 		const float MusicPlayerSettingsHeight = MusicPlayerSettingsVisible ?
@@ -2764,6 +4569,7 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 				g_Config.m_AmfMusicPlayerVisualizerColumns = 5;
 				g_Config.m_AmfMusicPlayerShowLyrics = 1;
 				g_Config.m_AmfMusicPlayerShowCurrentTime = 1;
+				g_Config.m_AmfMusicPlayerShowServerTime = 0;
 			}
 			GameClient()->m_Tooltips.DoToolTip(&s_AmfMusicPlayerResetButton, &MusicPlayerResetButton, TCLocalize("Reset Music Player settings", "AMF Client"));
 
@@ -2818,7 +4624,15 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			MusicPlayerContent.HSplitTop(MarginExtraSmall, nullptr, &MusicPlayerContent);
 			MusicPlayerContent.HSplitTop(LineSize, &Button, &MusicPlayerContent);
 			static CButtonContainer s_AmfMusicPlayerShowCurrentTimeButton;
-			DoButton_CheckBoxAutoVMarginAndSet(&s_AmfMusicPlayerShowCurrentTimeButton, TCLocalize("Show Current Time", "AMF Client"), &g_Config.m_AmfMusicPlayerShowCurrentTime, &Button, LineSize);
+			const bool MusicTimeChanged = DoButton_CheckBoxAutoVMarginAndSet(&s_AmfMusicPlayerShowCurrentTimeButton, TCLocalize("Show music time", "AMF Client"), &g_Config.m_AmfMusicPlayerShowCurrentTime, &Button, LineSize);
+			if(MusicTimeChanged && g_Config.m_AmfMusicPlayerShowCurrentTime)
+				g_Config.m_AmfMusicPlayerShowServerTime = 0;
+			MusicPlayerContent.HSplitTop(MarginExtraSmall, nullptr, &MusicPlayerContent);
+			MusicPlayerContent.HSplitTop(LineSize, &Button, &MusicPlayerContent);
+			static CButtonContainer s_AmfMusicPlayerShowServerTimeButton;
+			const bool ServerTimeChanged = DoButton_CheckBoxAutoVMarginAndSet(&s_AmfMusicPlayerShowServerTimeButton, TCLocalize("Show server time", "AMF Client"), &g_Config.m_AmfMusicPlayerShowServerTime, &Button, LineSize);
+			if(ServerTimeChanged && g_Config.m_AmfMusicPlayerShowServerTime)
+				g_Config.m_AmfMusicPlayerShowCurrentTime = 0;
 
 			MusicPlayerContent.HSplitTop(MarginExtraSmall, nullptr, &MusicPlayerContent);
 			MusicPlayerContent.HSplitTop(LineSize, &Button, &MusicPlayerContent);
@@ -2912,7 +4726,8 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 					Ui()->DoLabel(&CheckLabel, pLabel, CheckBox.h * CUi::ms_FontmodHeight, TEXTALIGN_ML);
 				};
 				DrawPassiveCheckBox(TCLocalize("Show Lyrics", "AMF Client"), g_Config.m_AmfMusicPlayerShowLyrics != 0);
-				DrawPassiveCheckBox(TCLocalize("Show Current Time", "AMF Client"), g_Config.m_AmfMusicPlayerShowCurrentTime != 0);
+				DrawPassiveCheckBox(TCLocalize("Show music time", "AMF Client"), g_Config.m_AmfMusicPlayerShowCurrentTime != 0);
+				DrawPassiveCheckBox(TCLocalize("Show server time", "AMF Client"), g_Config.m_AmfMusicPlayerShowServerTime != 0);
 
 				MusicPlayerContent.HSplitTop(MarginExtraSmall, nullptr, &MusicPlayerContent);
 				MusicPlayerContent.HSplitTop(LineSize, &Button, &MusicPlayerContent);
@@ -2937,7 +4752,9 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			static CButtonContainer s_AmfMusicPlayerHudEditorButton;
 			RenderModuleHudEditorButton(MusicPlayerHudEditorButton, &s_AmfMusicPlayerHudEditorButton);
 		}
-		VisualRightColumn.HSplitTop(VisualCardGap, nullptr, &VisualRightColumn);
+		};
+
+		auto RenderMotionBlurCard = [&]() {
 		static CButtonContainer s_AmfMotionBlurEnabledButton;
 		static bool s_MotionBlurSettingsAutoScrollRequested = false;
 		static CSmoothUiSectionAnimation s_MotionBlurSettingsSection;
@@ -2946,7 +4763,7 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			Client()->RenderFrameTime(),
 			DependentSettingsDuration,
 			AnimateDependentSettings);
-		constexpr float FullMotionBlurSettingsHeight = MarginExtraSmall + LineSize + MarginExtraSmall + LineSize;
+		constexpr float FullMotionBlurSettingsHeight = MarginExtraSmall + LineSize;
 		const bool MotionBlurSettingsVisible = s_MotionBlurSettingsSection.IsVisible();
 		const float MotionBlurSettingsHeight = MotionBlurSettingsVisible ? std::round(FullMotionBlurSettingsHeight * MotionBlurSettingsProgress / UiPixelSize) * UiPixelSize : 0.0f;
 		const float MotionBlurCardHeight = VisualCardPadding * 2.0f + LineSize + MotionBlurSettingsHeight;
@@ -3021,24 +4838,6 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 				Handle.Draw(ColorRGBA(1.0f, 1.0f, 1.0f, 0.5f * MotionBlurSettingsProgress), IGraphics::CORNER_ALL, Rail.h / 2.0f);
 			}
 
-			MotionBlurSettingsContent.HSplitTop(MarginExtraSmall, nullptr, &MotionBlurSettingsContent);
-			MotionBlurSettingsContent.HSplitTop(LineSize, &Label, &MotionBlurSettingsContent);
-			SLabelProperties HintProps;
-			int BackendMajor = 0;
-			int BackendMinor = 0;
-			int BackendPatch = 0;
-			const char *pBackendName = "";
-			const bool IsVulkan =
-				Graphics()->GetDriverVersion(
-					GRAPHICS_DRIVER_AGE_TYPE_DEFAULT,
-					BackendMajor,
-					BackendMinor,
-					BackendPatch,
-					pBackendName,
-					BACKEND_TYPE_AUTO) &&
-				str_comp_nocase(pBackendName, "Vulkan") == 0;
-			HintProps.SetColor((IsVulkan ? ColorRGBA(0.68f, 0.74f, 0.86f, 1.0f) : ColorRGBA(0.58f, 0.62f, 0.72f, 1.0f)).WithMultipliedAlpha(MotionBlurSettingsProgress));
-			Ui()->DoLabel(&Label, TCLocalize("Works only when using Vulkan.", "AMF Client"), 11.0f, TEXTALIGN_ML, HintProps);
 			TextRender()->TextColor(OldTextColor);
 			TextRender()->TextOutlineColor(OldOutlineColor);
 			Ui()->ClipDisable();
@@ -3050,15 +4849,17 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			else if(MotionBlurSettingsProgress >= 0.60f)
 			{
 				CUIRect MotionBlurRevealRect = MotionBlurToggleRow;
-				MotionBlurRevealRect.h += MarginExtraSmall + LineSize * 1.5f;
+			MotionBlurRevealRect.h += MarginExtraSmall + LineSize;
 				m_AmfVisualScrollRegion.AddRect(MotionBlurRevealRect);
 				m_AmfVisualScrollRegion.ScrollHereAnimated(CScrollRegion::SCROLLHERE_KEEP_IN_VIEW, 0.18f);
 				s_MotionBlurSettingsAutoScrollRequested = false;
 			}
 		}
 
-		// Keep Gradient Modules directly below Motion Blur in the right column.
-		VisualRightColumn.HSplitTop(VisualCardGap, nullptr, &VisualRightColumn);
+		};
+
+		auto RenderGradientNamesCard = [&]() {
+		// Gradient Names stays within the same shared two-column scroll region.
 		const bool GradientModulesEnabled = g_Config.m_AmfGradientNicknames != 0;
 		constexpr float GradientNicknamePreviewTeeHeight = 26.0f;
 		constexpr float GradientNicknamePreviewLabelHeight = 10.0f;
@@ -3380,6 +5181,20 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 			TextRender()->TextOutlineColor(OldGradientOutlineColor);
 			Ui()->ClipDisable();
 		}
+		};
+
+		if(!HasTwoVisualColumns)
+		{
+			RenderTuneZoneColorCard();
+			RenderSettingsAmfEnhancedWeapons(VisualRightColumn);
+		}
+		else
+			RenderTuneZoneColorCard();
+		RenderMusicPlayerCard();
+		RenderKeyIndicatorCard();
+		RenderGradientNamesCard();
+		RenderMotionBlurCard();
+
 		CUIRect ScrollEnd = VisualScrollBounds;
 		ScrollEnd.y = std::max(VisualLeftColumn.y, VisualRightColumn.y);
 		ScrollEnd.h = 0.0f;
@@ -3400,16 +5215,21 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 		return;
 	}
 
-	Content.VSplitMid(&LeftView, &RightView, MarginSmall);
+	CUIRect InformationContent = Content;
+	const float InformationTopPadding = LineSize;
+	InformationContent.HSplitTop(InformationTopPadding, nullptr, &InformationContent);
+	InformationContent.VSplitMid(&LeftView, &RightView, MarginSmall);
 	LeftView.VSplitLeft(MarginSmall, nullptr, &LeftView);
+	const float InformationBottomPadding = MarginSmall;
+	LeftView.HSplitBottom(InformationBottomPadding, &LeftView, nullptr);
 	RightView.VSplitRight(MarginSmall, &RightView, nullptr);
 
 	LeftView.HSplitTop(HeadlineHeight, &Label, &LeftView);
 	Ui()->DoLabel(&Label, TCLocalize("AMF Client links", "AMF Client"), HeadlineFontSize, TEXTALIGN_ML);
 	LeftView.HSplitTop(MarginSmall, nullptr, &LeftView);
 
-	static CButtonContainer s_DiscordButton, s_GithubButton, s_ConfigButton;
-	CUIRect ButtonLeft, ButtonRight;
+	static CButtonContainer s_DiscordButton, s_GithubButton, s_ConfigButton, s_ClientInfoButton;
+	CUIRect ButtonLeft, ButtonRight, InformationButtonRow;
 	LeftView.HSplitTop(LineSize * 2.0f, &Button, &LeftView);
 	Button.VSplitMid(&ButtonLeft, &ButtonRight, MarginSmall);
 	if(DoButtonLineSize_Menu(&s_DiscordButton, TCLocalize("Discord"), 0, &ButtonLeft, LineSize, false, 0, IGraphics::CORNER_ALL, 5.0f, 0.0f, ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f)))
@@ -3418,10 +5238,19 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 		Client()->ViewLink("https://github.com/AlyaDDNet/AMF-Client/releases");
 	GameClient()->m_Tooltips.DoToolTip(&s_DiscordButton, &ButtonLeft, TCLocalize("AMF Client Discord community.", "AMF Client"));
 	GameClient()->m_Tooltips.DoToolTip(&s_GithubButton, &ButtonRight, TCLocalize("Official AMF Client page on GitHub.", "AMF Client"));
-
 	LeftView.HSplitTop(MarginSmall, nullptr, &LeftView);
-	CUIRect AmfClientSettingsButton;
-	LeftView.HSplitTop(LineSize * 2.0f, &AmfClientSettingsButton, &LeftView);
+	LeftView.HSplitTop(LineSize * 2.0f, &InformationButtonRow, &LeftView);
+	if(DoButtonLineSize_Menu(&s_ClientInfoButton, TCLocalize("Client Info", "AMF Client Info"), 0, &InformationButtonRow, LineSize, false, 0, IGraphics::CORNER_ALL, 5.0f, 0.0f, ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f)))
+		OpenAmfClientInfoPopup();
+	GameClient()->m_Tooltips.DoToolTip(&s_ClientInfoButton, &InformationButtonRow, TCLocalize("Shows the user agreement and AMF Client information.", "AMF Client"));
+
+	CUIRect ConfigFilesView, AmfClientSettingsButton;
+	LeftView.HSplitBottom(HeadlineHeight + MarginSmall + LineSize * 2.0f, &LeftView, &ConfigFilesView);
+	ConfigFilesView.HSplitTop(HeadlineHeight, &Label, &ConfigFilesView);
+	Ui()->DoLabel(&Label, TCLocalize("Config Files"), HeadlineFontSize, TEXTALIGN_ML);
+	ConfigFilesView.HSplitTop(MarginSmall, nullptr, &ConfigFilesView);
+	ConfigFilesView.HSplitTop(LineSize * 2.0f, &Button, &ConfigFilesView);
+	Button.VSplitMid(&AmfClientSettingsButton, nullptr, MarginSmall);
 	if(DoButtonLineSize_Menu(&s_ConfigButton, TCLocalize("AMF Client settings", "AMF Client"), 0, &AmfClientSettingsButton, LineSize, false, 0, IGraphics::CORNER_ALL, 5.0f, 0.0f, ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f)))
 	{
 		char aBuf[IO_MAX_PATH_LENGTH];
@@ -3430,76 +5259,114 @@ void CMenus::RenderSettingsAmfClient(CUIRect MainView)
 	}
 	GameClient()->m_Tooltips.DoToolTip(&s_ConfigButton, &AmfClientSettingsButton, TCLocalize("Opens the AMF Client configuration file.", "AMF Client"));
 
-	const char *pProfileTitle = TCLocalize("AMF Client developer", "AMF Client");
+	const char *pProfileTitle = TCLocalize("AMF Client Team", "AMF Client");
 	RightView.HSplitTop(HeadlineHeight, &Label, &RightView);
 	Ui()->DoLabel(&Label, pProfileTitle, HeadlineFontSize, TEXTALIGN_ML);
 	RightView.HSplitTop(MarginSmall, nullptr, &RightView);
 
-	const float TeeSize = 57.304f;
-	const float CardSize = TeeSize + MarginSmall;
-	const float PanelPadding = MarginSmall;
-	const float PanelHeight = AmfClientSettingsButton.y + AmfClientSettingsButton.h - RightView.y;
-	const float NicknameFontSize = LineSize * 1.04275f;
-	const float ProfileContentWidth = PanelPadding * 2.0f + CardSize + TextRender()->TextWidth(NicknameFontSize, "alya?") + MarginSmall + LineSize;
-	const float ProfilePanelWidth = std::max(ProfileContentWidth, TextRender()->TextWidth(HeadlineFontSize, pProfileTitle));
-	CUIRect ProfilePanel, PanelContent, ProfileCard, TeeRect, ProfileText;
-	RightView.HSplitTop(PanelHeight, &ProfilePanel, &RightView);
-	ProfilePanel.w = std::min(ProfilePanel.w, ProfilePanelWidth);
-	ProfilePanel.Draw(ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f), IGraphics::CORNER_ALL, 5.0f);
-	ProfilePanel.Margin(PanelPadding, &PanelContent);
-	PanelContent.VSplitLeft(CardSize, &TeeRect, &ProfileText);
-	ProfileText.x -= MarginExtraSmall + 2.5f;
-	ProfileText.w += MarginExtraSmall + 2.5f;
-	ProfileText.VSplitLeft(0.0f, nullptr, &ProfileText);
-	ProfileCard = ProfileText;
-	static CButtonContainer s_ProfileButton;
-	static std::vector<float> s_vHeartStarts;
-	if(Ui()->DoButtonLogic(&s_ProfileButton, 0, &TeeRect, BUTTONFLAG_LEFT))
-		s_vHeartStarts.push_back(Client()->GlobalTime());
-
+	const float TeeSize = 50.0f;
+	const float NicknameFontSize = LineSize * 0.82f;
+	const float TeamMemberRowGap = 14.0f;
+	const float TeamSettingsSectionGap = 24.0f;
+	static CButtonContainer s_aTeamMemberButtons[3];
+	static CButtonContainer s_AlyaLinkButton;
+	static std::vector<float> s_avTeamClickStarts[3];
+	static CUIElement *s_pTeamNicknameUiElement = nullptr;
+	if(s_pTeamNicknameUiElement == nullptr)
+		s_pTeamNicknameUiElement = Ui()->GetNewUIElement(3);
 	const ColorRGBA DeveloperColor = color_cast<ColorRGBA>(ColorHSLA(180.0f / 255.0f, 141.0f / 255.0f, 0.0f).UnclampLighting(ColorHSLA::DARKEST_LGT));
-	if(str_comp(GameClient()->m_Skins.Find("grizli2")->GetName(), "grizli2") == 0)
-		RenderDevSkin(TeeRect.Center(), TeeSize, "grizli2", "default", true, 0, 0, 0, false, true, DeveloperColor, DeveloperColor);
-	ProfileCard.VSplitLeft(TextRender()->TextWidth(NicknameFontSize, "alya?"), &Label, &Button);
-	Button.VSplitLeft(MarginSmall, nullptr, &Button);
-	Button.w = LineSize;
-	Button.h = LineSize;
-	Button.y = Label.y + (Label.h / 2.0f - Button.h / 2.0f);
-	Ui()->DoLabel(&Label, "alya?", NicknameFontSize, TEXTALIGN_ML);
-	static CButtonContainer s_DiscordLinkButton;
-	if(Ui()->DoButton_FontIcon(&s_DiscordLinkButton, FontIcon::ARROW_UP_RIGHT_FROM_SQUARE, 0, &Button, IGraphics::CORNER_ALL))
-		Client()->ViewLink("https://discord.com/channels/@me/779833135453831188");
-
-	for(auto It = s_vHeartStarts.begin(); It != s_vHeartStarts.end();)
-	{
-		const float HeartTime = Client()->GlobalTime() - *It;
-		if(HeartTime >= 1.0f)
+	const auto RenderClickEmoticons = [&](int Member, const CUIRect &MemberTeeRect, int Image) {
+		for(auto It = s_avTeamClickStarts[Member].begin(); It != s_avTeamClickStarts[Member].end();)
 		{
-			It = s_vHeartStarts.erase(It);
-			continue;
+			const float EmoteTime = Client()->GlobalTime() - *It;
+			if(EmoteTime >= 1.0f)
+			{
+				It = s_avTeamClickStarts[Member].erase(It);
+				continue;
+			}
+
+			const float FadeIn = std::min(1.0f, EmoteTime / 0.15f);
+			const float FadeOut = std::min(1.0f, (1.0f - EmoteTime) / 0.25f);
+			const float Alpha = FadeIn * FadeOut;
+			const float Size = 47.5f;
+			const vec2 EmotePos = MemberTeeRect.Center() + vec2(0.0f, -TeeSize * 0.75f - EmoteTime * 18.0f);
+			Graphics()->TextureSet(g_pData->m_aImages[Image].m_Id);
+			Graphics()->QuadsBegin();
+			Graphics()->SetColor(1.0f, 1.0f, 1.0f, Alpha);
+			IGraphics::CQuadItem EmoteQuad(EmotePos.x - Size / 2.0f, EmotePos.y - Size / 2.0f, Size, Size);
+			Graphics()->QuadsDrawTL(&EmoteQuad, 1);
+			Graphics()->QuadsEnd();
+			++It;
+		}
+	};
+	const auto RenderTeamMember = [&](int Member, const char *pRole, const char *pNickname, const char *pSkinName, int ClickImage, bool HasExternalLink) {
+		CUIRect MemberRow, MemberTeeRect, MemberTextRect;
+		RightView.HSplitTop(TeeSize, &MemberRow, &RightView);
+		RightView.HSplitTop(TeamMemberRowGap, nullptr, &RightView);
+		MemberRow.VSplitLeft(TeeSize, &MemberTeeRect, &MemberTextRect);
+		MemberTextRect.x += MarginSmall;
+		MemberTextRect.w -= MarginSmall;
+
+		if(Ui()->DoButtonLogic(&s_aTeamMemberButtons[Member], 0, &MemberTeeRect, BUTTONFLAG_LEFT))
+			s_avTeamClickStarts[Member].push_back(Client()->GlobalTime());
+
+		if(Member == 0)
+		{
+			if(str_comp(GameClient()->m_Skins.Find("grizli2")->GetName(), "grizli2") == 0)
+				RenderDevSkin(MemberTeeRect.Center(), TeeSize, "grizli2", "default", true, 0, 0, 0, false, true, DeveloperColor, DeveloperColor);
+		}
+		else if(str_comp(GameClient()->m_Skins.Find(pSkinName)->GetName(), pSkinName) == 0)
+		{
+			const bool IsMordiser = Member == 1;
+			const bool MordiserHovered = IsMordiser && Ui()->MouseHovered(&MemberTeeRect);
+			const int TeeEmote = MordiserHovered ? EMOTE_ANGRY : EMOTE_NORMAL;
+			const bool HappyEyesOnHover = !IsMordiser;
+			RenderDevSkin(MemberTeeRect.Center(), TeeSize, pSkinName, "default", false, 0, 0, TeeEmote, false, true,
+				ColorRGBA(0, 0, 0, 0), ColorRGBA(0, 0, 0, 0), HappyEyesOnHover);
 		}
 
-		const float FadeIn = std::min(1.0f, HeartTime / 0.15f);
-		const float FadeOut = std::min(1.0f, (1.0f - HeartTime) / 0.25f);
-		const float Alpha = FadeIn * FadeOut;
-		const float Size = 47.5f;
-		const vec2 HeartPos = TeeRect.Center() + vec2(0.0f, -TeeSize * 0.75f - HeartTime * 18.0f);
-		Graphics()->TextureSet(g_pData->m_aImages[IMAGE_AMF_HEART].m_Id);
-		Graphics()->QuadsBegin();
-		Graphics()->SetColor(1.0f, 1.0f, 1.0f, Alpha);
-		IGraphics::CQuadItem HeartQuad(HeartPos.x - Size / 2.0f, HeartPos.y - Size / 2.0f, Size, Size);
-		Graphics()->QuadsDrawTL(&HeartQuad, 1);
-		Graphics()->QuadsEnd();
-		++It;
-	}
+		CUIRect RoleRow, NicknameRow, NicknameLabel, ExternalLinkButton;
+		RoleRow = MemberTextRect;
+		RoleRow.y = MemberRow.y - MarginExtraSmall;
+		RoleRow.h = FontSize + MarginExtraSmall;
+		Ui()->DoLabel(&RoleRow, pRole, FontSize, TEXTALIGN_TL);
+		NicknameRow = MemberTextRect;
+		NicknameLabel = NicknameRow;
+		const float NicknameWidth = TextRender()->TextWidth(NicknameFontSize, pNickname);
+		NicknameLabel.w = NicknameWidth;
+		const ColorRGBA PreviousOutlineColor = TextRender()->GetTextOutlineColor();
+		TextRender()->TextOutlineColor(ColorRGBA(0.0f, 0.0f, 0.0f, 0.0f));
+		Ui()->DoLabelStreamed(*s_pTeamNicknameUiElement->Rect(Member), &NicknameLabel, pNickname, NicknameFontSize, TEXTALIGN_ML);
+		TextRender()->TextOutlineColor(PreviousOutlineColor);
+		if(HasExternalLink)
+		{
+			ExternalLinkButton.x = NicknameRow.x + NicknameWidth + MarginSmall;
+			ExternalLinkButton.w = LineSize;
+			ExternalLinkButton.h = LineSize;
+			ExternalLinkButton.y = MemberRow.y + (TeeSize - LineSize) / 2.0f;
+			if(Ui()->DoButton_FontIcon(&s_AlyaLinkButton, FontIcon::ARROW_UP_RIGHT_FROM_SQUARE, 0, &ExternalLinkButton, IGraphics::CORNER_ALL))
+				Client()->ViewLink("https://guns.lol/alyaddnet");
+		}
 
-	CUIRect ClientInfoButton;
-	Content.HSplitBottom(LineSize * 2.0f, nullptr, &ClientInfoButton);
-	ClientInfoButton.VSplitLeft(125.0f, &ClientInfoButton, nullptr);
-	static CButtonContainer s_ClientInfoButton;
-	if(DoButtonLineSize_Menu(&s_ClientInfoButton, TCLocalize("Client Info", "AMF Client Info"), 0, &ClientInfoButton, LineSize, false, 0, IGraphics::CORNER_ALL, 5.0f, 0.0f, ColorRGBA(0.0f, 0.0f, 0.0f, 0.25f)))
-		OpenAmfClientInfoPopup();
-	GameClient()->m_Tooltips.DoToolTip(&s_ClientInfoButton, &ClientInfoButton, TCLocalize("Shows the user agreement and AMF Client information.", "AMF Client"));
+		RenderClickEmoticons(Member, MemberTeeRect, ClickImage);
+	};
+	RenderTeamMember(0, TCLocalize("Developer AMF", "AMF Client"), "alya?", "grizli2", IMAGE_AMF_HEART, true);
+	RenderTeamMember(1, TCLocalize("Lead Tester", "AMF Client"), "mordıser", "Kirisaki_glow", IMAGE_AMF_MORDISER_CLICK, false);
+	RenderTeamMember(2, TCLocalize("Helper AMF", "AMF Client"), "ϝσʅȥყ♡", "Kirisaki_black", IMAGE_AMF_HELPER_CLICK, false);
+
+	RightView.HSplitTop(TeamSettingsSectionGap, nullptr, &RightView);
+	RightView.HSplitTop(HeadlineHeight, &Label, &RightView);
+	Ui()->DoLabel(&Label, TCLocalize("Hide Settings Tabs"), HeadlineFontSize, TEXTALIGN_ML);
+	RightView.HSplitTop(MarginSmall, nullptr, &RightView);
+	CUIRect AmfTabOptions, GeneralTabOption, VisualTabOption;
+	RightView.HSplitTop(LineSize + MarginExtraSmall, &AmfTabOptions, &RightView);
+	AmfTabOptions.VSplitMid(&GeneralTabOption, &VisualTabOption, MarginSmall);
+	int GeneralHidden = AmfSettingsTabPolicy::IsHidden(g_Config.m_TcTClientSettingsTabs, AmfSettingsTabPolicy::PAGE_GENERAL);
+	int VisualHidden = AmfSettingsTabPolicy::IsHidden(g_Config.m_TcTClientSettingsTabs, AmfSettingsTabPolicy::PAGE_VISUAL);
+	DoButton_CheckBoxAutoVMarginAndSet(&GeneralHidden, TCLocalize("General", "AMF Client"), &GeneralHidden, &GeneralTabOption, LineSize);
+	DoButton_CheckBoxAutoVMarginAndSet(&VisualHidden, TCLocalize("Visual", "AMF Client"), &VisualHidden, &VisualTabOption, LineSize);
+	g_Config.m_TcTClientSettingsTabs = AmfSettingsTabPolicy::SetHidden(g_Config.m_TcTClientSettingsTabs, AmfSettingsTabPolicy::PAGE_GENERAL, GeneralHidden != 0);
+	g_Config.m_TcTClientSettingsTabs = AmfSettingsTabPolicy::SetHidden(g_Config.m_TcTClientSettingsTabs, AmfSettingsTabPolicy::PAGE_VISUAL, VisualHidden != 0);
 
 	GameClient()->NotifyAmfConfigChanged();
 	RenderAmfPageTransition();
@@ -3697,7 +5564,7 @@ int CMenus::DoButtonLineSize_Menu(CButtonContainer *pButtonContainer, const char
 	return Ui()->DoButtonLogic(pButtonContainer, Checked, pRect, BUTTONFLAG_LEFT);
 }
 
-void CMenus::RenderDevSkin(vec2 RenderPos, float Size, const char *pSkinName, const char *pBackupSkin, bool CustomColors, int FeetColor, int BodyColor, int Emote, bool Rainbow, bool Cute, ColorRGBA ColorFeet, ColorRGBA ColorBody)
+void CMenus::RenderDevSkin(vec2 RenderPos, float Size, const char *pSkinName, const char *pBackupSkin, bool CustomColors, int FeetColor, int BodyColor, int Emote, bool Rainbow, bool Cute, ColorRGBA ColorFeet, ColorRGBA ColorBody, bool HappyEyesOnHover)
 {
 	bool WhiteFeetTemp = g_Config.m_TcWhiteFeet;
 	g_Config.m_TcWhiteFeet = false;
@@ -3739,13 +5606,13 @@ void CMenus::RenderDevSkin(vec2 RenderPos, float Size, const char *pSkinName, co
 	CRenderTools::GetRenderTeeOffsetToRenderedTee(pIdleState, &SkinInfo, OffsetToMid);
 	vec2 TeeRenderPos(RenderPos.x, RenderPos.y + OffsetToMid.y);
 	if(Cute)
-		RenderTeeCute(pIdleState, &SkinInfo, Emote, vec2(1.0f, 0.0f), TeeRenderPos, true);
+		RenderTeeCute(pIdleState, &SkinInfo, Emote, vec2(1.0f, 0.0f), TeeRenderPos, true, 1.0f, HappyEyesOnHover);
 	else
 		RenderTools()->RenderTee(pIdleState, &SkinInfo, Emote, vec2(1.0f, 0.0f), TeeRenderPos);
 	g_Config.m_TcWhiteFeet = WhiteFeetTemp;
 }
 
-void CMenus::RenderTeeCute(const CAnimState *pAnim, const CTeeRenderInfo *pInfo, int Emote, vec2 Dir, vec2 Pos, bool CuteEyes, float Alpha)
+void CMenus::RenderTeeCute(const CAnimState *pAnim, const CTeeRenderInfo *pInfo, int Emote, vec2 Dir, vec2 Pos, bool CuteEyes, float Alpha, bool HappyEyesOnHover)
 {
 	Dir = Ui()->MousePos() - Pos;
 	if(pInfo->m_Size > 0.0f)
@@ -3753,16 +5620,21 @@ void CMenus::RenderTeeCute(const CAnimState *pAnim, const CTeeRenderInfo *pInfo,
 	const float Length = length(Dir);
 	if(Length > 1.0f)
 		Dir /= Length;
-	if(CuteEyes && Length < 0.4f)
+	if(CuteEyes && HappyEyesOnHover && Length < 0.4f)
 		Emote = 2;
 	RenderTools()->RenderTee(pAnim, pInfo, Emote, Dir, Pos, Alpha);
 }
 
 void CMenus::RenderFontIcon(const CUIRect Rect, const char *pText, float Size, int Align)
 {
+	RenderFontIcon(Rect, pText, Size, Align, SLabelProperties{});
+}
+
+void CMenus::RenderFontIcon(const CUIRect Rect, const char *pText, float Size, int Align, const SLabelProperties &LabelProps)
+{
 	TextRender()->SetFontPreset(EFontPreset::ICON_FONT);
 	TextRender()->SetRenderFlags(ETextRenderFlags::TEXT_RENDER_FLAG_ONLY_ADVANCE_WIDTH | ETextRenderFlags::TEXT_RENDER_FLAG_NO_X_BEARING | ETextRenderFlags::TEXT_RENDER_FLAG_NO_Y_BEARING);
-	Ui()->DoLabel(&Rect, pText, Size, Align);
+	Ui()->DoLabel(&Rect, pText, Size, Align, LabelProps);
 	TextRender()->SetRenderFlags(0);
 	TextRender()->SetFontPreset(EFontPreset::DEFAULT_FONT);
 }
@@ -3801,13 +5673,13 @@ void CMenus::RenderSettingsTClient(CUIRect MainView)
 		s_Time = (float)rand() / (float)RAND_MAX;
 	}
 
-	static int s_CurCustomTab = 0;
+	int &s_CurCustomTab = m_TClientSettingsTab;
 
 	CUIRect TabBar, Button;
 	int TabCount = NUMBER_OF_TCLIENT_TABS;
 	for(int Tab = 0; Tab < NUMBER_OF_TCLIENT_TABS; ++Tab)
 	{
-		if(IsFlagSet(g_Config.m_TcTClientSettingsTabs, Tab))
+		if(IsFlagSet(g_Config.m_TcTClientSettingsTabs, Tab) && Tab != m_TClientSettingsSearchTemporaryTab)
 		{
 			TabCount--;
 			if(s_CurCustomTab == Tab)
@@ -3828,14 +5700,17 @@ void CMenus::RenderSettingsTClient(CUIRect MainView)
 
 	for(int Tab = 0; Tab < NUMBER_OF_TCLIENT_TABS; ++Tab)
 	{
-		if(IsFlagSet(g_Config.m_TcTClientSettingsTabs, Tab))
+		if(IsFlagSet(g_Config.m_TcTClientSettingsTabs, Tab) && Tab != m_TClientSettingsSearchTemporaryTab)
 			continue;
 
 		TabBar.VSplitLeft(TabWidth, &Button, &TabBar);
 		const int Corners = Tab == 0 ? IGraphics::CORNER_L : Tab == NUMBER_OF_TCLIENT_TABS - 1 ? IGraphics::CORNER_R :
 													 IGraphics::CORNER_NONE;
 		if(DoButton_MenuTab(&s_aPageTabs[Tab], apTabNames[Tab], s_CurCustomTab == Tab, &Button, Corners, nullptr, nullptr, nullptr, nullptr, 4.0f))
+		{
+			m_TClientSettingsSearchTemporaryTab = -1;
 			s_CurCustomTab = Tab;
+		}
 	}
 
 	MainView.HSplitTop(Margin, nullptr, &MainView);
@@ -4034,7 +5909,7 @@ void CMenus::RenderSettingsTClientSettings(CUIRect MainView)
 	Column.HSplitTop(MarginSmall, nullptr, &Column);
 
 	Column.HSplitTop(LineSize, &Button, &Column);
-	DoSliderWithDividedValue(&g_Config.m_ClPredictionMargin, &g_Config.m_ClPredictionMargin, &Button, "Prediction margin", 10, 750, 10, &CUi::ms_LinearScrollbarScale, CUi::SCROLLBAR_OPTION_NOCLAMPVALUE, "ms", true);
+	Ui()->DoScrollbarOption(&g_Config.m_ClPredictionMargin, &g_Config.m_ClPredictionMargin, &Button, TCLocalize("Prediction margin"), 1, 300);
 	DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_TcRemoveAnti, TCLocalize("Remove prediction & antiping in freeze"), &g_Config.m_TcRemoveAnti, &Column, LineSize);
 	if(g_Config.m_TcRemoveAnti)
 	{
@@ -4141,7 +6016,7 @@ void CMenus::RenderSettingsTClientSettings(CUIRect MainView)
 	{
 		MutedReply.HSplitTop(MarginExtraSmall, nullptr, &MutedReply);
 		static CLineInput s_MutedReply(g_Config.m_TcAutoReplyMutedMessage, sizeof(g_Config.m_TcAutoReplyMutedMessage));
-		s_MutedReply.SetEmptyText("I have muted you");
+		s_MutedReply.SetEmptyText(TCLocalize("I have muted you", "AMF Client"));
 		Ui()->DoEditBox(&s_MutedReply, &MutedReply, EditBoxFontSize);
 	}
 	Column.HSplitTop(MarginExtraSmall, nullptr, &Column);
@@ -4153,7 +6028,7 @@ void CMenus::RenderSettingsTClientSettings(CUIRect MainView)
 	{
 		MinimizedReply.HSplitTop(MarginExtraSmall, nullptr, &MinimizedReply);
 		static CLineInput s_MinimizedReply(g_Config.m_TcAutoReplyMinimizedMessage, sizeof(g_Config.m_TcAutoReplyMinimizedMessage));
-		s_MinimizedReply.SetEmptyText("I am not tabbed in");
+		s_MinimizedReply.SetEmptyText(TCLocalize("I am not tabbed in", "AMF Client"));
 		Ui()->DoEditBox(&s_MinimizedReply, &MinimizedReply, EditBoxFontSize);
 	}
 	Column.HSplitTop(MarginExtraSmall, nullptr, &Column);
@@ -4197,9 +6072,9 @@ void CMenus::RenderSettingsTClientSettings(CUIRect MainView)
 		DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_TcWarListIndicatorColors, TCLocalize("Use warlist colors instead of regular colors"), &g_Config.m_TcWarListIndicatorColors, &Column, LineSize);
 		char aBuf[128];
 		DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_TcWarListIndicatorAll, TCLocalize("Show all warlist groups"), &g_Config.m_TcWarListIndicatorAll, &Column, LineSize);
-		str_format(aBuf, sizeof(aBuf), "Show %s group", GameClient()->m_WarList.m_WarTypes.at(1)->m_aWarName);
+		str_format(aBuf, sizeof(aBuf), TCLocalize("Show %s group"), GameClient()->m_WarList.m_WarTypes.at(1)->m_aWarName);
 		DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_TcWarListIndicatorEnemy, aBuf, &g_Config.m_TcWarListIndicatorEnemy, &Column, LineSize);
-		str_format(aBuf, sizeof(aBuf), "Show %s group", GameClient()->m_WarList.m_WarTypes.at(2)->m_aWarName);
+		str_format(aBuf, sizeof(aBuf), TCLocalize("Show %s group"), GameClient()->m_WarList.m_WarTypes.at(2)->m_aWarName);
 		DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_TcWarListIndicatorTeam, aBuf, &g_Config.m_TcWarListIndicatorTeam, &Column, LineSize);
 	}
 	if(!g_Config.m_TcWarListIndicatorColors || !g_Config.m_TcWarListIndicator)
@@ -4546,6 +6421,85 @@ void CMenus::RenderSettingsTClientSettings(CUIRect MainView)
 	Ui()->DoLabel(&Label, TCLocalize("Finish Name:"), FontSize, TEXTALIGN_ML);
 	static CLineInput s_FinishName(g_Config.m_TcFinishName, sizeof(g_Config.m_TcFinishName));
 	Ui()->DoEditBox(&s_FinishName, &Button, EditBoxFontSize);
+	s_SectionBoxes.back().h = Column.y - s_SectionBoxes.back().y;
+
+	// ***** Translate ***** //
+	Column.HSplitTop(MarginBetweenSections, nullptr, &Column);
+	s_SectionBoxes.push_back(Column);
+	Column.HSplitTop(HeadlineHeight, &Label, &Column);
+	Ui()->DoLabel(&Label, TCLocalize("Translate"), HeadlineFontSize, TEXTALIGN_ML);
+	Column.HSplitTop(MarginSmall, nullptr, &Column);
+
+	int CurrentBackendIndex = 0;
+	for(size_t i = 0; i < g_aTranslateBackends.size(); i++)
+	{
+		if(str_comp_nocase(g_Config.m_TcTranslateBackend, g_aTranslateBackends[i].m_pValue) == 0 ||
+			(str_comp_nocase(g_Config.m_TcTranslateBackend, "ftapi") == 0 && str_comp_nocase(g_aTranslateBackends[i].m_pValue, "google") == 0))
+			CurrentBackendIndex = (int)i;
+	}
+	const STranslateBackendInfo &CurrentBackend = g_aTranslateBackends[CurrentBackendIndex];
+
+	{
+		static std::vector<const char *> s_TranslateBackendNames;
+		s_TranslateBackendNames.clear();
+		for(const STranslateBackendInfo &Backend : g_aTranslateBackends)
+			s_TranslateBackendNames.push_back(Backend.m_pName);
+
+		static CUi::SDropDownState s_TranslateBackendDropDownState;
+		static CScrollRegion s_TranslateBackendDropDownScrollRegion;
+		s_TranslateBackendDropDownState.m_SelectionPopupContext.m_pScrollRegion = &s_TranslateBackendDropDownScrollRegion;
+		CUIRect BackendDropDownRect;
+		Column.HSplitTop(LineSize, &BackendDropDownRect, &Column);
+		BackendDropDownRect.VSplitLeft(120.0f, &Label, &BackendDropDownRect);
+		Ui()->DoLabel(&Label, TCLocalize("Backend: "), FontSize, TEXTALIGN_ML);
+		const int BackendSelectedNew = Ui()->DoDropDown(&BackendDropDownRect, CurrentBackendIndex, s_TranslateBackendNames.data(), s_TranslateBackendNames.size(), s_TranslateBackendDropDownState);
+		if(BackendSelectedNew != CurrentBackendIndex)
+			str_copy(g_Config.m_TcTranslateBackend, g_aTranslateBackends[BackendSelectedNew].m_pValue);
+	}
+	Column.HSplitTop(MarginSmall, nullptr, &Column);
+
+	DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_TcTranslateAuto, TCLocalize("Automatically translate incoming messages"), &g_Config.m_TcTranslateAuto, &Column, LineSize);
+	CUIRect IncomingTargetBox;
+	Column.HSplitTop(LineSize + MarginExtraSmall, &IncomingTargetBox, &Column);
+	if(g_Config.m_TcTranslateAuto)
+	{
+		IncomingTargetBox.HSplitTop(MarginExtraSmall, nullptr, &IncomingTargetBox);
+		IncomingTargetBox.VSplitMid(&Label, &IncomingTargetBox);
+		Ui()->DoLabel(&Label, TCLocalize("Translate incoming to:"), FontSize, TEXTALIGN_ML);
+		static CUi::SDropDownState s_IncomingLangDropDownState;
+		static CScrollRegion s_IncomingLangDropDownScrollRegion;
+		s_IncomingLangDropDownState.m_SelectionPopupContext.m_pScrollRegion = &s_IncomingLangDropDownScrollRegion;
+		static std::vector<const char *> s_IncomingLangNames;
+		s_IncomingLangNames.clear();
+		for(const STranslateLanguage &Language : CurrentBackend.m_vLanguages)
+			s_IncomingLangNames.push_back(Language.m_pName);
+		const int IncomingLangOld = TranslateLanguageIndex(CurrentBackend.m_vLanguages, g_Config.m_TcTranslateTarget);
+		const int IncomingLangNew = Ui()->DoDropDown(&IncomingTargetBox, IncomingLangOld, s_IncomingLangNames.data(), s_IncomingLangNames.size(), s_IncomingLangDropDownState);
+		if(IncomingLangOld != IncomingLangNew)
+			str_copy(g_Config.m_TcTranslateTarget, CurrentBackend.m_vLanguages[IncomingLangNew].m_pCode);
+	}
+	Column.HSplitTop(MarginSmall, nullptr, &Column);
+
+	if(CurrentBackend.m_NeedsEndpointConfig)
+	{
+		CUIRect EndpointBox;
+		Column.HSplitTop(LineSize + MarginExtraSmall, &EndpointBox, &Column);
+		EndpointBox.VSplitMid(&Label, &EndpointBox);
+		Ui()->DoLabel(&Label, TCLocalize("LibreTranslate endpoint:"), FontSize, TEXTALIGN_ML);
+		static CLineInput s_TranslateEndpoint(g_Config.m_TcTranslateEndpoint, sizeof(g_Config.m_TcTranslateEndpoint));
+		s_TranslateEndpoint.SetEmptyText("localhost:5000/translate");
+		Ui()->DoEditBox(&s_TranslateEndpoint, &EndpointBox, EditBoxFontSize);
+		Column.HSplitTop(MarginExtraSmall, nullptr, &Column);
+
+		CUIRect KeyBox;
+		Column.HSplitTop(LineSize + MarginExtraSmall, &KeyBox, &Column);
+		KeyBox.VSplitMid(&Label, &KeyBox);
+		Ui()->DoLabel(&Label, TCLocalize("LibreTranslate API key:"), FontSize, TEXTALIGN_ML);
+		static CLineInput s_TranslateKey(g_Config.m_TcTranslateKey, sizeof(g_Config.m_TcTranslateKey));
+		s_TranslateKey.SetEmptyText(TCLocalize("Optional"));
+		Ui()->DoEditBox(&s_TranslateKey, &KeyBox, EditBoxFontSize);
+	}
+	Column.HSplitTop(MarginExtraSmall, nullptr, &Column);
 	s_SectionBoxes.back().h = Column.y - s_SectionBoxes.back().y;
 
 	// ***** END OF PAGE 1 SETTINGS ***** //
@@ -5153,7 +7107,7 @@ void CMenus::RenderSettingsTClientWarList(CUIRect MainView)
 	Column3.HSplitTop(MarginSmall, nullptr, &Column3);
 	Column3.HSplitTop(HeadlineFontSize + MarginSmall, &Button, &Column3);
 	s_TypeNameInput.SetBuffer(s_aTypeName, sizeof(s_aTypeName));
-	s_TypeNameInput.SetEmptyText("Group Name");
+	s_TypeNameInput.SetEmptyText(TCLocalize("Group name", "AMF Client"));
 	Ui()->DoEditBox(&s_TypeNameInput, &Button, 12.0f);
 	static CButtonContainer s_AddGroupButton, s_OverrideGroupButton, s_GroupColorPicker;
 
@@ -5286,7 +7240,7 @@ void CMenus::RenderSettingsTClientStatusBar(CUIRect MainView)
 	Ui()->DoLabel(&Label, TCLocalize("Local Time"), HeadlineFontSize, TEXTALIGN_ML);
 	LeftView.HSplitTop(MarginSmall, nullptr, &LeftView);
 	DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_TcStatusBar12HourClock, TCLocalize("Use 12 hour clock"), &g_Config.m_TcStatusBar12HourClock, &LeftView, LineSize);
-	DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_TcStatusBarLocalTimeSeocnds, TCLocalize("Show seconds on clock"), &g_Config.m_TcStatusBarLocalTimeSeocnds, &LeftView, LineSize);
+	DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_TcStatusBarLocalTimeSeconds, TCLocalize("Show seconds on clock"), &g_Config.m_TcStatusBarLocalTimeSeconds, &LeftView, LineSize);
 	LeftView.HSplitTop(HeadlineHeight, &Label, &LeftView);
 
 	LeftView.HSplitTop(HeadlineHeight, &Label, &LeftView);
@@ -5821,8 +7775,11 @@ void CMenus::RenderSettingsTClientProfiles(CUIRect MainView)
 			DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_TcProfileName, TCLocalize("Save/Load Name"), &g_Config.m_TcProfileName, &Settings, LineSize);
 			DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_TcProfileClan, TCLocalize("Save/Load Clan"), &g_Config.m_TcProfileClan, &Settings, LineSize);
 			DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_TcProfileFlag, TCLocalize("Save/Load Flag"), &g_Config.m_TcProfileFlag, &Settings, LineSize);
-			DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_TcProfileAssetsTiles, TCLocalize("Save/Load Entities"), &g_Config.m_TcProfileAssetsTiles, &Settings, LineSize);
-			DoButton_CheckBoxAutoVMarginAndSet(&g_Config.m_TcProfileAssetsGunpacks, TCLocalize("Save/Load Gunpacks"), &g_Config.m_TcProfileAssetsGunpacks, &Settings, LineSize);
+			Settings.HSplitTop(LineSize, &Label, &Settings);
+			Ui()->DoLabel(&Label, TCLocalize("Save/Load Assets"), FontSize, TEXTALIGN_ML);
+			CUIRect AssetDropdown;
+			Settings.HSplitTop(LineSize, &AssetDropdown, &Settings);
+			g_Config.m_TcProfileAssets = TClientProfileAssets::DoDropDown(Ui(), this, &AssetDropdown, TClientProfileAssets::CurrentFlags());
 		}
 		{
 			Actions.HSplitTop(30.0f, &Button, &Actions);
@@ -5856,6 +7813,7 @@ void CMenus::RenderSettingsTClientProfiles(CUIRect MainView)
 					g_Config.m_TcProfileAssetsGunpacks ? g_Config.m_ClAssetExtras : "",
 					g_Config.m_TcProfileAssetsGunpacks ? g_Config.m_ClAssetCursor : "",
 					g_Config.m_TcProfileAssetsGunpacks ? g_Config.m_ClAssetArrow : "");
+				TClientProfileAssets::Fill(GameClient()->m_SkinProfiles.m_Profiles.back());
 			}
 			Actions.HSplitTop(5.0f, nullptr, &Actions);
 
@@ -5893,6 +7851,7 @@ void CMenus::RenderSettingsTClientProfiles(CUIRect MainView)
 							g_Config.m_TcProfileAssetsGunpacks ? g_Config.m_ClAssetExtras : "",
 							g_Config.m_TcProfileAssetsGunpacks ? g_Config.m_ClAssetCursor : "",
 							g_Config.m_TcProfileAssetsGunpacks ? g_Config.m_ClAssetArrow : "");
+						TClientProfileAssets::Fill(GameClient()->m_SkinProfiles.m_Profiles[s_SelectedProfile]);
 					}
 				}
 			}
@@ -6265,7 +8224,7 @@ void CMenus::RenderSettingsTClientConfigs(CUIRect MainView)
 			Below.HSplitTop(2.0f, nullptr, &Below);
 			Help = Below;
 			Help.VSplitLeft(10.0f, nullptr, &Help);
-			Ui()->DoLabel(&Help, pVar->m_pHelp ? pVar->m_pHelp : "", 11.0f, TEXTALIGN_ML);
+			Ui()->DoLabel(&Help, pVar->m_pHelp ? Localize(pVar->m_pHelp) : "", 11.0f, TEXTALIGN_ML);
 		}
 
 		static std::unordered_map<const SConfigVariable *, CButtonContainer> s_ResetBtns;

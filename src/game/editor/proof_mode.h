@@ -25,7 +25,26 @@ public:
 		std::vector<vec2> m_vMenuBackgroundPositions;
 		std::vector<std::vector<int>> m_vvMenuBackgroundCollisions;
 
-		void Reset();
+		void Reset()
+		{
+			m_ProofBorders = EProofBorder::OFF;
+			m_CurrentMenuProofIndex = 0;
+			m_vMenuBackgroundPositions.clear();
+			m_vvMenuBackgroundCollisions.clear();
+		}
+		template<typename TInitializePositions>
+		bool EnterMenuMode(TInitializePositions InitializePositions)
+		{
+			InitializePositions();
+			if(m_vMenuBackgroundPositions.empty())
+				return false;
+
+			if(m_CurrentMenuProofIndex < 0 || (size_t)m_CurrentMenuProofIndex >= m_vMenuBackgroundPositions.size())
+				m_CurrentMenuProofIndex = 0;
+
+			m_ProofBorders = EProofBorder::MENU;
+			return true;
+		}
 	};
 
 	void OnInit(CEditor *pEditor) override;
