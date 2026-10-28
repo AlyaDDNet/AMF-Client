@@ -383,9 +383,20 @@ void CClient::SendBClientInfo(int Conn)
 	}
 }
 
+void CClient::SendAmfClientInfo(int Conn)
+{
+	CMsgPacker Msg(NETMSG_IAMAMF, true);
+	Msg.AddString(CLIENT_NAME " " AMF_CLIENT_VERSION_DISPLAY " built on " __DATE__ ", " __TIME__);
+	SendMsg(Conn, &Msg, MSGFLAG_VITAL);
+}
+
 void CClient::SendInfo(int Conn)
 {
 	SendBClientInfo(Conn);
+	// Announce AMF's own identity last: the antibot keeps the last recognized iam,
+	// so modules that know AMF see "amf" while servers that only know the upstream
+	// clients still match the bestclient/tater packets sent above.
+	SendAmfClientInfo(Conn);
 
 	CMsgPacker MsgVer(NETMSG_CLIENTVER, true);
 	MsgVer.AddRaw(&m_ConnectionId, sizeof(m_ConnectionId));

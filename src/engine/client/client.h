@@ -311,6 +311,7 @@ public:
 
 	void SendTClientInfo(int Conn);
 	void SendBClientInfo(int Conn);
+	void SendAmfClientInfo(int Conn);
 	void SendInfo(int Conn);
 	void SendEnterGame(int Conn);
 	void SendReady(int Conn);
