@@ -1,3 +1,4 @@
+<meta name="google-site-verification" content="2P4aBXYBoidZRbMP4G7Ojz_xhjATk6NAUxPJEYVLzwc" />
 [![DDraceNetwork](https://ddnet.org/ddnet-small.png)](https://ddnet.org)
 
 [![Build status](https://github.com/ddnet/ddnet/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/ddnet/ddnet/actions/workflows/build.yml?branch=master)
